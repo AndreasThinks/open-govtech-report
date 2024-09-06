@@ -1,0 +1,32 @@
+[project]
+name = "open-govtech-report"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp>=3.10.5",
+    "aiolimiter>=1.1.0",
+    "asyncio>=3.4.3",
+    "cachetools>=5.5.0",
+    "gitpython>=3.1.43",
+    "pandas>=2.2.2",
+    "pyarrow>=17.0.0",
+    "python-dotenv>=1.0.1",
+    "pyyaml>=6.0.2",
+    "repo-to-text>=0.1.4",
+    "requests>=2.32.3",
+    "tqdm>=4.66.5",
+]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff]
+# Set the maximum line length to 79.
+line-length = 79
+
+[tool.ruff.lint]
+# Add the `line-too-long` rule to the enforced rule set.
+extend-select = ["E501"]
