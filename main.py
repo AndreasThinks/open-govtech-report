@@ -6,6 +6,7 @@ import os
 from scrape_repos import fetch_gov_github_accounts, fetch_all_repository_details
 from tqdm.asyncio import tqdm_asyncio
 from datetime import datetime, timedelta
+from repo_analyser import analyse_repo
 
 # Load environment variables from .env file
 load_dotenv('.env')
@@ -35,6 +36,8 @@ async def main():
 
     all_repos_file = "all_government_repositories.parquet"
     classified_repos_file = "classified_government_repositories.parquet"
+    all_repos_csv_file = all_repos_file.replace('.parquet', '.csv')
+    classified_repos_csv_file = classified_repos_file.replace('.parquet', '.csv')
 
     if is_file_valid(all_repos_file) and is_file_valid(classified_repos_file):
         print("Using existing files as they are less than a week old and have sufficient entries.")
@@ -42,7 +45,7 @@ async def main():
         classified_df = pd.read_parquet(classified_repos_file)
     else:
         accounts = await fetch_gov_github_accounts(url)
-        all_repos = await fetch_all_repository_details(accounts, github_token)
+        all_repos = await fetch_all_repository_details(accounts, github_token, all_repos_csv_file, all_repos_file)
 
         print(f"Total repositories: {len(all_repos)}")
 
@@ -51,14 +54,30 @@ async def main():
             repos_df.to_parquet(all_repos_file, index=False)
             print("Data saved as parquet file.")
             try:
-                repos_df.to_csv(all_repos_file.replace('.parquet', '.csv'), index=False)
+                repos_df.to_csv(all_repos_csv_file, index=False)
                 print("Data saved as CSV file.")
             except Exception as e:
                 print(f"Error saving CSV file: {e}")
-
         else:
             print("No repository data collected.")
             return
+
+    # Analyze each repository and add the summary to the DataFrame
+    summaries = []
+    for repo_url in repos_df['repo_url']:
+        output_dir = "repo_output"
+        analyse_repo(repo_url, output_dir)
+        summary_file = os.path.join(output_dir, f"{repo_url.split('/')[-1]}_summary.txt")
+        with open(summary_file, 'r', encoding='utf-8') as f:
+            summary = f.read()
+        summaries.append(summary)
+
+    repos_df['summary'] = summaries
+
+    # Save the updated DataFrame with summaries
+    repos_df.to_parquet(all_repos_file, index=False)
+    repos_df.to_csv(all_repos_csv_file, index=False)
+    print("Updated data with summaries saved as parquet and CSV files.")
 
 if __name__ == "__main__":
     asyncio.run(main())

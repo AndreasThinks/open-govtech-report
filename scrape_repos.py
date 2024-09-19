@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 import pandas as pd
 from cachetools import TTLCache
 import asyncio
-import random
 from aiolimiter import AsyncLimiter
 
 # Load environment variables from .env file
@@ -28,7 +27,7 @@ async def fetch_gov_github_accounts(url):
                 return yaml.safe_load(text)
     return None
 
-async def fetch_repository_details_async(session, username, token, country):
+async def fetch_repository_details_async(session, username, token, country, csv_file, parquet_file):
     cache_key = f"{username}_{country}"
     if cache_key in cache:
         return cache[cache_key]
@@ -53,7 +52,7 @@ async def fetch_repository_details_async(session, username, token, country):
                         if repos_response.status == 200:
                             repos_data = await repos_response.json()
                             if not repos_data:  # No more repos to fetch
-                                return full_repo_details
+                                break
 
                             for repo in repos_data:
                                 repo_details = {
@@ -67,6 +66,16 @@ async def fetch_repository_details_async(session, username, token, country):
                                     'html_url': repo['html_url']
                                 }
                                 full_repo_details.append(repo_details)
+
+                            # Write to CSV incrementally
+                            df = pd.DataFrame(full_repo_details)
+                            df.to_csv(csv_file, mode='a', header=not os.path.exists(csv_file), index=False)
+
+                            # Write to Parquet incrementally
+                            if os.path.exists(parquet_file):
+                                existing_df = pd.read_parquet(parquet_file)
+                                df = pd.concat([existing_df, df])
+                            df.to_parquet(parquet_file, index=False)
 
                             print(f"Fetched {len(full_repo_details)} repositories for {username} (Page {page})")
                             page += 1
@@ -94,17 +103,18 @@ async def fetch_repository_details_async(session, username, token, country):
 
         if retry_count == max_retries:
             print(f"Max retries reached for {username}. Moving to next page.")
+            break
 
     cache[cache_key] = full_repo_details
     return full_repo_details
 
-async def fetch_all_repository_details(accounts, token):
+async def fetch_all_repository_details(accounts, token, csv_file, parquet_file):
     all_repos = []
     async with aiohttp.ClientSession() as session:
         tasks = []
         for country, usernames in accounts.items():
             for username in usernames:
-                task = fetch_repository_details_async(session, username, token, country)
+                task = fetch_repository_details_async(session, username, token, country, csv_file, parquet_file)
                 tasks.append(task)
 
         results = await asyncio.gather(*tasks)
