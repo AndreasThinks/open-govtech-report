@@ -4,9 +4,9 @@ import pandas as pd
 from dotenv import load_dotenv
 import os
 from scrape_repos import fetch_gov_github_accounts, fetch_all_repository_details
-from tqdm.asyncio import tqdm_asyncio
 from datetime import datetime, timedelta
-from repo_analyser import analyse_repo
+import sys
+from tqdm import tqdm
 
 # Load environment variables from .env file
 load_dotenv('.env')
@@ -32,52 +32,94 @@ def is_file_valid(file_path, min_entries=100):
     return len(df) >= min_entries
 
 async def main():
-    url = "https://raw.githubusercontent.com/github/government.github.com/gh-pages/_data/governments.yml"
+    try:
+        url = "https://raw.githubusercontent.com/github/government.github.com/gh-pages/_data/governments.yml"
 
-    all_repos_file = "all_government_repositories.parquet"
-    classified_repos_file = "classified_government_repositories.parquet"
-    all_repos_csv_file = all_repos_file.replace('.parquet', '.csv')
-    classified_repos_csv_file = classified_repos_file.replace('.parquet', '.csv')
+        # Generate filenames with current date
+        current_date = datetime.now().strftime('%Y%m%d')
+        all_repos_file = f"all_government_repositories_{current_date}.parquet"
+        all_repos_csv_file = f"all_government_repositories_{current_date}.csv"
 
-    if is_file_valid(all_repos_file) and is_file_valid(classified_repos_file):
-        print("Using existing files as they are less than a week old and have sufficient entries.")
-        repos_df = pd.read_parquet(all_repos_file)
-        classified_df = pd.read_parquet(classified_repos_file)
-    else:
+        # Load most recent existing data if available
+        existing_repos = None
+        existing_files = [f for f in os.listdir('.') if f.startswith('all_government_repositories_') and f.endswith('.parquet')]
+        
+        if existing_files:
+            # Sort files by date (newest first)
+            latest_file = sorted(existing_files, reverse=True)[0]
+            if latest_file != all_repos_file:  # Don't load if same date
+                print(f"Loading existing repository data from {latest_file}...")
+                existing_repos = pd.read_parquet(latest_file)
+                print(f"Loaded {len(existing_repos)} existing repositories")
+
+        # Fetch government accounts
+        print("Fetching list of government accounts...")
         accounts = await fetch_gov_github_accounts(url)
-        all_repos = await fetch_all_repository_details(accounts, github_token, all_repos_csv_file, all_repos_file)
-
-        print(f"Total repositories: {len(all_repos)}")
-
-        if all_repos:
-            repos_df = pd.DataFrame(all_repos)
-            repos_df.to_parquet(all_repos_file, index=False)
-            print("Data saved as parquet file.")
-            try:
-                repos_df.to_csv(all_repos_csv_file, index=False)
-                print("Data saved as CSV file.")
-            except Exception as e:
-                print(f"Error saving CSV file: {e}")
-        else:
-            print("No repository data collected.")
+        if not accounts:
+            print("Failed to fetch government accounts")
             return
 
-    # Analyze each repository and add the summary to the DataFrame
-    summaries = []
-    for repo_url in repos_df['repo_url']:
-        output_dir = "repo_output"
-        analyse_repo(repo_url, output_dir)
-        summary_file = os.path.join(output_dir, f"{repo_url.split('/')[-1]}_summary.txt")
-        with open(summary_file, 'r', encoding='utf-8') as f:
-            summary = f.read()
-        summaries.append(summary)
+        # Calculate total accounts for progress tracking
+        total_accounts = sum(len(usernames) for usernames in accounts.values())
+        print(f"\nFound {total_accounts} total government accounts across {len(accounts)} countries")
+        
+        # Create progress bar
+        progress_bar = tqdm(total=total_accounts, desc="Fetching repositories", unit="account")
 
-    repos_df['summary'] = summaries
+        # Fetch new data with progress tracking
+        def progress_callback(accounts_processed):
+            progress_bar.update(accounts_processed)
+            
+        print("\nFetching repository details (this may take a while)...")
+        new_repos = await fetch_all_repository_details(accounts, github_token)
+        
+        progress_bar.close()
+        
+        if not new_repos:
+            print("No new repository data collected")
+            return
 
-    # Save the updated DataFrame with summaries
-    repos_df.to_parquet(all_repos_file, index=False)
-    repos_df.to_csv(all_repos_csv_file, index=False)
-    print("Updated data with summaries saved as parquet and CSV files.")
+        # Create DataFrame from new repos
+        new_df = pd.DataFrame(new_repos)
+        
+        # Combine with existing data and deduplicate
+        if existing_repos is not None:
+            print("\nMerging with existing data and deduplicating...")
+            combined_df = pd.concat([existing_repos, new_df], ignore_index=True)
+            repos_df = combined_df.drop_duplicates(subset=['html_url'], keep='last')
+            
+            # Print statistics
+            print(f"Combined: {len(combined_df)} repositories")
+            print(f"After final deduplication: {len(repos_df)} repositories")
+            print(f"New repositories added: {len(repos_df) - len(existing_repos)}")
+        else:
+            repos_df = new_df
+            print(f"\nNew repositories: {len(repos_df)}")
+
+        # Save the final deduplicated data
+        print("\nSaving data...")
+        repos_df.to_parquet(all_repos_file, index=False)
+        repos_df.to_csv(all_repos_csv_file, index=False)
+        
+        # Print final statistics
+        print("\nFinal Statistics:")
+        print(f"Total repositories: {len(repos_df)}")
+        print(f"Unique languages: {repos_df['language'].nunique()}")
+        print(f"Total stars: {repos_df['stars'].sum():,}")
+        print(f"Total forks: {repos_df['forks'].sum():,}")
+        print("\nTop 5 languages:")
+        print(repos_df['language'].value_counts().head())
+        
+        print("\nData saved successfully to:")
+        print(f"- {all_repos_file}")
+        print(f"- {all_repos_csv_file}")
+
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\nAn error occurred: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     asyncio.run(main())
