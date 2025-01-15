@@ -7,6 +7,8 @@ from scrape_repos import fetch_gov_github_accounts, fetch_all_repository_details
 from datetime import datetime, timedelta
 import sys
 from tqdm import tqdm
+import pytz
+from typing import Optional
 
 # Load environment variables from .env file
 load_dotenv('.env')
@@ -18,7 +20,7 @@ if not github_token:
     print("Error: GITHUB_TOKEN environment variable not found")
     sys.exit(1)
 
-def is_file_valid(file_path, min_entries=100):
+def is_file_valid(file_path: str, min_entries: int = 100) -> bool:
     if not os.path.exists(file_path):
         return False
 
@@ -35,7 +37,7 @@ def is_file_valid(file_path, min_entries=100):
 
     return len(df) >= min_entries
 
-async def main(force_update=False):
+async def main(force_update: bool = False) -> None:
     try:
         url = "https://raw.githubusercontent.com/github/government.github.com/gh-pages/_data/governments.yml"
 
@@ -45,7 +47,7 @@ async def main(force_update=False):
         all_repos_csv_file = f"all_government_repositories_{current_date}.csv"
 
         # Load most recent existing data if available
-        existing_repos = None
+        existing_repos: Optional[pd.DataFrame] = None
         existing_files = [f for f in os.listdir('.') if f.startswith('all_government_repositories_') and f.endswith('.parquet')]
         
         if existing_files:
@@ -71,7 +73,7 @@ async def main(force_update=False):
         progress_bar = tqdm(total=total_accounts, desc="Fetching repositories", unit="account")
 
         # Define progress callback
-        def update_progress(accounts_processed):
+        def update_progress(accounts_processed: int) -> None:
             progress_bar.update(accounts_processed)
             
         print("\nFetching repository details (this may take a while)...")
@@ -144,17 +146,26 @@ async def main(force_update=False):
             print(repos_df[repos_df['fork']]['fork_source'].value_counts().head())
             
         # Calculate average repository age and activity metrics
-        now = pd.Timestamp.now()
+        utc = pytz.UTC
+        now = datetime.now(utc)
+        
+        # Convert timestamps to datetime with UTC timezone
         repos_df['created_at'] = pd.to_datetime(repos_df['created_at'])
         repos_df['updated_at'] = pd.to_datetime(repos_df['updated_at'])
         
+        # Handle timezone-aware calculations
+        def get_days_since(timestamps: pd.Series) -> pd.Series:
+            # Convert to UTC if not already timezone-aware
+            utc_timestamps = timestamps.dt.tz_localize(utc)
+            return ((now - utc_timestamps).dt.total_seconds() / (24 * 3600))
+        
         # Calculate age using timedelta
-        repos_df['age_days'] = repos_df['created_at'].apply(lambda x: (now - x).days)
+        repos_df['age_days'] = get_days_since(repos_df['created_at'])
         avg_age = repos_df['age_days'].mean()
         print(f"\nAverage repository age: {avg_age / 365.25:.1f} years")
         
         # Calculate activity metrics using timedelta
-        repos_df['last_updated_days'] = repos_df['updated_at'].apply(lambda x: (now - x).days)
+        repos_df['last_updated_days'] = get_days_since(repos_df['updated_at'])
         active_repos = repos_df[repos_df['last_updated_days'] <= 30]
         print(f"Active repositories (updated in last 30 days): {len(active_repos)} ({len(active_repos) / len(repos_df) * 100:.1f}%)")
         
