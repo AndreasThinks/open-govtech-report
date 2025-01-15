@@ -3,11 +3,11 @@ import yaml
 import os
 from dotenv import load_dotenv
 import pandas as pd
-from cachetools import TTLCache
 import asyncio
 from aiolimiter import AsyncLimiter
 from datetime import datetime
 import math
+from repo_operations import RepositoryCache
 
 # Load environment variables from .env file
 load_dotenv('.env')
@@ -15,11 +15,8 @@ load_dotenv('.env')
 # Access environment variables
 github_token = os.getenv('GITHUB_TOKEN')
 
-# Create a cache with a 1-hour TTL for repository data
-cache = TTLCache(maxsize=1000, ttl=3600)
-
-# Create a cache with a 24-hour TTL for ETags
-etag_cache = TTLCache(maxsize=1000, ttl=3600*24)
+# Initialize persistent cache
+repo_cache = RepositoryCache()
 
 # Create a rate limiter: 5000 requests per hour (GitHub's rate limit)
 # Using 4500 to leave some buffer for other potential API calls
@@ -49,12 +46,14 @@ def update_rate_limit(response_headers):
     if reset is not None:
         rate_limit_reset = datetime.fromtimestamp(int(reset))
 
-async def fetch_repository_details_async(session, username, token, country):
+async def fetch_repository_details_async(session, username, token, country, force_update=False):
     """Fetch repository details for a given username."""
     cache_key = f"{username}_{country}"
-    if cache_key in cache:
-        print(f"Using cached data for {username}")
-        return cache[cache_key]
+    
+    # Check if we should update based on cache policy
+    if not repo_cache.should_update(cache_key, force_update):
+        print(f"Using cached data for {username} (last check within 24h)")
+        return []
 
     headers = {
         'Authorization': f'token {token}',
@@ -62,7 +61,7 @@ async def fetch_repository_details_async(session, username, token, country):
     }
 
     # Add ETag if we have it cached
-    etag = etag_cache.get(cache_key)
+    etag = repo_cache.get_etag(cache_key)
     if etag:
         headers['If-None-Match'] = etag
 
@@ -94,10 +93,18 @@ async def fetch_repository_details_async(session, username, token, country):
 
                         # Handle response
                         if repos_response.status == 200:
-                            # Cache the new ETag
+                            # Update cache with new ETag and last check time
                             new_etag = repos_response.headers.get('ETag')
                             if new_etag:
-                                etag_cache[cache_key] = new_etag
+                                repo_cache.set_etag(cache_key, new_etag)
+                            
+                            # Update last modified time from response headers
+                            last_modified = repos_response.headers.get('Last-Modified')
+                            if last_modified:
+                                repo_cache.set_last_modified(cache_key, last_modified)
+                            
+                            # Update last check time
+                            repo_cache.set_last_check(cache_key)
 
                             repos_data = await repos_response.json()
                             if not repos_data:  # No more repos to fetch
@@ -113,7 +120,16 @@ async def fetch_repository_details_async(session, username, token, country):
                                     'username': username,
                                     'country': country,
                                     'html_url': repo['html_url'],
-                                    'created_at': repo['created_at']
+                                    'created_at': repo['created_at'],
+                                    'updated_at': repo['updated_at'],
+                                    'archived': repo['archived'],
+                                    'fork': repo['fork'],
+                                    'fork_source': repo['parent']['full_name'] if repo['fork'] and 'parent' in repo else None,
+                                    'size_kb': repo['size'],
+                                    'open_issues': repo['open_issues_count'],
+                                    'watchers': repo['watchers_count'],
+                                    'default_branch': repo['default_branch'],
+                                    'license': repo['license']['spdx_id'] if repo['license'] else None
                                 }
                                 full_repo_details.append(repo_details)
 
@@ -122,8 +138,9 @@ async def fetch_repository_details_async(session, username, token, country):
                             break  # Successful request, move to next page
 
                         elif repos_response.status == 304:  # Not Modified
-                            print(f"Data not modified for {username}, using cached data")
-                            return cache.get(cache_key, [])
+                            print(f"Data not modified for {username}")
+                            repo_cache.set_last_check(cache_key)
+                            return []
 
                         elif repos_response.status == 403:
                             response_text = await repos_response.text()
@@ -151,15 +168,16 @@ async def fetch_repository_details_async(session, username, token, country):
             print(f"Max retries reached for {username}. Moving to next page.")
             break
 
-    cache[cache_key] = full_repo_details
+    # Update last check time after successful fetch
+    repo_cache.set_last_check(cache_key)
     return full_repo_details
 
-async def process_account_chunk(session, chunk, token, country):
+async def process_account_chunk(session, chunk, token, country, force_update=False):
     """Process a chunk of accounts in parallel"""
-    tasks = [fetch_repository_details_async(session, username, token, country) for username in chunk]
+    tasks = [fetch_repository_details_async(session, username, token, country, force_update) for username in chunk]
     return await asyncio.gather(*tasks)
 
-async def fetch_all_repository_details(accounts, token):
+async def fetch_all_repository_details(accounts, token, force_update=False):
     """Fetch all repository details with deduplication and chunked processing."""
     all_repos = []
     processed_accounts = set()
@@ -173,7 +191,7 @@ async def fetch_all_repository_details(accounts, token):
             
             for chunk in chunks:
                 print(f"Processing chunk of {len(chunk)} accounts from {country}...")
-                results = await process_account_chunk(session, chunk, token, country)
+                results = await process_account_chunk(session, chunk, token, country, force_update)
                 processed_accounts.update(chunk)
                 
                 # Collect repositories from chunk

@@ -31,7 +31,7 @@ def is_file_valid(file_path, min_entries=100):
 
     return len(df) >= min_entries
 
-async def main():
+async def main(force_update=False):
     try:
         url = "https://raw.githubusercontent.com/github/government.github.com/gh-pages/_data/governments.yml"
 
@@ -71,7 +71,9 @@ async def main():
             progress_bar.update(accounts_processed)
             
         print("\nFetching repository details (this may take a while)...")
-        new_repos = await fetch_all_repository_details(accounts, github_token)
+        if force_update:
+            print("Force update enabled - checking all repositories")
+        new_repos = await fetch_all_repository_details(accounts, github_token, force_update)
         
         progress_bar.close()
         
@@ -104,11 +106,42 @@ async def main():
         # Print final statistics
         print("\nFinal Statistics:")
         print(f"Total repositories: {len(repos_df)}")
+        print(f"Total size: {repos_df['size_kb'].sum() / 1024 / 1024:,.2f} GB")
+        print(f"Archived repositories: {repos_df['archived'].sum()}")
+        print(f"Forked repositories: {repos_df['fork'].sum()}")
+        print(f"Open issues: {repos_df['open_issues'].sum():,}")
+        print(f"Watchers: {repos_df['watchers'].sum():,}")
         print(f"Unique languages: {repos_df['language'].nunique()}")
         print(f"Total stars: {repos_df['stars'].sum():,}")
         print(f"Total forks: {repos_df['forks'].sum():,}")
+        
         print("\nTop 5 languages:")
         print(repos_df['language'].value_counts().head())
+        
+        print("\nTop 5 licenses:")
+        print(repos_df['license'].value_counts().head())
+        
+        print("\nMost common default branches:")
+        print(repos_df['default_branch'].value_counts().head())
+        
+        if repos_df['fork'].sum() > 0:
+            print("\nTop 5 forked sources:")
+            print(repos_df[repos_df['fork']]['fork_source'].value_counts().head())
+            
+        # Calculate average repository age and activity metrics
+        now = pd.Timestamp.now()
+        repos_df['created_at'] = pd.to_datetime(repos_df['created_at'])
+        repos_df['updated_at'] = pd.to_datetime(repos_df['updated_at'])
+        
+        # Calculate age using timedelta
+        repos_df['age_days'] = repos_df['created_at'].apply(lambda x: (now - x).days)
+        avg_age = repos_df['age_days'].mean()
+        print(f"\nAverage repository age: {avg_age / 365.25:.1f} years")
+        
+        # Calculate activity metrics using timedelta
+        repos_df['last_updated_days'] = repos_df['updated_at'].apply(lambda x: (now - x).days)
+        active_repos = repos_df[repos_df['last_updated_days'] <= 30]
+        print(f"Active repositories (updated in last 30 days): {len(active_repos)} ({len(active_repos) / len(repos_df) * 100:.1f}%)")
         
         print("\nData saved successfully to:")
         print(f"- {all_repos_file}")
@@ -122,4 +155,10 @@ async def main():
         raise
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import argparse
+    parser = argparse.ArgumentParser(description='Fetch government GitHub repositories')
+    parser.add_argument('--force-update', action='store_true', 
+                      help='Force update all repositories regardless of cache')
+    args = parser.parse_args()
+    
+    asyncio.run(main(force_update=args.force_update))
