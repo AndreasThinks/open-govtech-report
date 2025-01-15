@@ -14,6 +14,10 @@ load_dotenv('.env')
 # Access environment variables
 github_token = os.getenv('GITHUB_TOKEN')
 
+if not github_token:
+    print("Error: GITHUB_TOKEN environment variable not found")
+    sys.exit(1)
+
 def is_file_valid(file_path, min_entries=100):
     if not os.path.exists(file_path):
         return False
@@ -53,10 +57,10 @@ async def main(force_update=False):
                 print(f"Loaded {len(existing_repos)} existing repositories")
 
         # Fetch government accounts
-        print("Fetching list of government accounts...")
+        print("\nFetching list of government accounts...")
         accounts = await fetch_gov_github_accounts(url)
         if not accounts:
-            print("Failed to fetch government accounts")
+            print("Error: Failed to fetch government accounts")
             return
 
         # Calculate total accounts for progress tracking
@@ -66,19 +70,30 @@ async def main(force_update=False):
         # Create progress bar
         progress_bar = tqdm(total=total_accounts, desc="Fetching repositories", unit="account")
 
-        # Fetch new data with progress tracking
-        def progress_callback(accounts_processed):
+        # Define progress callback
+        def update_progress(accounts_processed):
             progress_bar.update(accounts_processed)
             
         print("\nFetching repository details (this may take a while)...")
         if force_update:
             print("Force update enabled - checking all repositories")
-        new_repos = await fetch_all_repository_details(accounts, github_token, force_update)
+        
+        try:
+            new_repos = await fetch_all_repository_details(
+                accounts, 
+                github_token, 
+                force_update=force_update,
+                progress_callback=update_progress
+            )
+        except Exception as e:
+            progress_bar.close()
+            print(f"\nError fetching repository details: {str(e)}")
+            raise
         
         progress_bar.close()
         
         if not new_repos:
-            print("No new repository data collected")
+            print("\nNo new repository data collected")
             return
 
         # Create DataFrame from new repos
@@ -161,4 +176,8 @@ if __name__ == "__main__":
                       help='Force update all repositories regardless of cache')
     args = parser.parse_args()
     
-    asyncio.run(main(force_update=args.force_update))
+    try:
+        asyncio.run(main(force_update=args.force_update))
+    except Exception as e:
+        print(f"\nFatal error: {str(e)}")
+        sys.exit(1)

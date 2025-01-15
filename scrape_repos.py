@@ -46,6 +46,18 @@ def update_rate_limit(response_headers):
     if reset is not None:
         rate_limit_reset = datetime.fromtimestamp(int(reset))
 
+async def check_rate_limit():
+    """Check and handle rate limit before making a request"""
+    global rate_limit_remaining, rate_limit_reset
+    
+    if rate_limit_remaining < 100 and rate_limit_reset:
+        wait_time = (rate_limit_reset - datetime.now()).total_seconds()
+        if wait_time > 0:
+            print(f"Rate limit low ({rate_limit_remaining}). Waiting {wait_time:.0f}s until reset.")
+            await asyncio.sleep(wait_time + 1)
+            return True
+    return False
+
 async def fetch_repository_details_async(session, username, token, country, force_update=False):
     """Fetch repository details for a given username."""
     cache_key = f"{username}_{country}"
@@ -79,17 +91,13 @@ async def fetch_repository_details_async(session, username, token, country, forc
 
         while retry_count < max_retries:
             try:
+                # Check rate limit before consuming a token
+                await check_rate_limit()
+                
                 async with rate_limit:
                     async with session.get(url, headers=headers) as repos_response:
                         # Update rate limit tracking
                         update_rate_limit(repos_response.headers)
-                        
-                        # Handle rate limit approaching
-                        if rate_limit_remaining < 100 and rate_limit_reset:
-                            wait_time = (rate_limit_reset - datetime.now()).total_seconds()
-                            if wait_time > 0:
-                                print(f"Rate limit low ({rate_limit_remaining}). Waiting {wait_time:.0f}s until reset.")
-                                await asyncio.sleep(wait_time + 1)
 
                         # Handle response
                         if repos_response.status == 200:
@@ -108,7 +116,7 @@ async def fetch_repository_details_async(session, username, token, country, forc
 
                             repos_data = await repos_response.json()
                             if not repos_data:  # No more repos to fetch
-                                break
+                                return full_repo_details
 
                             for repo in repos_data:
                                 repo_details = {
@@ -150,6 +158,7 @@ async def fetch_repository_details_async(session, username, token, country, forc
                                 await asyncio.sleep(retry_after)
                                 backoff = min(backoff * 2, 60)  # Exponential backoff, max 60 seconds
                                 retry_count += 1
+                                continue  # Try again with same page
                             else:
                                 print(f"Error 403 fetching repos for {username}: {response_text}")
                                 return full_repo_details
@@ -161,8 +170,11 @@ async def fetch_repository_details_async(session, username, token, country, forc
             except Exception as e:
                 print(f"Exception while fetching repos for {username}: {str(e)}")
                 retry_count += 1
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 60)  # Exponential backoff, max 60 seconds
+                if retry_count < max_retries:
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 60)  # Exponential backoff, max 60 seconds
+                    continue
+                break  # Max retries reached
 
         if retry_count == max_retries:
             print(f"Max retries reached for {username}. Moving to next page.")
@@ -177,11 +189,12 @@ async def process_account_chunk(session, chunk, token, country, force_update=Fal
     tasks = [fetch_repository_details_async(session, username, token, country, force_update) for username in chunk]
     return await asyncio.gather(*tasks)
 
-async def fetch_all_repository_details(accounts, token, force_update=False):
+async def fetch_all_repository_details(accounts, token, force_update=False, progress_callback=None):
     """Fetch all repository details with deduplication and chunked processing."""
     all_repos = []
     processed_accounts = set()
     chunk_size = 5  # Process 5 accounts at a time to balance speed and rate limits
+    total_processed = 0
     
     async with aiohttp.ClientSession() as session:
         for country, usernames in accounts.items():
@@ -199,7 +212,10 @@ async def fetch_all_repository_details(accounts, token, force_update=False):
                     if result:
                         all_repos.extend(result)
                 
-                # Print progress
+                # Update progress
+                total_processed += len(chunk)
+                if progress_callback:
+                    progress_callback(len(chunk))
                 print(f"Progress: {len(processed_accounts)} accounts processed, {len(all_repos)} repos found")
         
         # Deduplicate repositories based on html_url
