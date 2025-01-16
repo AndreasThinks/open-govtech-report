@@ -17,16 +17,16 @@ load_dotenv('.env')
 # Access environment variables
 app_id = os.getenv('GITHUB_APP_ID')
 installation_id = os.getenv('GITHUB_INSTALLATION_ID')
-private_key_path = 'open-govtech-report.2025-01-15.private-key.pem'
+private_key = os.getenv('GITHUB_PRIVATE_KEY')
 
-if not all([app_id, installation_id]):
+if not all([app_id, installation_id, private_key]):
     print("Error: GitHub App credentials not found in environment variables")
     sys.exit(1)
 
 def generate_jwt():
     """Generate a JWT for GitHub App authentication"""
-    with open(private_key_path, 'r') as key_file:
-        private_key = key_file.read()
+    if not private_key:  # This should never happen due to the check above, but satisfies type checking
+        raise ValueError("Private key is required")
     
     now = datetime.utcnow()
     payload = {
