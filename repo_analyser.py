@@ -12,6 +12,7 @@ import git
 from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
 from dotenv import load_dotenv
 
+
 load_dotenv('.env')
 
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))

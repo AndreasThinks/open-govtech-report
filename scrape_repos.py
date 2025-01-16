@@ -1,29 +1,71 @@
 import aiohttp
 import yaml
 import os
+import sys
 from dotenv import load_dotenv
 import pandas as pd
 import asyncio
 from aiolimiter import AsyncLimiter
-from datetime import datetime
+from datetime import datetime, timedelta
 import math
 from repo_operations import RepositoryCache
+import jwt
 
 # Load environment variables from .env file
 load_dotenv('.env')
 
 # Access environment variables
-github_token = os.getenv('GITHUB_TOKEN')
+app_id = os.getenv('GITHUB_APP_ID')
+installation_id = os.getenv('GITHUB_INSTALLATION_ID')
+private_key_path = 'open-govtech-report.2025-01-15.private-key.pem'
+
+if not all([app_id, installation_id]):
+    print("Error: GitHub App credentials not found in environment variables")
+    sys.exit(1)
+
+def generate_jwt():
+    """Generate a JWT for GitHub App authentication"""
+    with open(private_key_path, 'r') as key_file:
+        private_key = key_file.read()
+    
+    now = datetime.utcnow()
+    payload = {
+        'iat': now,
+        'exp': now + timedelta(minutes=1),  # Shorter expiration time
+        'iss': app_id
+    }
+    return jwt.encode(payload, private_key, algorithm='RS256')
+
+async def get_installation_token(session):
+    """Get an installation access token for the GitHub App"""
+    jwt_token = generate_jwt()
+    headers = {
+        'Authorization': f'Bearer {jwt_token}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+    
+    url = f'https://api.github.com/app/installations/{installation_id}/access_tokens'
+    
+    async with session.post(url, headers=headers) as response:
+        if response.status == 201:
+            data = await response.json()
+            return data['token']
+        else:
+            print(f"Error getting installation token: {response.status}")
+            print(await response.text())
+            return None
+
+# Initialize session-wide variables
 
 # Initialize persistent cache
 repo_cache = RepositoryCache()
 
-# Create a rate limiter: 5000 requests per hour (GitHub's rate limit)
-# Using 4500 to leave some buffer for other potential API calls
-rate_limit = AsyncLimiter(4500, 3600)
+# Create a rate limiter for GitHub App (15,000 requests per hour)
+# Using 14,500 to leave some buffer for other potential API calls
+rate_limit = AsyncLimiter(14500, 3600)
 
 # Track rate limit status
-rate_limit_remaining = 5000
+rate_limit_remaining = 15000  # GitHub Apps have higher rate limits
 rate_limit_reset = None
 
 async def fetch_gov_github_accounts(url):
@@ -58,7 +100,7 @@ async def check_rate_limit():
             return True
     return False
 
-async def fetch_repository_details_async(session, username, token, country, force_update=False):
+async def fetch_repository_details_async(session, username, country, force_update=False, initial_headers=None):
     """Fetch repository details for a given username."""
     cache_key = f"{username}_{country}"
     
@@ -67,10 +109,17 @@ async def fetch_repository_details_async(session, username, token, country, forc
         print(f"Using cached data for {username} (last check within 24h)")
         return []
 
-    headers = {
-        'Authorization': f'token {token}',
-        'Accept': 'application/vnd.github.v3+json'
-    }
+    # Use provided headers or get new ones if needed
+    headers = initial_headers
+    if not headers:
+        token = await get_installation_token(session)
+        if not token:
+            print(f"Failed to get installation token for {username}")
+            return []
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
 
     # Add ETag if we have it cached
     etag = repo_cache.get_etag(cache_key)
@@ -150,9 +199,21 @@ async def fetch_repository_details_async(session, username, token, country, forc
                             repo_cache.set_last_check(cache_key)
                             return []
 
-                        elif repos_response.status == 403:
+                        elif repos_response.status in (401, 403):
                             response_text = await repos_response.text()
-                            if 'secondary rate limit' in response_text.lower():
+                            if repos_response.status == 401:
+                                # Token might have expired, get a new one
+                                print(f"Token expired for {username}. Getting new token...")
+                                token = await get_installation_token(session)
+                                if not token:
+                                    return full_repo_details
+                                headers = {
+                                    'Authorization': f'Bearer {token}',
+                                    'Accept': 'application/vnd.github.v3+json'
+                                }
+                                retry_count += 1
+                                continue
+                            elif 'secondary rate limit' in response_text.lower():
                                 retry_after = int(repos_response.headers.get('Retry-After', backoff))
                                 print(f"Secondary rate limit hit for {username}. Retrying after {retry_after} seconds.")
                                 await asyncio.sleep(retry_after)
@@ -160,7 +221,7 @@ async def fetch_repository_details_async(session, username, token, country, forc
                                 retry_count += 1
                                 continue  # Try again with same page
                             else:
-                                print(f"Error 403 fetching repos for {username}: {response_text}")
+                                print(f"Error {repos_response.status} fetching repos for {username}: {response_text}")
                                 return full_repo_details
                         else:
                             print(f"Error fetching repos for {username}: Status {repos_response.status}")
@@ -184,12 +245,41 @@ async def fetch_repository_details_async(session, username, token, country, forc
     repo_cache.set_last_check(cache_key)
     return full_repo_details
 
-async def process_account_chunk(session, chunk, token, country, force_update=False):
+async def process_account_chunk(session, chunk, country, force_update=False):
     """Process a chunk of accounts in parallel"""
-    tasks = [fetch_repository_details_async(session, username, token, country, force_update) for username in chunk]
-    return await asyncio.gather(*tasks)
+    # Get a fresh token for each chunk
+    token = await get_installation_token(session)
+    if not token:
+        print("Failed to get installation token for chunk")
+        # Return empty lists for each account in chunk instead of failing
+        return [[] for _ in chunk]
+        
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+    
+    tasks = []
+    for username in chunk:
+        # Pass the headers to avoid each task getting its own token
+        task = fetch_repository_details_async(session, username, country, force_update, headers)
+        tasks.append(task)
+    
+    # Execute all tasks and handle failures
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Convert exceptions to empty lists and keep successful results
+    processed_results = []
+    for result in results:
+        if isinstance(result, Exception):
+            print(f"Error processing repository: {str(result)}")
+            processed_results.append([])
+        else:
+            processed_results.append(result)
+    
+    return processed_results
 
-async def fetch_all_repository_details(accounts, token, force_update=False, progress_callback=None):
+async def fetch_all_repository_details(accounts, force_update=False, progress_callback=None):
     """Fetch all repository details with deduplication and chunked processing."""
     all_repos = []
     processed_accounts = set()
@@ -204,7 +294,7 @@ async def fetch_all_repository_details(accounts, token, force_update=False, prog
             
             for chunk in chunks:
                 print(f"Processing chunk of {len(chunk)} accounts from {country}...")
-                results = await process_account_chunk(session, chunk, token, country, force_update)
+                results = await process_account_chunk(session, chunk, country, force_update)
                 processed_accounts.update(chunk)
                 
                 # Collect repositories from chunk
