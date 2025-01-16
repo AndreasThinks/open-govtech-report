@@ -63,24 +63,6 @@ rate_limit = AsyncLimiter(14500, 3600)  # GitHub App rate limit with buffer (15,
 rate_limit_remaining = 15000  # GitHub Apps have higher rate limits
 rate_limit_reset = None
 
-def is_file_valid(file_path: str, min_entries: int = 100) -> bool:
-    """Check if a file exists, is recent, and has minimum entries"""
-    if not os.path.exists(file_path):
-        return False
-
-    file_age = datetime.now() - datetime.fromtimestamp(os.path.getmtime(file_path))
-    if file_age > timedelta(days=7):
-        return False
-
-    if file_path.endswith('.parquet'):
-        df = pd.read_parquet(file_path)
-    elif file_path.endswith('.csv'):
-        df = pd.read_csv(file_path)
-    else:
-        return False
-
-    return len(df) >= min_entries
-
 def update_rate_limit(response_headers) -> None:
     """Update rate limit tracking from response headers"""
     global rate_limit_remaining, rate_limit_reset

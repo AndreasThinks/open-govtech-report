@@ -1,3 +1,68 @@
-output/*
+# Python
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
 .env
-*.pyc
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+.settings/
+
+# Data files
+*.parquet
+*.csv
+*.json
+!pyproject.toml
+!.repo_cache.json
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+repo_contents/
+repo_screenshots/
+*.pem
+compressed_output.txt
+uncompressed_output.txt
+all_government_repositories*.csv
+all_government_repositories*.parquet
+uv.lock

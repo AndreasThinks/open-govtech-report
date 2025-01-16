@@ -3,6 +3,7 @@ import aiohttp
 import pandas as pd
 from dotenv import load_dotenv
 import os
+from db_operations import DatabaseManager
 from scrape_repos import fetch_gov_github_accounts, fetch_all_repository_details
 from fetch_readmes import fetch_all_readmes
 from datetime import datetime, timedelta
@@ -208,6 +209,11 @@ async def main(force_update: bool = False, readmes_only: bool = False, limit: Op
             
         # Create DataFrame with README data
         readme_df = pd.DataFrame(readmes)
+        
+        # Save updated data to SQLite with READMEs
+        print("\nSaving updated data with READMEs to SQLite database...")
+        db = DatabaseManager()
+        db.save_repositories(repos_df, readme_df)
         
         # Step 3: Join repositories and READMEs data
         print("\n=== Combining Data ===")
