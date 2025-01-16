@@ -275,8 +275,13 @@ async def main(force_update: bool = False) -> None:
         if existing_readme_df is not None and not force_update:
             # Update existing entries and add new ones
             result_df = existing_readme_df.copy()
-            new_data = df_to_process.copy()
-            new_data[['readme_content', 'readme_encoding', 'readme_size', 'readme_url', 'repo_url']] = new_readme_df
+            
+            # Create new data with only the necessary columns from df_to_process
+            new_data = df_to_process[['html_url', 'updated_at']].copy()
+            
+            # Add README data columns
+            for col in ['readme_content', 'readme_encoding', 'readme_size', 'readme_url', 'repo_url']:
+                new_data[col] = new_readme_df[col]
             
             # Remove updated entries from result_df and append new data
             result_df = result_df[~result_df['html_url'].isin(new_data['html_url'])]

@@ -279,12 +279,14 @@ if __name__ == "__main__":
                       help='Force update all repositories regardless of cache')
     parser.add_argument('--readmes-only', action='store_true',
                       help='Skip repository fetching and only fetch/update READMEs')
-    parser.add_argument('--limit', type=int, default=10,
-                      help='Limit the number of repositories to process (default: 10)')
+    parser.add_argument('--limit', type=int,
+                      help='Limit the number of repositories to process')
     args = parser.parse_args()
     
     try:
-        asyncio.run(main(force_update=args.force_update, readmes_only=args.readmes_only, limit=args.limit))
+        # Only pass limit if explicitly set
+        limit = args.limit if args.limit is not None else None
+        asyncio.run(main(force_update=args.force_update, readmes_only=args.readmes_only, limit=limit))
     except Exception as e:
         print(f"\nFatal error: {str(e)}")
         sys.exit(1)

@@ -19,6 +19,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.pyc
 
 # Virtual Environment
 venv/
@@ -42,6 +43,8 @@ ENV/
 *.json
 !pyproject.toml
 !.repo_cache.json
+*.json
+
 
 # Logs and databases
 *.log
