@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 import math
 from repo_operations import RepositoryCache
 import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 
 # Load environment variables from .env file
 load_dotenv('.env')
@@ -19,22 +21,83 @@ app_id = os.getenv('GITHUB_APP_ID')
 installation_id = os.getenv('GITHUB_INSTALLATION_ID')
 private_key = os.getenv('GITHUB_PRIVATE_KEY')
 
+def clean_private_key():
+    """Clean and process the private key from environment variable"""
+    global private_key
+    
+    if not private_key:
+        return
+        
+    # Read the key directly from the .env file to handle multiline string
+    try:
+        with open('.env', 'r') as f:
+            lines = f.readlines()
+            key_lines = []
+            in_key = False
+            
+            for line in lines:
+                if 'GITHUB_PRIVATE_KEY=' in line:
+                    # Start of key
+                    in_key = True
+                    # Remove the variable name and opening quote
+                    line = line.split('GITHUB_PRIVATE_KEY=')[1].strip()
+                    if line.startswith('"'):
+                        line = line[1:]
+                    key_lines.append(line)
+                elif in_key:
+                    # Part of multiline key
+                    line = line.strip()
+                    if line.endswith('"'):
+                        # End of key
+                        line = line[:-1]
+                        key_lines.append(line)
+                        break
+                    else:
+                        key_lines.append(line)
+            
+            if key_lines:
+                private_key = '\n'.join(key_lines)
+    except Exception as e:
+        print(f"Warning: Could not read key from .env file: {str(e)}")
+
+# Process the private key
+clean_private_key()
+
 if not all([app_id, installation_id, private_key]):
     print("Error: GitHub App credentials not found in environment variables")
     sys.exit(1)
 
 def generate_jwt():
     """Generate a JWT for GitHub App authentication"""
-    if not private_key:  # This should never happen due to the check above, but satisfies type checking
+    if not private_key:
         raise ValueError("Private key is required")
     
-    now = datetime.utcnow()
-    payload = {
-        'iat': now,
-        'exp': now + timedelta(minutes=1),  # Shorter expiration time
-        'iss': app_id
-    }
-    return jwt.encode(payload, private_key, algorithm='RS256')
+    try:
+        # Load and validate the key using cryptography
+        key_bytes = private_key.strip().encode()
+        private_key_obj = serialization.load_pem_private_key(
+            key_bytes,
+            password=None,
+            backend=default_backend()
+        )
+        
+        # Convert to PEM format for PyJWT
+        pem_key = private_key_obj.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        
+        now = datetime.utcnow()
+        payload = {
+            'iat': now,
+            'exp': now + timedelta(minutes=1),
+            'iss': app_id
+        }
+        return jwt.encode(payload, pem_key, algorithm='RS256')
+    except Exception as e:
+        print(f"Error generating JWT: {str(e)}")
+        raise
 
 async def get_installation_token(session):
     """Get an installation access token for the GitHub App"""
@@ -168,10 +231,27 @@ async def fetch_repository_details_async(session, username, country, force_updat
                                 return full_repo_details
 
                             for repo in repos_data:
+                                # Fetch commit count for this repository
+                                commit_count = 0
+                                commit_url = f"https://api.github.com/repos/{username}/{repo['name']}/commits?per_page=1"
+                                async with session.get(commit_url, headers=headers) as commit_response:
+                                    if commit_response.status == 200:
+                                        # Get total commits from the last page link header
+                                        if 'Link' in commit_response.headers:
+                                            links = commit_response.headers['Link']
+                                            if 'rel="last"' in links:
+                                                last_link = [link for link in links.split(',') if 'rel="last"' in link][0]
+                                                page_num = int(last_link.split('page=')[1].split('>')[0])
+                                                commit_count = page_num
+                                        else:
+                                            # If no Link header, only one page exists
+                                            commit_count = 1
+
                                 repo_details = {
                                     'name': repo['name'],
                                     'description': repo['description'] or "No description",
                                     'stars': repo['stargazers_count'],
+                                    'commit_count': commit_count,
                                     'forks': repo['forks'],
                                     'language': repo['language'] or "None specified",
                                     'username': username,

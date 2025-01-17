@@ -156,6 +156,8 @@ async def fetch_repositories(force_update: bool = False, limit: Optional[int] = 
     print(f"Unique languages: {repos_df['language'].nunique()}")
     print(f"Total stars: {repos_df['stars'].sum():,}")
     print(f"Total forks: {repos_df['forks'].sum():,}")
+    print(f"Total commits: {repos_df['commit_count'].sum():,}")
+    print(f"Average commits per repository: {repos_df['commit_count'].mean():.1f}")
     
     print("\nTop 5 languages:")
     print(repos_df['language'].value_counts().head())

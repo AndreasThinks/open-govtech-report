@@ -91,13 +91,14 @@ def repo_table(repos, sort_by='stars', min_stars=0, min_days=0):
             Td(str(repo['stars'])),
             Td(str(repo['forks'])),
             Td(str(repo['watchers'])),
+            Td(str(repo['commit_count'] or 0)),
             Td(repo['language'] or 'N/A'),
             Td(str(repo['size_kb']))
         ) for repo in sorted_repos
     ]
 
     # Create sort controls
-    metrics = [('stars', 'Stars'), ('forks', 'Forks'), ('watchers', 'Watchers'), ('size_kb', 'Size (KB)')]
+    metrics = [('stars', 'Stars'), ('forks', 'Forks'), ('watchers', 'Watchers'), ('commit_count', 'Commits'), ('size_kb', 'Size (KB)')]
     sort_controls = [
         Div(
             Input(
@@ -162,6 +163,7 @@ def repo_table(repos, sort_by='stars', min_stars=0, min_days=0):
                     Th("Stars"),
                     Th("Forks"),
                     Th("Watchers"),
+                    Th("Commits"),
                     Th("Language"),
                     Th("Size (KB)")
                 )
@@ -178,9 +180,10 @@ def create_orgs_table(filtered_df):
                     'name': 'count',
                     'stars': 'sum',
                     'forks': 'sum',
-                    'size_kb': 'sum'
+                    'size_kb': 'sum',
+                    'commit_count': 'sum'
                 })
-                .rename(columns={'name': 'repos', 'size_kb': 'total_size_kb'})
+                .rename(columns={'name': 'repos', 'size_kb': 'total_size_kb', 'commit_count': 'total_commits'})
                 .sort_values('repos', ascending=False)
                 .head(10))
     
@@ -190,6 +193,7 @@ def create_orgs_table(filtered_df):
             Td(str(stats['repos'])),
             Td(str(stats['stars'])),
             Td(str(stats['forks'])),
+            Td(str(stats['total_commits'] or 0)),
             Td(str(stats['total_size_kb']))
         ) for username, stats in org_stats.iterrows()
     ]
@@ -203,6 +207,7 @@ def create_orgs_table(filtered_df):
                     Th("Repositories"),
                     Th("Total Stars"),
                     Th("Total Forks"),
+                    Th("Total Commits"),
                     Th("Total Size (KB)")
                 )
             ),
@@ -338,7 +343,7 @@ def index(request):
                         .to_dict())
         
         top_repos = (filtered_df.nlargest(10, 'stars')
-                    [['name', 'username', 'stars', 'forks', 'watchers', 'language', 'html_url', 'created_at', 'size_kb']]
+                    [['name', 'username', 'stars', 'forks', 'watchers', 'commit_count', 'language', 'html_url', 'created_at', 'size_kb']]
                     .to_dict('records'))
         
         # Get top topics
@@ -406,7 +411,7 @@ def update_repos(request):
             raise ValueError(f"No data available for the last {days} days")
             
         top_repos = (filtered_df.nlargest(10, sort_by)
-                    [['name', 'username', 'stars', 'forks', 'watchers', 'language', 'html_url', 'created_at', 'size_kb']]
+                    [['name', 'username', 'stars', 'forks', 'watchers', 'commit_count', 'language', 'html_url', 'created_at', 'size_kb']]
                     .to_dict('records'))
                     
         return repo_table(top_repos, sort_by=sort_by, min_stars=min_stars, min_days=min_days)

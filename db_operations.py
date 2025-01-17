@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from typing import Optional
 import pandas as pd
-from sqlalchemy import create_engine, text, MetaData, Table, Column, Integer, String, Boolean, DateTime, Engine
+from sqlalchemy import create_engine, text, MetaData, Table, Column, Integer, String, Boolean, DateTime, Engine, inspect
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from dotenv import load_dotenv
 import logging
@@ -66,8 +66,15 @@ class DatabaseManager:
             
         metadata = MetaData()
         
+        # Get existing columns if table exists
+        existing_columns = set()
+        inspector = inspect(self.engine)
+        if inspector.has_table('repository_snapshots'):
+            existing_columns = {col['name'] for col in inspector.get_columns('repository_snapshots')}
+            logger.info(f"Found existing table with columns: {existing_columns}")
+        
         # Define the repository_snapshots table
-        Table('repository_snapshots', metadata,
+        table = Table('repository_snapshots', metadata,
             Column('name', String),
             Column('description', String),
             Column('stars', Integer),
@@ -90,12 +97,34 @@ class DatabaseManager:
             Column('readme_content', String),
             Column('readme_size', Integer),
             Column('readme_encoding', String),
+            Column('commit_count', Integer),  # New column for commit counts
             Column('scrape_timestamp', String),
             extend_existing=True
         )
         
         # Create tables
         metadata.create_all(self.engine)
+        
+        # Add new columns if they don't exist
+        if not inspector.has_table('repository_snapshots'):
+            logger.info("Created new repository_snapshots table")
+        else:
+            with self.engine.begin() as connection:
+                for column in table.columns:
+                    if column.name not in existing_columns:
+                        try:
+                            if self.db_type == 'postgresql':
+                                connection.execute(text(
+                                    f'ALTER TABLE repository_snapshots ADD COLUMN {column.name} {column.type.compile(self.engine.dialect)}'
+                                ))
+                            else:  # SQLite
+                                connection.execute(text(
+                                    f'ALTER TABLE repository_snapshots ADD COLUMN {column.name} {column.type.compile(self.engine.dialect)} NULL'
+                                ))
+                            logger.info(f"Added new column: {column.name}")
+                        except SQLAlchemyError as e:
+                            logger.warning(f"Error adding column {column.name}: {e}")
+        
         logger.info("Database schema initialized")
 
     def save_repositories(self, input_df: pd.DataFrame, readme_df: Optional[pd.DataFrame] = None):
@@ -103,12 +132,21 @@ class DatabaseManager:
         if not self.engine:
             raise RuntimeError("Database engine not initialized")
             
+        # Get list of actual columns in the database
+        inspector = inspect(self.engine)
+        db_columns = {col['name'] for col in inspector.get_columns('repository_snapshots')}
+        
+        # Define base columns to store
         columns_to_store = [
             'name', 'description', 'stars', 'forks', 'language', 'username',
             'country', 'html_url', 'created_at', 'updated_at', 'archived',
             'fork', 'fork_source', 'size_kb', 'open_issues', 'watchers',
             'default_branch', 'license', 'topics'
         ]
+        
+        # Add commit_count if it exists in input_df and database
+        if 'commit_count' in input_df.columns and 'commit_count' in db_columns:
+            columns_to_store.append('commit_count')
         
         # Process input data
         df = input_df[columns_to_store].copy()
