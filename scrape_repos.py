@@ -231,21 +231,8 @@ async def fetch_repository_details_async(session, username, country, force_updat
                                 return full_repo_details
 
                             for repo in repos_data:
-                                # Fetch commit count for this repository
-                                commit_count = 0
-                                commit_url = f"https://api.github.com/repos/{username}/{repo['name']}/commits?per_page=1"
-                                async with session.get(commit_url, headers=headers) as commit_response:
-                                    if commit_response.status == 200:
-                                        # Get total commits from the last page link header
-                                        if 'Link' in commit_response.headers:
-                                            links = commit_response.headers['Link']
-                                            if 'rel="last"' in links:
-                                                last_link = [link for link in links.split(',') if 'rel="last"' in link][0]
-                                                page_num = int(last_link.split('page=')[1].split('>')[0])
-                                                commit_count = page_num
-                                        else:
-                                            # If no Link header, only one page exists
-                                            commit_count = 1
+                                # We'll get the commit count later when fetching READMEs
+                                commit_count = None
 
                                 repo_details = {
                                     'name': repo['name'],

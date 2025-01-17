@@ -12,6 +12,8 @@ import argparse
 from typing import Optional, Dict, List
 import pytz
 import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 
 # Load environment variables
 load_dotenv('.env')
@@ -23,17 +25,79 @@ if not all([app_id, installation_id, private_key]):
     print("Error: GitHub App credentials not found in environment variables")
     sys.exit(1)
 
+def clean_private_key():
+    """Clean and process the private key from environment variable"""
+    global private_key
+    
+    if not private_key:
+        return
+        
+    # Read the key directly from the .env file to handle multiline string
+    try:
+        with open('.env', 'r') as f:
+            lines = f.readlines()
+            key_lines = []
+            in_key = False
+            
+            for line in lines:
+                if 'GITHUB_PRIVATE_KEY=' in line:
+                    # Start of key
+                    in_key = True
+                    # Remove the variable name and opening quote
+                    line = line.split('GITHUB_PRIVATE_KEY=')[1].strip()
+                    if line.startswith('"'):
+                        line = line[1:]
+                    key_lines.append(line)
+                elif in_key:
+                    # Part of multiline key
+                    line = line.strip()
+                    if line.endswith('"'):
+                        # End of key
+                        line = line[:-1]
+                        key_lines.append(line)
+                        break
+                    else:
+                        key_lines.append(line)
+            
+            if key_lines:
+                private_key = '\n'.join(key_lines)
+    except Exception as e:
+        print(f"Warning: Could not read key from .env file: {str(e)}")
+
+# Process the private key
+clean_private_key()
+
 def generate_jwt():
     """Generate a JWT for GitHub App authentication"""
     if not private_key:
-        raise ValueError("GitHub private key not found in environment variables")
-    now = datetime.utcnow()
-    payload = {
-        'iat': now,
-        'exp': now + timedelta(minutes=1),  # Shorter expiration time
-        'iss': app_id
-    }
-    return jwt.encode(payload, private_key, algorithm='RS256')
+        raise ValueError("Private key is required")
+    
+    try:
+        # Load and validate the key using cryptography
+        key_bytes = private_key.strip().encode()
+        private_key_obj = serialization.load_pem_private_key(
+            key_bytes,
+            password=None,
+            backend=default_backend()
+        )
+        
+        # Convert to PEM format for PyJWT
+        pem_key = private_key_obj.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        
+        now = datetime.utcnow()
+        payload = {
+            'iat': now,
+            'exp': now + timedelta(minutes=1),  # Shorter expiration time
+            'iss': app_id
+        }
+        return jwt.encode(payload, pem_key, algorithm='RS256')
+    except Exception as e:
+        print(f"Error generating JWT: {str(e)}")
+        raise
 
 async def get_installation_token(session):
     """Get an installation access token for the GitHub App"""
@@ -86,11 +150,12 @@ async def check_rate_limit() -> bool:
             return True
     return False
 
-async def fetch_readme(session: aiohttp.ClientSession, repo_url: str, initial_headers=None) -> Optional[Dict[str, Optional[str | int]]]:
-    """Fetch README content for a repository"""
-    # Convert HTML URL to API URL for README
-    # Example: https://github.com/owner/repo -> https://api.github.com/repos/owner/repo/readme
-    api_url = repo_url.replace("github.com", "api.github.com/repos") + "/readme"
+async def fetch_repo_data(session: aiohttp.ClientSession, repo_url: str, initial_headers=None) -> Optional[Dict[str, Optional[str | int]]]:
+    """Fetch repository data including README and commit count using GraphQL"""
+    # Extract owner and repo name from URL
+    # Example: https://github.com/owner/repo -> owner, repo
+    parts = repo_url.split('github.com/')[1].split('/')
+    owner, repo_name = parts[0], parts[1]
     
     # Use provided headers or get new ones if needed
     headers = initial_headers
@@ -104,33 +169,163 @@ async def fetch_readme(session: aiohttp.ClientSession, repo_url: str, initial_he
             'Accept': 'application/vnd.github.v3+json'
         }
     
+    # Single GraphQL query to get all repository info
+    info_query = """
+    query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) {
+        # Get repository info
+        defaultBranchRef {
+          name
+          target {
+            ... on Commit {
+              history(first: 0) {
+                totalCount
+              }
+            }
+          }
+        }
+        # Fallback to first branch if default not set
+        refs(refPrefix: "refs/heads/", first: 1, orderBy: {field: ALPHABETICAL, direction: ASC}) {
+          nodes {
+            name
+            target {
+              ... on Commit {
+                history(first: 0) {
+                  totalCount
+                }
+              }
+            }
+          }
+        }
+        # Try different README filenames
+        readmeMd: object(expression: "HEAD:README.md") {
+          ... on Blob {
+            text
+            byteSize
+          }
+        }
+        readmeRst: object(expression: "HEAD:README.rst") {
+          ... on Blob {
+            text
+            byteSize
+          }
+        }
+        readmeLower: object(expression: "HEAD:readme.md") {
+          ... on Blob {
+            text
+            byteSize
+          }
+        }
+        readmeTitle: object(expression: "HEAD:Readme.md") {
+          ... on Blob {
+            text
+            byteSize
+          }
+        }
+      }
+    }
+    """
+    
+    variables = {
+        "owner": owner,
+        "name": repo_name
+    }
+    
     try:
         max_retries = 3
         retry_count = 0
         while retry_count < max_retries:
             await check_rate_limit()
+            
             async with rate_limit:
-                async with session.get(api_url, headers=headers) as response:
+                async with session.post(
+                    'https://api.github.com/graphql',
+                    headers=headers,
+                    json={'query': info_query, 'variables': variables}
+                ) as response:
                     update_rate_limit(response.headers)
                     
                     if response.status == 200:
                         data = await response.json()
-                        # The content is base64 encoded, but we'll store it that way to preserve special characters
-                        return {
-                            'readme_content': data.get('content', ''),
-                            'readme_encoding': data.get('encoding', 'base64'),
-                            'readme_size': data.get('size', 0),
-                            'readme_url': data.get('html_url', ''),
-                            'repo_url': repo_url  # Add repository URL
+                        if 'errors' in data:
+                            print(f"GraphQL errors for {repo_url}: {data['errors']}")
+                            return {
+                                'readme_content': '',
+                                'readme_encoding': None,
+                                'readme_size': 0,
+                                'readme_url': None,
+                                'repo_url': repo_url,
+                                'commit_count': 0
+                            }
+                        
+                        result = data.get('data', {}).get('repository', {})
+                        
+                        # Get repository info
+                        commit_count = 0
+                        
+                        # Try to get commit count from default branch first
+                        commit_count = 0
+                        if result.get('defaultBranchRef'):
+                            branch_ref = result['defaultBranchRef']
+                            if branch_ref.get('target') and branch_ref['target'].get('history'):
+                                commit_count = branch_ref['target']['history'].get('totalCount', 0)
+                        
+                        # If no commit count yet, try first branch
+                        if commit_count == 0 and result.get('refs') and result['refs'].get('nodes'):
+                            nodes = result['refs']['nodes']
+                            if nodes and len(nodes) > 0:
+                                branch_ref = nodes[0]
+                                if branch_ref.get('target') and branch_ref['target'].get('history'):
+                                    commit_count = branch_ref['target']['history'].get('totalCount', 0)
+                        
+                        # If still no commits, repository is likely empty
+                        if commit_count == 0:
+                            print(f"\nRepository appears empty: {repo_url}")
+                            
+                        # Debug print for specific repo
+                        if repo_url == "https://github.com/CIFASIS/QuickFuzz":
+                            print("\nDebug GraphQL response for QuickFuzz:")
+                            print("defaultBranchRef:", result.get('defaultBranchRef'))
+                            print("first branch:", result.get('refs', {}).get('nodes', [None])[0] if result.get('refs') and result['refs'].get('nodes') else None)
+                            print("commit_count:", commit_count)
+                        
+                        # Get README data - try different variants
+                        readme_variants = {
+                            'README.md': result.get('readmeMd'),
+                            'README.rst': result.get('readmeRst'),
+                            'readme.md': result.get('readmeLower'),
+                            'Readme.md': result.get('readmeTitle')
                         }
-                    elif response.status == 404:
-                        return {
-                            'readme_content': '',
-                            'readme_encoding': None,
-                            'readme_size': 0,
-                            'readme_url': None,
-                            'repo_url': repo_url  # Add repository URL even for 404s
-                        }
+                        
+                        # Find first non-null README
+                        readme_content = ''
+                        readme_size = 0
+                        readme_file = None
+                        for filename, content in readme_variants.items():
+                            if content:
+                                readme_content = content.get('text', '')
+                                readme_size = content.get('byteSize', 0)
+                                readme_file = filename
+                                break
+                        
+                        if readme_content:
+                            return {
+                                'readme_content': readme_content,
+                                'readme_encoding': 'utf-8',  # GraphQL returns decoded text
+                                'readme_size': readme_size,
+                                'readme_url': f"{repo_url}/blob/master/{readme_file}",
+                                'repo_url': repo_url,
+                                'commit_count': commit_count
+                            }
+                        else:
+                            return {
+                                'readme_content': '',
+                                'readme_encoding': None,
+                                'readme_size': 0,
+                                'readme_url': None,
+                                'repo_url': repo_url,
+                                'commit_count': commit_count
+                            }
                     elif response.status == 401:
                         # Token might have expired, get a new one
                         print(f"Token expired for {repo_url}. Getting new token...")
@@ -144,14 +339,14 @@ async def fetch_readme(session: aiohttp.ClientSession, repo_url: str, initial_he
                         retry_count += 1
                         continue
                     else:
-                        print(f"Error fetching README for {repo_url}: Status {response.status}")
+                        print(f"Error fetching repository data for {repo_url}: Status {response.status}")
                         return None
             
             if retry_count == max_retries:
                 print(f"Max retries reached for {repo_url}")
                 return None
     except Exception as e:
-        print(f"Exception while fetching README for {repo_url}: {str(e)}")
+        print(f"Exception while fetching repository data for {repo_url}: {str(e)}")
         return None
 
 async def process_repos_chunk(session: aiohttp.ClientSession, chunk: List[Dict]) -> List[Optional[Dict[str, Optional[str | int]]]]:
@@ -170,37 +365,49 @@ async def process_repos_chunk(session: aiohttp.ClientSession, chunk: List[Dict])
     tasks = []
     for repo in chunk:
         # Pass the headers to avoid each task getting its own token
-        task = fetch_readme(session, repo['html_url'], headers)
+        task = fetch_repo_data(session, repo['html_url'], headers)
         tasks.append(task)
     return await asyncio.gather(*tasks)
 
-async def fetch_all_readmes(repos_df: pd.DataFrame, chunk_size: int = 5, force_update: bool = False) -> List[Optional[Dict[str, Optional[str | int]]]]:
+async def fetch_all_readmes(repos_df: pd.DataFrame, chunk_size: int = 20, force_update: bool = False) -> List[Optional[Dict[str, Optional[str | int]]]]:
     """Fetch READMEs for all repositories"""
     # Convert DataFrame to list of dicts for processing
     repos = repos_df.to_dict('records')
     chunks = [repos[i:i + chunk_size] for i in range(0, len(repos), chunk_size)]
     
     all_readmes = []
+    # Process chunks in parallel with a semaphore to limit concurrency
+    sem = asyncio.Semaphore(5)  # Process 5 chunks simultaneously
+    
+    async def process_chunk_with_session(session: aiohttp.ClientSession, chunk: List[Dict], pbar: tqdm) -> List[Dict]:
+        async with sem:
+            results = await process_repos_chunk(session, chunk)
+            # Filter out None results and create empty README entries for failed fetches
+            valid_results = []
+            for repo, result in zip(chunk, results):
+                if result is None:
+                    # Create empty README entry if fetch failed
+                    valid_results.append({
+                        'readme_content': '',
+                        'readme_encoding': None,
+                        'readme_size': 0,
+                        'readme_url': None,
+                        'repo_url': repo['html_url'],
+                        'commit_count': 0
+                    })
+                else:
+                    valid_results.append(result)
+            pbar.update(len(chunk))
+            return valid_results
+    
     async with aiohttp.ClientSession() as session:
         with tqdm(total=len(repos), desc="Fetching READMEs") as pbar:
-            for chunk in chunks:
-                results = await process_repos_chunk(session, chunk)
-                # Filter out None results and create empty README entries for failed fetches
-                valid_results = []
-                for repo, result in zip(chunk, results):
-                    if result is None:
-                        # Create empty README entry if fetch failed
-                        valid_results.append({
-                            'readme_content': '',
-                            'readme_encoding': None,
-                            'readme_size': 0,
-                            'readme_url': None,
-                            'repo_url': repo['html_url']
-                        })
-                    else:
-                        valid_results.append(result)
-                all_readmes.extend(valid_results)
-                pbar.update(len(chunk))
+            # Create tasks for all chunks
+            tasks = [process_chunk_with_session(session, chunk, pbar) for chunk in chunks]
+            # Process all chunks and gather results
+            chunk_results = await asyncio.gather(*tasks)
+            # Flatten results
+            all_readmes = [item for sublist in chunk_results for item in sublist]
     
     return all_readmes
 

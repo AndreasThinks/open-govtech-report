@@ -91,7 +91,7 @@ def repo_table(repos, sort_by='stars', min_stars=0, min_days=0):
             Td(str(repo['stars'])),
             Td(str(repo['forks'])),
             Td(str(repo['watchers'])),
-            Td(str(repo['commit_count'] or 0)),
+            Td(str(int(repo['commit_count'] if pd.notna(repo['commit_count']) else 0))),
             Td(repo['language'] or 'N/A'),
             Td(str(repo['size_kb']))
         ) for repo in sorted_repos
@@ -181,7 +181,7 @@ def create_orgs_table(filtered_df):
                     'stars': 'sum',
                     'forks': 'sum',
                     'size_kb': 'sum',
-                    'commit_count': 'sum'
+                    'commit_count': lambda x: x.fillna(0).astype(int).sum()
                 })
                 .rename(columns={'name': 'repos', 'size_kb': 'total_size_kb', 'commit_count': 'total_commits'})
                 .sort_values('repos', ascending=False)
@@ -193,7 +193,7 @@ def create_orgs_table(filtered_df):
             Td(str(stats['repos'])),
             Td(str(stats['stars'])),
             Td(str(stats['forks'])),
-            Td(str(stats['total_commits'] or 0)),
+            Td(str(int(stats['total_commits'] if pd.notna(stats['total_commits']) else 0))),
             Td(str(stats['total_size_kb']))
         ) for username, stats in org_stats.iterrows()
     ]

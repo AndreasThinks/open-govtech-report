@@ -156,8 +156,12 @@ async def fetch_repositories(force_update: bool = False, limit: Optional[int] = 
     print(f"Unique languages: {repos_df['language'].nunique()}")
     print(f"Total stars: {repos_df['stars'].sum():,}")
     print(f"Total forks: {repos_df['forks'].sum():,}")
-    print(f"Total commits: {repos_df['commit_count'].sum():,}")
-    print(f"Average commits per repository: {repos_df['commit_count'].mean():.1f}")
+    # Handle commit count statistics properly
+    commit_counts = repos_df['commit_count'].fillna(0).astype(int)
+    total_commits = commit_counts.sum()
+    avg_commits = commit_counts.mean()
+    print(f"Total commits: {total_commits:,}")
+    print(f"Average commits per repository: {int(avg_commits):,}")
     
     print("\nTop 5 languages:")
     print(repos_df['language'].value_counts().head())
@@ -246,14 +250,19 @@ async def main(force_update: bool = False, readmes_only: bool = False, limit: Op
         print("Number of READMEs:", len(readme_df))
         
         # Create the combined dataset by merging on repository URL
-        # First, drop any existing README columns from repos_df
-        readme_columns = ['readme_content', 'readme_size', 'readme_encoding', 'readme_url']
-        for col in readme_columns:
+        # First clean up any existing columns we'll get from readme_df
+        columns_to_drop = ['readme_content', 'readme_size', 'readme_encoding', 'readme_url', 'commit_count']
+        for col in columns_to_drop:
             if col in repos_df.columns:
                 repos_df = repos_df.drop(col, axis=1)
         
         # Only select needed columns from readme_df
-        readme_df_subset = readme_df[['repo_url', 'readme_content', 'readme_size', 'readme_encoding']]
+        readme_df_subset = readme_df[['repo_url', 'readme_content', 'readme_size', 'readme_encoding', 'commit_count']]
+        
+        # Convert commit_count to numeric before merge
+        readme_df_subset['commit_count'] = pd.to_numeric(readme_df_subset['commit_count'], errors='coerce').fillna(0).astype(int)
+        
+        # Merge the dataframes
         combined_df = repos_df.merge(
             readme_df_subset,
             left_on='html_url',
@@ -261,9 +270,12 @@ async def main(force_update: bool = False, readmes_only: bool = False, limit: Op
             how='left'
         )
         
-        # Drop the duplicate repo_url column from the merge
+        # Clean up columns
         if 'repo_url' in combined_df.columns:
             combined_df = combined_df.drop('repo_url', axis=1)
+        
+        # Ensure commit_count is an integer
+        combined_df['commit_count'] = combined_df['commit_count'].fillna(0).astype(int)
         
         # Save combined data
         current_date = datetime.now().strftime('%Y%m%d')

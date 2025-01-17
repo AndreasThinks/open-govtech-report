@@ -16,8 +16,12 @@ from dotenv import load_dotenv
 import logging
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 # Load environment variables
 load_dotenv()
@@ -144,27 +148,56 @@ class DatabaseManager:
             'default_branch', 'license', 'topics'
         ]
         
-        # Add commit_count if it exists in input_df and database
-        if 'commit_count' in input_df.columns and 'commit_count' in db_columns:
-            columns_to_store.append('commit_count')
-        
         # Process input data
         df = input_df[columns_to_store].copy()
+        df['commit_count'] = 0  # Initialize commit count
         
         # Handle README data if provided
         if readme_df is not None:
+            logger.info("README DataFrame columns before processing:")
+            logger.info(readme_df.columns.tolist())
+            logger.info("Sample commit counts from readme_df:")
+            logger.info(readme_df[['repo_url', 'commit_count']].head())
+            
             readme_df = readme_df.copy()
             readme_df = readme_df.rename(columns={
                 'repo_url': 'html_url',
                 'readme_url': 'readme_url'  # Not stored in database
             })
             
+            logger.info("DataFrame columns before merge:")
+            logger.info(df.columns.tolist())
+            logger.info("Sample commit counts from df:")
+            logger.info(df[['html_url', 'commit_count']].head())
+            
+            # Ensure commit_count is numeric before merge
+            if 'commit_count' in readme_df.columns:
+                readme_df['commit_count'] = pd.to_numeric(readme_df['commit_count'], errors='coerce').fillna(0).astype(int)
+                logger.info("Sample commit counts from readme_df after conversion:")
+                logger.info(readme_df[['html_url', 'commit_count']].head())
+            
             df = pd.merge(
                 df,
-                readme_df[['html_url', 'readme_content', 'readme_size', 'readme_encoding']],
+                readme_df[['html_url', 'readme_content', 'readme_size', 'readme_encoding', 'commit_count']],
                 on='html_url',
-                how='left'
+                how='left',
+                suffixes=('_old', '')  # Keep the new commit_count
             )
+            
+            logger.info("DataFrame columns after merge:")
+            logger.info(df.columns.tolist())
+            logger.info("Sample commit counts after merge:")
+            logger.info(df[['html_url', 'commit_count']].head())
+            
+            # Drop the old commit_count if it exists
+            if 'commit_count_old' in df.columns:
+                df = df.drop('commit_count_old', axis=1)
+            
+            # Ensure commit_count is an integer
+            df['commit_count'] = df['commit_count'].fillna(0).astype(int)
+            
+            logger.info("Final sample commit counts:")
+            logger.info(df[['html_url', 'commit_count']].head())
         else:
             df['readme_content'] = None
             df['readme_size'] = None
