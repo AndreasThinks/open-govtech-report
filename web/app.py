@@ -33,6 +33,15 @@ app, rt = fast_app(
             .htmx-request.htmx-indicator { opacity: 1; }
             .filter-control { margin-bottom: 1rem; }
             .filter-control label { display: block; margin-bottom: 0.5rem; }
+            .grid { 
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 1rem;
+                margin-bottom: 1rem;
+            }
+            .grid > div {
+                min-width: 0;
+            }
         """),
     )
 )
@@ -224,22 +233,22 @@ def create_dashboard(stats, top_languages, top_repos, top_countries, top_topics,
         ) for d in [7, 30, 90, 180, 365]
     ]
 
+    # Wrap each stats card in a div to maintain grid structure
     stats_cards = [
-        stats_card("Total Repositories", stats['total_repos']),
-        stats_card("Total Stars", stats['total_stars']),
-        stats_card("Total Forks", stats['total_forks']),
-        stats_card("Average Stars", stats['avg_stars']),
-        stats_card("Average Forks", stats['avg_forks'])
+        Div(stats_card("Total Repositories", stats['total_repos'])),
+        Div(stats_card("Total Stars", stats['total_stars'])),
+        Div(stats_card("Total Forks", stats['total_forks'])),
+        Div(stats_card("Average Stars", stats['avg_stars'])),
+        Div(stats_card("Average Forks", stats['avg_forks']))
     ]
 
-    # Create country filter options
-    country_options = [
-        Option(
-            country,
-            value=country,
-            selected=(selected_countries is None or country in selected_countries)
-        ) for country in sorted(set(stats['countries']))
-    ]
+    # Create country filter options - all selected by default
+    country_options = []
+    all_countries = sorted(set(stats['countries']))
+    for country in all_countries:
+        # If no countries are selected yet, select all. Otherwise check if country is selected
+        is_selected = selected_countries is None or not selected_countries or country in selected_countries
+        country_options.append(Option(country, value=country, selected=is_selected))
 
     return Main(
         Header(
@@ -257,16 +266,87 @@ def create_dashboard(stats, top_languages, top_repos, top_countries, top_topics,
                     ),
                     Div(
                         Label("Filter by countries:"),
-                        Select(
-                            *country_options,
-                            name="countries",
-                            id="countries",
-                            multiple=True,
-                            hx_get="/",
-                            hx_target="main",
-                            style="height: 100px"  # Make the multi-select box taller
-                        )
-                    )
+                        Details(
+                            Summary("Select countries"),
+                            Group(
+                                Div(
+                                    Button("Select all", 
+                                        hx_post="/update-filter",
+                                        hx_target="#filter-results, #repos-table",
+                                        hx_include="[name='days']",
+                                        hx_vals='{"select_all": true}',
+                                        cls="secondary outline",
+                                        style="margin-right: 0.5rem;"
+                                    ),
+                                    Button("Deselect all", 
+                                        hx_post="/update-filter",
+                                        hx_target="#filter-results, #repos-table",
+                                        hx_include="[name='days']",
+                                        hx_vals='{"deselect_all": true}',
+                                        cls="secondary outline"
+                                    ),
+                                    style="margin: 0.5rem 0 1rem; text-align: center; padding: 0.5rem; border-bottom: 1px solid var(--pico-form-element-border-color);"
+                                ),
+                                Div(
+                                    *[Div(
+                                        CheckboxX(
+                                            checked=is_selected,
+                                            label=country,
+                                            value=country,
+                                            name="countries",
+                                            hx_post="/update-filter",
+                                            hx_target="#filter-results, #repos-table",
+                                            hx_trigger="change"
+                                        ),
+                                        style="padding: 0.4rem 0.2rem;"
+                                    ) for country, is_selected in [(c, selected_countries is None or not selected_countries or c in selected_countries) for c in sorted(set(stats['countries']))]],
+                                    style="max-height: 300px; overflow-y: auto; padding: 0.5rem;"
+                                )
+                            ),
+                            role="list",
+                            style="position: relative; margin: 0;"
+                        ),
+                        style="position: relative;"
+                    ),
+                    Style("""
+                        details[role="list"] summary + * { 
+                            position: absolute;
+                            width: 100%;
+                            z-index: 1000;
+                            background: var(--pico-background-color);
+                            border: 1px solid var(--pico-form-element-border-color);
+                            border-radius: var(--pico-border-radius);
+                            box-shadow: var(--pico-card-box-shadow);
+                        }
+                        details[role="list"] summary {
+                            padding: 0.75rem;
+                            border-radius: var(--pico-border-radius);
+                            background: var(--pico-background-color);
+                            border: 1px solid var(--pico-form-element-border-color);
+                            cursor: pointer;
+                            transition: border-color 0.2s ease;
+                        }
+                        details[role="list"] summary:hover {
+                            border-color: var(--pico-form-element-active-border-color);
+                        }
+                        details[role="list"] [type="checkbox"] {
+                            margin: 0 0.75rem 0 0;
+                            cursor: pointer;
+                        }
+                        details[role="list"] [type="checkbox"] + label {
+                            display: inline-block;
+                            margin: 0;
+                            cursor: pointer;
+                            user-select: none;
+                        }
+                        details[role="list"] [type="checkbox"]:hover + label {
+                            color: var(--pico-form-element-active-border-color);
+                        }
+                        details[role="list"] button {
+                            padding: 0.4rem 0.8rem;
+                            font-size: 0.9rem;
+                        }
+                    """)
                 ),
                 Div(
                     Img(src="https://htmx.org/img/bars.svg", cls="htmx-indicator"),
@@ -274,7 +354,7 @@ def create_dashboard(stats, top_languages, top_repos, top_countries, top_topics,
                 )
             )
         ),
-        Section(*stats_cards, cls="grid"),
+        Section(Grid(*stats_cards), id="filter-results"),
         repo_table(top_repos, min_stars=min_stars, min_days=min_days),
         Grid(
             top_list("Top Languages", top_languages),
@@ -289,14 +369,18 @@ def create_dashboard(stats, top_languages, top_repos, top_countries, top_topics,
     )
 
 @rt('/')
-def index(request):
+async def index(request):
     # Get query parameters with defaults
-    params = dict(request.query_params)
+    params = request.query_params
     try:
-        days = int(params.get('days', ['30'])[0])
-        min_stars = int(params.get('min_stars', ['0'])[0])
-        min_days = int(params.get('min_days', ['0'])[0])
-        selected_countries = params.get('countries', [])  # List of selected countries
+        days = int(params.get('days', '30'))
+        min_stars = int(params.get('min_stars', '0'))
+        min_days = int(params.get('min_days', '0'))
+        # Handle countries parameter - ensure it's always a list
+        selected_countries = []
+        if request.method == "POST":
+            form = await request.form()
+            selected_countries = form.getlist('countries')
         if days <= 0 or min_stars < 0 or min_days < 0:
             raise ValueError("Parameters must be non-negative")
     except ValueError as e:
@@ -382,22 +466,79 @@ def index(request):
         debug_log(traceback.format_exc())
         return error_handler(request, e)
 
+@rt('/update-filter')
+async def post(request):
+    """HTMX endpoint for updating the filtered results"""
+    try:
+        days = int(request.query_params.get('days', '30'))
+        form = await request.form()
+        
+        # Handle select/deselect all
+        if 'select_all' in form:
+            df = db.get_latest_snapshot()
+            selected_countries = sorted(df['country'].unique().tolist())
+        elif 'deselect_all' in form:
+            selected_countries = []
+        else:
+            selected_countries = form.getlist('countries')  # Get from form data
+        
+        df = db.get_latest_snapshot()
+        cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        
+        df['scrape_timestamp'] = pd.to_datetime(df['scrape_timestamp'])
+        filtered_df = df[df['scrape_timestamp'] >= cutoff_date]
+        if selected_countries:
+            filtered_df = filtered_df[filtered_df['country'].isin(selected_countries)]
+        
+        if filtered_df.empty:
+            raise ValueError(f"No data available for the last {days} days")
+        
+        stats = {
+            'total_repos': len(filtered_df),
+            'total_stars': filtered_df['stars'].sum(),
+            'total_forks': filtered_df['forks'].sum(),
+            'avg_stars': round(filtered_df['stars'].mean(), 2),
+            'avg_forks': round(filtered_df['forks'].mean(), 2),
+            'countries': df['country'].unique()
+        }
+        
+        # Wrap each stats card in a div to maintain grid structure
+        stats_cards = [
+            Div(stats_card("Total Repositories", stats['total_repos'])),
+            Div(stats_card("Total Stars", stats['total_stars'])),
+            Div(stats_card("Total Forks", stats['total_forks'])),
+            Div(stats_card("Average Stars", stats['avg_stars'])),
+            Div(stats_card("Average Forks", stats['avg_forks']))
+        ]
+        
+        # Also get the filtered repos for the table update
+        top_repos = (filtered_df.nlargest(10, 'stars')
+                    [['name', 'username', 'stars', 'forks', 'watchers', 'commit_count', 'language', 'html_url', 'created_at', 'size_kb']]
+                    .to_dict('records'))
+        
+        return (
+            Section(Grid(*stats_cards), id="filter-results"),
+            repo_table(top_repos, sort_by='stars', min_stars=0, min_days=0)
+        )
+    except Exception as e:
+        debug_log(f"Error in update_filter route: {str(e)}")
+        import traceback
+        debug_log(traceback.format_exc())
+        return error_handler(request, e)
+
 @rt('/update-repos')
-def update_repos(request):
+async def update_repos(request):
     """HTMX endpoint for updating just the repository table"""
-    params = dict(request.query_params)
+    params = request.query_params
     try:
         # Handle empty or missing parameters gracefully
-        days_param = params.get('days', ['30'])
-        min_stars_param = params.get('min_stars', ['0'])
-        min_days_param = params.get('min_days', ['0'])
-        sort_metric_param = params.get('sort_metric', ['stars'])
-        
-        days = int(days_param[0] if days_param and days_param[0] else 30)
-        min_stars = int(min_stars_param[0] if min_stars_param and min_stars_param[0] else 0)
-        min_days = int(min_days_param[0] if min_days_param and min_days_param[0] else 0)
-        sort_by = sort_metric_param[0] if sort_metric_param else 'stars'
-        selected_countries = params.get('countries', [])
+        days = int(params.get('days', '30'))
+        min_stars = int(params.get('min_stars', '0'))
+        min_days = int(params.get('min_days', '0'))
+        sort_by = params.get('sort_metric', 'stars')
+        # Handle countries parameter - ensure it's always a list
+        form = await request.form()
+        selected_countries = form.getlist('countries')  # Get from form data
         
         df = db.get_latest_snapshot()
         cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
