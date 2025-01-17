@@ -144,4 +144,4 @@ This minimizes API requests and helps stay within rate limits.
 
 ## License
 
-MIT License - feel free to use and modify as needed.
+AGPL licensed.
