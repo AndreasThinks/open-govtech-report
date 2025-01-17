@@ -23,23 +23,22 @@ A Python tool for analyzing government GitHub repositories at scale. This tool e
    - Note down:
      - App ID
      - Installation ID
-     - Private key (download the .pem file)
+     - Private key (from GitHub App settings)
 
 2. Configure environment:
    ```bash
    # Create .env file
    GITHUB_APP_ID=your_app_id
    GITHUB_INSTALLATION_ID=your_installation_id
+   # Copy the entire private key content including BEGIN and END lines
+   GITHUB_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----
+   your_private_key_content_here
+   -----END RSA PRIVATE KEY-----"
    ```
 
 3. Install dependencies:
    ```bash
    pip install -r requirements.txt
-   ```
-
-4. Place your private key file in the project directory as:
-   ```
-   open-govtech-report.2025-01-15.private-key.pem
    ```
 
 ## Usage
