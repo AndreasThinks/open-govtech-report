@@ -86,6 +86,7 @@ class DatabaseManager:
             Column('watchers', Integer),
             Column('default_branch', String),
             Column('license', String),
+            Column('topics', String),  # Store topics as JSON string
             Column('readme_content', String),
             Column('readme_size', Integer),
             Column('readme_encoding', String),
@@ -106,7 +107,7 @@ class DatabaseManager:
             'name', 'description', 'stars', 'forks', 'language', 'username',
             'country', 'html_url', 'created_at', 'updated_at', 'archived',
             'fork', 'fork_source', 'size_kb', 'open_issues', 'watchers',
-            'default_branch', 'license'
+            'default_branch', 'license', 'topics'
         ]
         
         # Process input data

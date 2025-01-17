@@ -98,7 +98,7 @@ def create_repo_table(repos):
     </article>
     """
 
-def create_dashboard(stats, top_languages, top_repos, top_countries, current_days):
+def create_dashboard(stats, top_languages, top_repos, top_countries, top_topics, current_days):
     days_options = "\n".join([
         f"""
         <option value="{d}" {"selected" if d == current_days else ""}>
@@ -145,6 +145,7 @@ def create_dashboard(stats, top_languages, top_repos, top_countries, current_day
             <div class="grid">
                 {create_top_list("Top Languages", top_languages)}
                 {create_top_list("Most Active Countries", top_countries)}
+                {create_top_list("Top Topics", top_topics)}
             </div>
 
             <footer>
@@ -190,6 +191,24 @@ def index(request):
                 [['name', 'username', 'stars', 'forks', 'language', 'html_url']]
                 .to_dict('records'))
     
+    # Get top topics
+    def extract_topics(topics_str):
+        try:
+            if pd.isna(topics_str) or topics_str in ('[]', 'NaN', '"NaN"'):
+                return []
+            return eval(topics_str)  # Safe since we know it's a JSON array from our database
+        except:
+            return []
+    
+    all_topics = []
+    for topics in filtered_df['topics']:
+        all_topics.extend(extract_topics(topics))
+    
+    top_topics = (pd.Series(all_topics)
+                 .value_counts()
+                 .head(10)
+                 .to_dict())
+    
     top_countries = (filtered_df['country']
                     .value_counts()
                     .head(10)
@@ -198,7 +217,7 @@ def index(request):
     latest_timestamp = filtered_df['scrape_timestamp'].max()
     stats['latest_update'] = latest_timestamp.strftime('%Y-%m-%d %H:%M UTC')
 
-    return create_dashboard(stats, top_languages, top_repos, top_countries, days)
+    return create_dashboard(stats, top_languages, top_repos, top_countries, top_topics, days)
 
 if __name__ == '__main__':
     serve()

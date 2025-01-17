@@ -3,6 +3,7 @@ import aiohttp
 import pandas as pd
 from dotenv import load_dotenv
 import os
+import json
 from db_operations import DatabaseManager
 from scrape_repos import fetch_gov_github_accounts, fetch_all_repository_details
 from fetch_readmes import fetch_all_readmes
@@ -54,6 +55,14 @@ async def fetch_repositories(force_update: bool = False, limit: Optional[int] = 
         if latest_file != all_repos_file:  # Don't load if same date
             print(f"Loading existing repository data from {latest_file}...")
             existing_repos = pd.read_parquet(latest_file)
+            # Convert datetime columns to string if they exist
+            if 'created_at' in existing_repos.columns:
+                existing_repos['created_at'] = existing_repos['created_at'].astype(str)
+            if 'updated_at' in existing_repos.columns:
+                existing_repos['updated_at'] = existing_repos['updated_at'].astype(str)
+            # Convert topics to JSON string if they exist
+            if 'topics' in existing_repos.columns:
+                existing_repos['topics'] = existing_repos['topics'].apply(lambda x: json.dumps(x) if isinstance(x, list) else ('[]' if pd.isna(x) else x))
             print(f"Loaded {len(existing_repos)} existing repositories")
 
     # Fetch government accounts
@@ -113,6 +122,10 @@ async def fetch_repositories(force_update: bool = False, limit: Optional[int] = 
     # Create DataFrame from new repos
     new_df = pd.DataFrame(new_repos)
     
+    # Convert topics to JSON string in new data
+    if 'topics' in new_df.columns:
+        new_df['topics'] = new_df['topics'].apply(lambda x: json.dumps(x) if isinstance(x, list) else ('[]' if pd.isna(x) else x))
+    
     # Combine with existing data and deduplicate
     if existing_repos is not None:
         print("\nMerging with existing data and deduplicating...")
@@ -162,9 +175,9 @@ async def fetch_repositories(force_update: bool = False, limit: Optional[int] = 
     now = datetime.now(utc)
     
     # Convert timestamps to datetime with UTC timezone
-    # GitHub API returns timestamps in UTC, so we just need to parse them
-    repos_df['created_at'] = pd.to_datetime(repos_df['created_at'])
-    repos_df['updated_at'] = pd.to_datetime(repos_df['updated_at'])
+    # GitHub API returns timestamps in ISO8601 format
+    repos_df['created_at'] = pd.to_datetime(repos_df['created_at'], format='ISO8601')
+    repos_df['updated_at'] = pd.to_datetime(repos_df['updated_at'], format='ISO8601')
     
     # Calculate age and activity metrics
     now_series = pd.Series([now] * len(repos_df))
@@ -210,6 +223,13 @@ async def main(force_update: bool = False, readmes_only: bool = False, limit: Op
         # Create DataFrame with README data
         readme_df = pd.DataFrame(readmes)
         
+        # Convert topics list to JSON string
+        repos_df['topics'] = repos_df['topics'].apply(lambda x: json.dumps(x) if isinstance(x, list) else ('[]' if pd.isna(x) else x))
+        
+        # Convert timestamps to strings for database storage
+        repos_df['created_at'] = repos_df['created_at'].astype(str)
+        repos_df['updated_at'] = repos_df['updated_at'].astype(str)
+        
         # Save updated data to SQLite with READMEs
         print("\nSaving updated data with READMEs to SQLite database...")
         db = DatabaseManager()
@@ -220,11 +240,20 @@ async def main(force_update: bool = False, readmes_only: bool = False, limit: Op
         
         # Print column info for debugging
         print("\nREADME DataFrame columns:", readme_df.columns.tolist())
+        print("Repository DataFrame columns:", repos_df.columns.tolist())
         print("Number of READMEs:", len(readme_df))
         
         # Create the combined dataset by merging on repository URL
+        # First, drop any existing README columns from repos_df
+        readme_columns = ['readme_content', 'readme_size', 'readme_encoding', 'readme_url']
+        for col in readme_columns:
+            if col in repos_df.columns:
+                repos_df = repos_df.drop(col, axis=1)
+        
+        # Only select needed columns from readme_df
+        readme_df_subset = readme_df[['repo_url', 'readme_content', 'readme_size', 'readme_encoding']]
         combined_df = repos_df.merge(
-            readme_df,
+            readme_df_subset,
             left_on='html_url',
             right_on='repo_url',
             how='left'
@@ -243,13 +272,13 @@ async def main(force_update: bool = False, readmes_only: bool = False, limit: Op
         # Print README statistics
         print("\nREADME Statistics:")
         # Count non-empty READMEs
-        has_readme = combined_df['readme_content'].notna() & (combined_df['readme_content'] != '')
+        has_readme = combined_df['readme_content'].notna()
         readme_count = has_readme.sum()
         
         print(f"Repositories with READMEs: {readme_count} ({readme_count / len(combined_df) * 100:.1f}%)")
         
         # Calculate size statistics only for repositories that have READMEs
-        readme_sizes = combined_df[has_readme]['readme_size']
+        readme_sizes = combined_df[has_readme]['readme_size'].fillna(0)
         if not readme_sizes.empty:
             print(f"Average README size: {readme_sizes.mean():.0f} bytes")
             print(f"Largest README: {readme_sizes.max():,} bytes")
@@ -257,8 +286,8 @@ async def main(force_update: bool = False, readmes_only: bool = False, limit: Op
             print("Average README size: 0 bytes")
             print("Largest README: 0 bytes")
             
-        # Count empty READMEs (have an entry but no content)
-        empty_readmes = (combined_df['readme_content'] == '') & combined_df['readme_content'].notna()
+        # Count empty READMEs (have an entry but content is None)
+        empty_readmes = combined_df['readme_content'].isna()
         print(f"Empty READMEs: {empty_readmes.sum()}")
         
         print("\nCombined data saved successfully to:")

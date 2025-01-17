@@ -118,7 +118,7 @@ async def fetch_repository_details_async(session, username, country, force_updat
             return []
         headers = {
             'Authorization': f'Bearer {token}',
-            'Accept': 'application/vnd.github.v3+json'
+            'Accept': 'application/vnd.github.v3+json,application/vnd.github.mercy-preview+json'  # Add topics preview
         }
 
     # Add ETag if we have it cached
@@ -186,7 +186,8 @@ async def fetch_repository_details_async(session, username, country, force_updat
                                     'open_issues': repo['open_issues_count'],
                                     'watchers': repo['watchers_count'],
                                     'default_branch': repo['default_branch'],
-                                    'license': repo['license']['spdx_id'] if repo['license'] else None
+                                    'license': repo['license']['spdx_id'] if repo['license'] else None,
+                                    'topics': repo.get('topics', [])
                                 }
                                 full_repo_details.append(repo_details)
 
@@ -256,7 +257,7 @@ async def process_account_chunk(session, chunk, country, force_update=False):
         
     headers = {
         'Authorization': f'Bearer {token}',
-        'Accept': 'application/vnd.github.v3+json'
+        'Accept': 'application/vnd.github.v3+json,application/vnd.github.mercy-preview+json'  # Add topics preview
     }
     
     tasks = []
