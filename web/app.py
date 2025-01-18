@@ -42,6 +42,34 @@ app, rt = fast_app(
             .grid > div {
                 min-width: 0;
             }
+            /* Table styles */
+            table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+            th, td {
+                padding: 0.75rem;
+                text-align: left;
+                border-bottom: 1px solid var(--pico-form-element-border-color);
+            }
+            th {
+                background: var(--pico-background-color);
+                font-weight: bold;
+            }
+            td {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            /* Column widths */
+            table th:nth-child(1), table td:nth-child(1) { width: 25%; } /* Repository */
+            table th:nth-child(2), table td:nth-child(2) { width: 20%; } /* Owner */
+            table th:nth-child(3), table td:nth-child(3) { width: 10%; } /* Stars */
+            table th:nth-child(4), table td:nth-child(4) { width: 10%; } /* Forks */
+            table th:nth-child(5), table td:nth-child(5) { width: 10%; } /* Watchers */
+            table th:nth-child(6), table td:nth-child(6) { width: 10%; } /* Commits */
+            table th:nth-child(7), table td:nth-child(7) { width: 10%; } /* Language */
+            table th:nth-child(8), table td:nth-child(8) { width: 5%; }  /* Size */
         """),
     )
 )
@@ -374,8 +402,8 @@ async def index(request):
     params = request.query_params
     try:
         days = int(params.get('days', '30'))
-        min_stars = int(params.get('min_stars', '0'))
-        min_days = int(params.get('min_days', '0'))
+        min_stars = int(params.get('min_stars') or '0')  # Handle empty string
+        min_days = int(params.get('min_days') or '0')    # Handle empty string
         # Handle countries parameter - ensure it's always a list
         selected_countries = []
         if request.method == "POST":
@@ -533,8 +561,8 @@ async def update_repos(request):
     try:
         # Handle empty or missing parameters gracefully
         days = int(params.get('days', '30'))
-        min_stars = int(params.get('min_stars', '0'))
-        min_days = int(params.get('min_days', '0'))
+        min_stars = int(params.get('min_stars') or '0')  # Handle empty string
+        min_days = int(params.get('min_days') or '0')    # Handle empty string
         sort_by = params.get('sort_metric', 'stars')
         # Handle countries parameter - ensure it's always a list
         form = await request.form()
@@ -554,8 +582,36 @@ async def update_repos(request):
         top_repos = (filtered_df.nlargest(10, sort_by)
                     [['name', 'username', 'stars', 'forks', 'watchers', 'commit_count', 'language', 'html_url', 'created_at', 'size_kb']]
                     .to_dict('records'))
+        # Only return the table itself, not the whole card with heading and controls
+        rows = [
+            Tr(
+                Td(A(repo['name'], href=repo['html_url'], target="_blank")),
+                Td(repo['username']),
+                Td(str(repo['stars'])),
+                Td(str(repo['forks'])),
+                Td(str(repo['watchers'])),
+                Td(str(int(repo['commit_count'] if pd.notna(repo['commit_count']) else 0))),
+                Td(repo['language'] or 'N/A'),
+                Td(str(repo['size_kb']))
+            ) for repo in top_repos
+        ]
                     
-        return repo_table(top_repos, sort_by=sort_by, min_stars=min_stars, min_days=min_days)
+        return Table(
+            Thead(
+                Tr(
+                    Th("Repository"),
+                    Th("Owner"),
+                    Th("Stars"),
+                    Th("Forks"),
+                    Th("Watchers"),
+                    Th("Commits"),
+                    Th("Language"),
+                    Th("Size (KB)")
+                )
+            ),
+            Tbody(*rows),
+            id="repos-table"
+        )
     except Exception as e:
         debug_log(f"Error in update_repos route: {str(e)}")
         import traceback
