@@ -309,8 +309,10 @@ async def fetch_repo_data(session: aiohttp.ClientSession, repo_url: str, initial
                                 break
                         
                         if readme_content:
+                            # Clean null bytes from readme content
+                            cleaned_content = readme_content.replace('\x00', '')
                             return {
-                                'readme_content': readme_content,
+                                'readme_content': cleaned_content,
                                 'readme_encoding': 'utf-8',  # GraphQL returns decoded text
                                 'readme_size': readme_size,
                                 'readme_url': f"{repo_url}/blob/master/{readme_file}",
