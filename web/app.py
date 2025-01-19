@@ -28,11 +28,51 @@ app, rt = fast_app(
     htmx=True,
     hdrs=(
         Style("""
-            .htmx-indicator { opacity: 0; transition: opacity 500ms ease-in; }
+            .htmx-indicator { 
+                opacity: 0;
+                transition: opacity 500ms ease-in;
+            }
             .htmx-request .htmx-indicator { opacity: 1; }
             .htmx-request.htmx-indicator { opacity: 1; }
+            .loading-container {
+                position: relative;
+                min-height: 100px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .loading-indicator {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 1rem;
+            }
+            .loading-indicator img {
+                width: 40px;
+                height: 40px;
+            }
+            .loading-text {
+                color: var(--pico-muted-color);
+                font-size: 0.9rem;
+            }
             .filter-control { margin-bottom: 1rem; }
+            .filter-button { 
+                margin-top: 1rem;
+                width: 100%;
+            }
             .filter-control label { display: block; margin-bottom: 0.5rem; }
+            .number-control {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+            .number-control input[type="number"] {
+                flex: 1;
+            }
+            .number-control button {
+                padding: 0.4rem 0.8rem;
+                min-width: 2.5rem;
+            }
             .grid { 
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -115,7 +155,7 @@ def repo_table(repos, sort_by='stars', min_stars=0, min_days=0):
     # Sort and filter repos
     filtered_repos = [r for r in repos if r['stars'] >= min_stars]
     if min_days > 0:
-        cutoff = (datetime.utcnow() - timedelta(days=min_days)).isoformat()
+        cutoff = pd.Timestamp.utcnow() - pd.Timedelta(days=min_days)
         filtered_repos = [r for r in filtered_repos if r['created_at'] >= cutoff]
     
     sorted_repos = sorted(filtered_repos, key=lambda x: x[sort_by], reverse=True)
@@ -154,44 +194,67 @@ def repo_table(repos, sort_by='stars', min_stars=0, min_days=0):
     ]
 
     # Create filter controls
-    filter_controls = [
+    filter_controls = Form(
         Div(
             Label("Minimum Stars"),
-            Input(
-                type="number",
-                name="min_stars",
-                value=min_stars,
-                min="0",
-                title="Show only repositories with at least this many stars",
-                hx_get="/update-repos",
-                hx_trigger="change",
-                hx_target="#repos-table",
-                hx_include="[name='sort_metric'],[name='days'],[name='min_days'],[name='countries']"
+            Div(
+                Button("-", cls="secondary outline", type="button", onclick="this.nextElementSibling.stepDown()"),
+                Input(
+                    type="number",
+                    name="min_stars",
+                    value=min_stars,
+                    min="0",
+                    readonly=True,
+                    title="Show only repositories with at least this many stars"
+                ),
+                Button("+", cls="secondary outline", type="button", onclick="this.previousElementSibling.stepUp()"),
+                cls="number-control"
             ),
             cls="filter-control"
         ),
         Div(
             Label("Created within last N days"),
-            Input(
-                type="number",
-                name="min_days",
-                value=min_days,
-                min="0",
-                title="Show only repositories created within this many days (0 for all time)",
-                hx_get="/update-repos",
-                hx_trigger="change",
-                hx_target="#repos-table",
-                hx_include="[name='sort_metric'],[name='days'],[name='min_stars'],[name='countries']"
+            Div(
+                Button("-", cls="secondary outline", type="button", onclick="let input = this.nextElementSibling; input.value = Math.max(0, parseInt(input.value || 0) - 10)"),
+                Input(
+                    type="number",
+                    name="min_days",
+                    value=min_days,
+                    min="0",
+                    step="10",
+                    readonly=True,
+                    title="Show only repositories created within this many days (0 for all time)"
+                ),
+                Button("+", cls="secondary outline", type="button", onclick="let input = this.previousElementSibling; input.value = parseInt(input.value || 0) + 10"),
+                cls="number-control"
             ),
             cls="filter-control"
-        )
-    ]
+        ),
+        Button(
+            "Apply Filters",
+            type="submit",
+            cls="filter-button"
+        ),
+        hx_get="/update-repos",
+        hx_target="#repos-table",
+        hx_include="[name='sort_metric'],[name='days'],[name='min_stars'],[name='countries']",
+        hx_indicator=".loading-indicator"
+    )
 
     return Card(
         H2("Top Repositories"),
         Div(*sort_controls, cls="metrics-selector"),
-        Div(*filter_controls, cls="filter-controls"),
-        Div(Img(src="https://htmx.org/img/bars.svg", cls="htmx-indicator"), style="text-align: center"),
+        Div(filter_controls, cls="filter-controls"),
+        Div(
+            Div(
+                Div(
+                    Img(src="https://htmx.org/img/bars.svg"),
+                    P("Loading...", cls="loading-text"),
+                    cls="loading-indicator htmx-indicator"
+                ),
+                cls="loading-container"
+            )
+        ),
         Table(
             Thead(
                 Tr(
@@ -377,8 +440,12 @@ def create_dashboard(stats, top_languages, top_repos, top_countries, top_topics,
                     """)
                 ),
                 Div(
-                    Img(src="https://htmx.org/img/bars.svg", cls="htmx-indicator"),
-                    style="text-align: center"
+                    Div(
+                        Img(src="https://htmx.org/img/bars.svg"),
+                        P("Loading...", cls="loading-text"),
+                        cls="loading-indicator htmx-indicator"
+                    ),
+                    cls="loading-container"
                 )
             )
         ),
@@ -426,8 +493,9 @@ async def index(request):
             raise
         cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
         
-        debug_log(f"Converting timestamp column...")
+        debug_log(f"Converting timestamp columns...")
         df['scrape_timestamp'] = pd.to_datetime(df['scrape_timestamp'])
+        df['created_at'] = pd.to_datetime(df['created_at'], utc=True)
         debug_log(f"Filtering data after {cutoff_date}")
         filtered_df = df[df['scrape_timestamp'] >= cutoff_date]
         if selected_countries:
@@ -514,6 +582,7 @@ async def post(request):
         cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
         
         df['scrape_timestamp'] = pd.to_datetime(df['scrape_timestamp'])
+        df['created_at'] = pd.to_datetime(df['created_at'], utc=True)
         filtered_df = df[df['scrape_timestamp'] >= cutoff_date]
         if selected_countries:
             filtered_df = filtered_df[filtered_df['country'].isin(selected_countries)]
@@ -539,14 +608,24 @@ async def post(request):
             Div(stats_card("Average Forks", stats['avg_forks']))
         ]
         
-        # Also get the filtered repos for the table update
+        # Get min_stars and min_days from form data
+        min_stars = int(form.get('min_stars') or '0')
+        min_days = int(form.get('min_days') or '0')
+        
+        # Apply min_stars and min_days filters
+        filtered_df = filtered_df[filtered_df['stars'] >= min_stars]
+        if min_days > 0:
+            cutoff = pd.Timestamp.utcnow() - pd.Timedelta(days=min_days)
+            filtered_df = filtered_df[pd.to_datetime(filtered_df['created_at'], utc=True) >= cutoff]
+            
+        # Get the filtered repos for the table update
         top_repos = (filtered_df.nlargest(10, 'stars')
                     [['name', 'username', 'stars', 'forks', 'watchers', 'commit_count', 'language', 'html_url', 'created_at', 'size_kb']]
                     .to_dict('records'))
         
         return (
             Section(Grid(*stats_cards), id="filter-results"),
-            repo_table(top_repos, sort_by='stars', min_stars=0, min_days=0)
+            repo_table(top_repos, sort_by='stars', min_stars=min_stars, min_days=min_days)
         )
     except Exception as e:
         debug_log(f"Error in update_filter route: {str(e)}")
@@ -572,12 +651,19 @@ async def update_repos(request):
         cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
         
         df['scrape_timestamp'] = pd.to_datetime(df['scrape_timestamp'])
+        df['created_at'] = pd.to_datetime(df['created_at'], utc=True)
         filtered_df = df[df['scrape_timestamp'] >= cutoff_date]
         if selected_countries:
             filtered_df = filtered_df[filtered_df['country'].isin(selected_countries)]
         
         if filtered_df.empty:
             raise ValueError(f"No data available for the last {days} days")
+            
+        # Apply min_stars and min_days filters
+        filtered_df = filtered_df[filtered_df['stars'] >= min_stars]
+        if min_days > 0:
+            cutoff = pd.Timestamp.utcnow() - pd.Timedelta(days=min_days)
+            filtered_df = filtered_df[pd.to_datetime(filtered_df['created_at'], utc=True) >= cutoff]
             
         top_repos = (filtered_df.nlargest(10, sort_by)
                     [['name', 'username', 'stars', 'forks', 'watchers', 'commit_count', 'language', 'html_url', 'created_at', 'size_kb']]
