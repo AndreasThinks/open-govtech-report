@@ -1,8 +1,6 @@
 plugins:
   datasette-dashboards:
     overview:
-      title: "Chicken Report"
-      description: Analytics and insights from government open source repositories
       layout:
         - [repo-growth, stars-dist]
         - [total-repos, top-languages]

@@ -42,7 +42,6 @@ ENV/
 *.csv
 !pyproject.toml
 !.repo_cache.json
-*.json
 
 
 # Logs and databases

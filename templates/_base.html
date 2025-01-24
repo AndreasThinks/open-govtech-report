@@ -3,9 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}{% endblock %} - Open GovTech Report</title>
+    <title>{% block title %}{% endblock %} - Open First Report</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        iframe {
+            overflow: hidden;
+            scrollbar-width: none;  /* Firefox */
+            -ms-overflow-style: none;  /* IE and Edge */
+        }
+        iframe::-webkit-scrollbar {
+            display: none;  /* Chrome, Safari, Opera */
+        }
     </style>
     {% block extra_head %}
     <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
@@ -16,7 +24,7 @@
 <body class="bg-gray-100 min-h-screen">
     <nav class="bg-gray-800 text-white p-4">
         <div class="container mx-auto flex justify-between items-center">
-            <a href="/" class="text-xl font-bold">Open GovTech Report</a>
+            <a href="/" class="text-xl font-bold">Open Second Report</a>
             <div class="space-x-4">
                 <a href="/" class="hover:text-gray-300">Home</a>
                 <a href="/data/government_repos" class="hover:text-gray-300">Data Explorer</a>
