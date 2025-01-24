@@ -40,7 +40,6 @@ ENV/
 # Data files
 *.parquet
 *.csv
-*.json
 !pyproject.toml
 !.repo_cache.json
 *.json
