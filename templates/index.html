@@ -1,0 +1,68 @@
+{% extends "_base.html" %}
+
+{% block title %}Open GovTech Report{% endblock %}
+
+{% block content %}
+<div class="p-4">
+    <h1 class="text-4xl font-bold mb-6">Open GovTech Report</h1>
+    
+    <div class="flex space-x-4 mb-8">
+        <a href="/government_repos/repository_snapshots" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+            Explore Full Dataset
+        </a>
+        <a href="/-/dashboards/overview" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+            View Dashboard
+        </a>
+    </div>
+
+    <div class="prose lg:prose-xl">
+        <p class="text-lg text-gray-700">
+            Welcome to the Open GovTech Report, a comprehensive database of government open source repositories. 
+            This platform tracks and analyzes open source projects from government organizations worldwide.
+        </p>
+    </div>
+
+    <div class="grid grid-cols-2 gap-6 mt-8">
+        <div>
+            <h2 class="text-2xl font-bold mb-4">Total Repositories</h2>
+            <iframe
+                src="/-/dashboards/overview/total-repos/embed"
+                frameborder="0"
+                width="100%"
+                height="300"
+                allowtransparency
+            ></iframe>
+        </div>
+        <div>
+            <h2 class="text-2xl font-bold mb-4">Top Programming Languages</h2>
+            <iframe
+                src="/-/dashboards/overview/top-languages/embed"
+                frameborder="0"
+                width="100%"
+                height="400"
+                allowtransparency
+            ></iframe>
+        </div>
+        <div>
+            <h2 class="text-2xl font-bold mb-4">Repository Growth</h2>
+            <iframe
+                src="/-/dashboards/overview/repo-growth/embed"
+                frameborder="0"
+                width="100%"
+                height="400"
+                allowtransparency
+            ></iframe>
+        </div>
+        <div>
+            <h2 class="text-2xl font-bold mb-4">Stars Distribution</h2>
+            <iframe
+                src="/-/dashboards/overview/stars-dist/embed"
+                frameborder="0"
+                width="100%"
+                height="400"
+                allowtransparency
+            ></iframe>
+        </div>
+    </div>
+</div>
+{% endblock %}

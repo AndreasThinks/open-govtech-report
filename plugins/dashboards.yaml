@@ -1,0 +1,101 @@
+plugins:
+  datasette-dashboards:
+    overview:
+      title: "Chicken Report"
+      description: Analytics and insights from government open source repositories
+      layout:
+        - [repo-growth, stars-dist]
+        - [total-repos, top-languages]
+      charts:
+        total-repos:
+          title: Total Repositories
+          db: government_repos
+          query: SELECT COUNT(DISTINCT html_url) as count FROM repository_snapshots
+          library: metric
+          display:
+            field: count
+            prefix: ""
+            suffix: " repositories"
+        top-languages:
+          title: Top Programming Languages
+          db: government_repos
+          query: |-
+            WITH latest_snapshots AS (
+              SELECT *,
+                ROW_NUMBER() OVER (PARTITION BY html_url ORDER BY scrape_timestamp DESC) as rn
+              FROM repository_snapshots
+              WHERE language IS NOT NULL
+            )
+            SELECT 
+              language,
+              COUNT(*) as count 
+            FROM latest_snapshots
+            WHERE rn = 1
+            GROUP BY language 
+            ORDER BY count DESC 
+            LIMIT 10
+          library: vega-lite
+          display:
+            mark: { type: bar }
+            encoding:
+              y: { field: language, type: nominal, title: "Language" }
+              x: { field: count, type: quantitative, title: "Repository Count" }
+
+        repo-growth:
+          title: Repository Growth Over Time
+          db: government_repos
+          query: |-
+            WITH monthly_repos AS (
+              SELECT 
+                strftime('%Y-%m', created_at) as month,
+                COUNT(*) as new_repos
+              FROM repository_snapshots
+              GROUP BY month
+              ORDER BY month
+            )
+            SELECT 
+              month,
+              SUM(new_repos) OVER (ORDER BY month) as total_repos
+            FROM monthly_repos
+          library: vega-lite
+          display:
+            mark: { type: line }
+            encoding:
+              x: { field: month, type: temporal, title: "Month" }
+              y: { field: total_repos, type: quantitative, title: "Total Repositories" }
+
+        stars-dist:
+          title: Stars Distribution
+          db: government_repos
+          query: |-
+            WITH latest_snapshots AS (
+              SELECT *,
+                ROW_NUMBER() OVER (PARTITION BY html_url ORDER BY scrape_timestamp DESC) as rn
+              FROM repository_snapshots
+            )
+            SELECT 
+              CASE 
+                WHEN stars < 10 THEN '0-9'
+                WHEN stars < 50 THEN '10-49'
+                WHEN stars < 100 THEN '50-99'
+                WHEN stars < 500 THEN '100-499'
+                ELSE '500+'
+              END as star_range,
+              COUNT(*) as count
+            FROM latest_snapshots
+            WHERE rn = 1
+            GROUP BY star_range
+            ORDER BY 
+              CASE star_range
+                WHEN '0-9' THEN 1
+                WHEN '10-49' THEN 2
+                WHEN '50-99' THEN 3
+                WHEN '100-499' THEN 4
+                WHEN '500+' THEN 5
+              END
+          library: vega-lite
+          display:
+            mark: { type: bar }
+            encoding:
+              x: { field: star_range, type: nominal, title: "Stars Range" }
+              y: { field: count, type: quantitative, title: "Repository Count" }
