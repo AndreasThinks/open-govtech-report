@@ -25,10 +25,10 @@ class MockEmbeddingProvider:
         "unrelated": [0.5, 0.5, 0.5],
     }
 
-    async def embed(self, texts):
+    async def embed(self, texts, session=None):
         return [self.KNOWN.get(t, [0.33, 0.33, 0.33]) for t in texts]
 
-    async def embed_single(self, text):
+    async def embed_single(self, text, session=None):
         return self.KNOWN.get(text, [0.33, 0.33, 0.33])
 
 
