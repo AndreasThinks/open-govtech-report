@@ -1,0 +1,114 @@
+name: Scrape & Publish Government Repos
+
+on:
+  schedule:
+    # Run weekly on Sunday at 02:00 UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      force_update:
+        description: 'Force update (ignore cache)'
+        required: false
+        type: boolean
+        default: false
+      run_tagging:
+        description: 'Run LLM tagging after scrape'
+        required: false
+        type: boolean
+        default: true
+      tag_limit:
+        description: 'Limit tagging to N repos (0 for all)'
+        required: false
+        type: number
+        default: 0
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Download previous database
+        uses: actions/download-artifact@v4
+        with:
+          name: govtech-db
+          path: .
+        continue-on-error: true  # First run won't have a previous DB
+
+      - name: Scrape repositories
+        env:
+          GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
+          GITHUB_INSTALLATION_ID: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          GITHUB_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+        run: |
+          FORCE_FLAG=""
+          if [ "${{ github.event.inputs.force_update }}" = "true" ]; then
+            FORCE_FLAG="--force"
+          fi
+          uv run govtech-scraper -v scrape $FORCE_FLAG
+
+      - name: Run tagging
+        if: github.event.inputs.run_tagging != 'false'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          LIMIT_FLAG=""
+          LIMIT="${{ github.event.inputs.tag_limit }}"
+          if [ -n "$LIMIT" ] && [ "$LIMIT" != "0" ]; then
+            LIMIT_FLAG="--limit $LIMIT"
+          fi
+          uv run govtech-scraper -v tag $LIMIT_FLAG
+
+      - name: Show stats
+        run: uv run govtech-scraper stats
+
+      - name: Export data
+        run: |
+          uv run python -c "
+          from govtech_scraper.db import Database
+          from govtech_scraper.export import export_to_csv, export_to_parquet
+          export_to_csv('govtech.db', 'government_repos_latest.csv')
+          print('CSV exported')
+          try:
+              export_to_parquet('govtech.db', 'government_repos_latest.parquet')
+              print('Parquet exported')
+          except RuntimeError:
+              print('Parquet export skipped (pyarrow not installed)')
+          "
+
+      - name: Upload database artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: govtech-db
+          path: govtech.db
+          retention-days: 90
+
+      - name: Upload dataset artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: govtech-dataset-${{ github.run_number }}
+          path: |
+            government_repos_latest.csv
+            government_repos_latest.parquet
+          retention-days: 90
+
+      - name: Publish to HuggingFace
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install huggingface_hub
+          python scripts/publish_hf.py
