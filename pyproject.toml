@@ -13,6 +13,7 @@ dependencies = [
     "tqdm>=4.66",
     "python-dotenv>=1.0",
     "pydantic>=2.5",
+    "scipy>=1.17.1",
 ]
 
 [project.scripts]

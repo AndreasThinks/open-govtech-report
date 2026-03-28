@@ -189,6 +189,84 @@ def tag(
 
 
 @main.command()
+@click.option("--recalculate", is_flag=True, help="Recalculate all groups from scratch")
+@click.option("--model", default="qwen/qwen3-32b", help="LLM model for naming groups")
+@click.option(
+    "--distance-threshold",
+    type=float,
+    default=1.0,
+    help="Clustering distance threshold",
+)
+@click.option(
+    "--min-cluster-size", type=int, default=3, help="Minimum tags per group"
+)
+@click.pass_context
+def group(
+    ctx: click.Context,
+    recalculate: bool,
+    model: str,
+    distance_threshold: float,
+    min_cluster_size: int,
+) -> None:
+    """Group tags into hierarchical categories using embedding clustering."""
+    load_dotenv()
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        click.echo("Error: OPENROUTER_API_KEY not set.", err=True)
+        click.echo("Set it in .env or environment.", err=True)
+        sys.exit(1)
+
+    db = Database(ctx.obj["db_path"])
+    try:
+        from .tagger.taxonomy import Taxonomy
+        from .tagger.hierarchy import TagGrouper
+
+        async def _run():
+            taxonomy = Taxonomy(db)
+            
+            if taxonomy.size == 0:
+                click.echo("No tags found in taxonomy. Run 'tag' command first.")
+                return
+
+            click.echo(f"Grouping {taxonomy.size} tags using {model}...")
+            click.echo(
+                f"Parameters: distance_threshold={distance_threshold}, "
+                f"min_cluster_size={min_cluster_size}"
+            )
+
+            grouper = TagGrouper(
+                api_key=api_key,
+                model=model,
+                min_cluster_size=min_cluster_size,
+                distance_threshold=distance_threshold,
+            )
+
+            async with aiohttp.ClientSession() as session:
+                groups = await grouper.build_groups(
+                    taxonomy, db, session=session, recalculate=recalculate
+                )
+
+            if groups:
+                click.echo(f"\nCreated {len(groups)} tag groups:")
+                for group in groups:
+                    click.echo(f"\n  {group['name']} ({len(group['tags'])} tags)")
+                    click.echo(f"    {group['description']}")
+                    if len(group['tags']) <= 10:
+                        click.echo(f"    Tags: {', '.join(group['tags'])}")
+                    else:
+                        click.echo(
+                            f"    Tags: {', '.join(group['tags'][:10])}, "
+                            f"... (+{len(group['tags']) - 10} more)"
+                        )
+            else:
+                click.echo("No groups created (not enough tags with embeddings)")
+
+        asyncio.run(_run())
+    finally:
+        db.close()
+
+
+@main.command()
 @click.pass_context
 def stats(ctx: click.Context) -> None:
     """Show database statistics."""
@@ -223,5 +301,14 @@ def stats(ctx: click.Context) -> None:
                 click.echo("\nTop tags:")
                 for tag_name, cnt in tag_stats["top_tags"][:10]:
                     click.echo(f"  {tag_name}: {cnt}")
+
+        # Group stats
+        group_count = db.conn.execute("SELECT COUNT(*) FROM tag_groups").fetchone()[0]
+        if group_count > 0:
+            click.echo(f"\nTag groups: {group_count}")
+            groups = db.get_tag_groups()
+            for group in groups[:10]:
+                members = db.get_group_members(group["id"])
+                click.echo(f"  {group['name']}: {len(members)} tags")
     finally:
         db.close()

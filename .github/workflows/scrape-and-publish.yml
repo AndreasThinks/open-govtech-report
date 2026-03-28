@@ -73,6 +73,12 @@ jobs:
           fi
           uv run govtech-scraper -v tag $LIMIT_FLAG
 
+      - name: Group tags
+        if: github.event.inputs.run_tagging != 'false'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: uv run govtech-scraper -v group
+
       - name: Show stats
         run: uv run govtech-scraper stats
 
@@ -80,9 +86,13 @@ jobs:
         run: |
           uv run python -c "
           from govtech_scraper.db import Database
-          from govtech_scraper.export import export_to_csv, export_to_parquet
+          from govtech_scraper.export import export_to_csv, export_to_parquet, export_tag_groups_csv, export_tag_group_members_csv
           export_to_csv('govtech.db', 'government_repos_latest.csv')
           print('CSV exported')
+          export_tag_groups_csv('govtech.db', 'tag_groups.csv')
+          print('Tag groups CSV exported')
+          export_tag_group_members_csv('govtech.db', 'tag_group_members.csv')
+          print('Tag group members CSV exported')
           try:
               export_to_parquet('govtech.db', 'government_repos_latest.parquet')
               print('Parquet exported')
@@ -104,6 +114,8 @@ jobs:
           path: |
             government_repos_latest.csv
             government_repos_latest.parquet
+            tag_groups.csv
+            tag_group_members.csv
           retention-days: 90
 
       - name: Publish to HuggingFace

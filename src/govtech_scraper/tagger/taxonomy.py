@@ -150,6 +150,14 @@ class Taxonomy:
         )
         return [t.tag for t in sorted_tags[:n]]
 
+    def get_all_tags_with_embeddings(self) -> list[tuple[str, list[float]]]:
+        """Return list of (tag_name, embedding) for tags that have embeddings."""
+        result = []
+        for tag_name, entry in self._tags.items():
+            if entry.embedding is not None:
+                result.append((tag_name, entry.embedding))
+        return result
+
     @property
     def size(self) -> int:
         return len(self._tags)

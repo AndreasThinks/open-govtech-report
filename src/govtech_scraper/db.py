@@ -96,6 +96,23 @@ CREATE TABLE IF NOT EXISTS repository_tags (
 CREATE INDEX IF NOT EXISTS idx_repo_tags_url ON repository_tags(html_url);
 CREATE INDEX IF NOT EXISTS idx_repo_tags_tag ON repository_tags(tag);
 CREATE INDEX IF NOT EXISTS idx_tags_usage ON tags(usage_count);
+
+CREATE TABLE IF NOT EXISTS tag_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    parent_group_id INTEGER,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (parent_group_id) REFERENCES tag_groups(id)
+);
+
+CREATE TABLE IF NOT EXISTS tag_group_members (
+    tag TEXT NOT NULL,
+    group_id INTEGER NOT NULL,
+    PRIMARY KEY (tag, group_id),
+    FOREIGN KEY (tag) REFERENCES tags(tag),
+    FOREIGN KEY (group_id) REFERENCES tag_groups(id)
+);
 """
 
 
@@ -269,6 +286,56 @@ class Database:
             ),
             "top_tags": [(row["tag"], row["usage_count"]) for row in top_tags],
         }
+
+    # --- Tag group methods ---
+
+    def save_tag_group(
+        self, name: str, description: str, parent_group_id: Optional[int] = None
+    ) -> int:
+        """Save a tag group and return its ID."""
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = self.conn.execute(
+            """INSERT INTO tag_groups (name, description, parent_group_id, created_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(name) DO UPDATE SET
+                   description = excluded.description,
+                   parent_group_id = excluded.parent_group_id
+               RETURNING id""",
+            (name, description, parent_group_id, now),
+        )
+        group_id = cursor.fetchone()[0]
+        self.conn.commit()
+        return group_id
+
+    def save_tag_group_member(self, tag: str, group_id: int) -> None:
+        """Associate a tag with a group."""
+        self.conn.execute(
+            """INSERT OR IGNORE INTO tag_group_members (tag, group_id)
+               VALUES (?, ?)""",
+            (tag, group_id),
+        )
+        self.conn.commit()
+
+    def get_tag_groups(self) -> list[sqlite3.Row]:
+        """Get all tag groups."""
+        return self.conn.execute(
+            "SELECT * FROM tag_groups ORDER BY name"
+        ).fetchall()
+
+    def get_group_members(self, group_id: int) -> list[str]:
+        """Get all tags in a group."""
+        rows = self.conn.execute(
+            "SELECT tag FROM tag_group_members WHERE group_id = ? ORDER BY tag",
+            (group_id,),
+        ).fetchall()
+        return [row["tag"] for row in rows]
+
+    def clear_tag_groups(self) -> None:
+        """Delete all tag groups and memberships."""
+        self.conn.execute("DELETE FROM tag_group_members")
+        self.conn.execute("DELETE FROM tag_groups")
+        self.conn.commit()
+        logger.info("Cleared all tag groups")
 
     def close(self) -> None:
         self.conn.close()

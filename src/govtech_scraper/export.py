@@ -36,6 +36,60 @@ def export_to_csv(db_path: str, output: str | None = None) -> str:
     return output
 
 
+def export_tag_groups_csv(db_path: str, output: str | None = None) -> str:
+    """Export tag groups to CSV."""
+    import csv
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM tag_groups ORDER BY name").fetchall()
+    conn.close()
+
+    if not output:
+        output = "tag_groups.csv"
+
+    if not rows:
+        logger.warning("No tag groups to export")
+        return output
+
+    with open(output, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(rows[0].keys())
+        for row in rows:
+            writer.writerow(tuple(row))
+
+    logger.info(f"Exported {len(rows)} tag groups to {output}")
+    return output
+
+
+def export_tag_group_members_csv(db_path: str, output: str | None = None) -> str:
+    """Export tag group memberships to CSV."""
+    import csv
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM tag_group_members ORDER BY group_id, tag"
+    ).fetchall()
+    conn.close()
+
+    if not output:
+        output = "tag_group_members.csv"
+
+    if not rows:
+        logger.warning("No tag group members to export")
+        return output
+
+    with open(output, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(rows[0].keys())
+        for row in rows:
+            writer.writerow(tuple(row))
+
+    logger.info(f"Exported {len(rows)} tag group memberships to {output}")
+    return output
+
+
 def export_to_parquet(db_path: str, output: str | None = None) -> str:
     """Export latest repository data to Parquet. Requires pyarrow."""
     try:
