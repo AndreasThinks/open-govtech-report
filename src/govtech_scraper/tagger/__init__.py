@@ -124,7 +124,7 @@ async def tag_repo(
 async def tag_batch(
     db: Database,
     api_key: str,
-    model: str = "google/gemini-flash-1.5",
+    model: str = "qwen/qwen3-32b",
     embedding_model: str = "openai/text-embedding-3-small",
     batch_size: int = 50,
     limit: Optional[int] = None,

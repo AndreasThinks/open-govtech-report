@@ -114,7 +114,7 @@ def scrape(ctx: click.Context, force: bool, limit: int | None) -> None:
 @main.command()
 @click.option("--limit", type=int, default=None, help="Limit repos to tag (for testing)")
 @click.option("--retag", is_flag=True, help="Re-tag already tagged repos")
-@click.option("--model", default="google/gemini-flash-1.5", help="LLM model for tag suggestion")
+@click.option("--model", default="qwen/qwen3-32b", help="LLM model for tag suggestion")
 @click.option(
     "--embedding-model",
     default="openai/text-embedding-3-small",

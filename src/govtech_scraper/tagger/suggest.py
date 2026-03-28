@@ -22,7 +22,7 @@ class TagSuggester:
     def __init__(
         self,
         api_key: str,
-        model: str = "google/gemini-flash-1.5",
+        model: str = "qwen/qwen3-32b",
         base_url: str = "https://openrouter.ai/api/v1",
     ):
         self.api_key = api_key

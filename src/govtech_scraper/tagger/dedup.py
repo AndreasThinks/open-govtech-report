@@ -21,7 +21,7 @@ class TagReconciler:
         taxonomy: Taxonomy,
         embedding_provider: EmbeddingProvider,
         api_key: str,
-        model: str = "google/gemini-flash-1.5",
+        model: str = "qwen/qwen3-32b",
         base_url: str = "https://openrouter.ai/api/v1",
         similarity_threshold: float = 0.85,
     ):
