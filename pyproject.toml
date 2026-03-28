@@ -1,0 +1,31 @@
+[project]
+name = "govtech-scraper"
+version = "0.1.0"
+description = "Scrapes and catalogs public GitHub repositories from government organizations worldwide"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp>=3.10",
+    "aiolimiter>=1.1",
+    "pyyaml>=6.0",
+    "pyjwt[crypto]>=2.10",
+    "click>=8.1",
+    "tqdm>=4.66",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+govtech-scraper = "govtech_scraper.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["E501", "I", "UP"]
