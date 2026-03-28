@@ -53,7 +53,7 @@ jobs:
         env:
           GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
           GITHUB_INSTALLATION_ID: ${{ secrets.GH_APP_INSTALLATION_ID }}
-          GITHUB_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          GITHUB_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
         run: |
           FORCE_FLAG=""
           if [ "${{ github.event.inputs.force_update }}" = "true" ]; then
