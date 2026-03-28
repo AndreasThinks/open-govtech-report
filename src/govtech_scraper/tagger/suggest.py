@@ -133,6 +133,7 @@ class TagSuggester:
                     },
                 },
                 "temperature": 0,
+                "reasoning": {"enabled": False},
             },
             timeout=aiohttp.ClientTimeout(total=30),
         ) as resp:

@@ -220,6 +220,7 @@ class TagReconciler:
                     },
                 },
                 "temperature": 0,
+                "reasoning": {"enabled": False},
             },
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
