@@ -112,6 +112,83 @@ def scrape(ctx: click.Context, force: bool, limit: int | None) -> None:
 
 
 @main.command()
+@click.option("--limit", type=int, default=None, help="Limit repos to tag (for testing)")
+@click.option("--retag", is_flag=True, help="Re-tag already tagged repos")
+@click.option("--model", default="google/gemini-flash-1.5", help="LLM model for tag suggestion")
+@click.option(
+    "--embedding-model",
+    default="openai/text-embedding-3-small",
+    help="Model for tag embeddings",
+)
+@click.pass_context
+def tag(
+    ctx: click.Context,
+    limit: int | None,
+    retag: bool,
+    model: str,
+    embedding_model: str,
+) -> None:
+    """Tag repositories using LLM + embedding deduplication."""
+    load_dotenv()
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        click.echo("Error: OPENROUTER_API_KEY not set.", err=True)
+        click.echo("Set it in .env or environment.", err=True)
+        sys.exit(1)
+
+    db = Database(ctx.obj["db_path"])
+    try:
+        from .tagger import tag_batch
+
+        async def _run():
+            # Count what we're working with
+            if retag:
+                total = len(db.get_all_repos())
+            else:
+                total = len(db.get_untagged_repos())
+
+            if limit:
+                total = min(total, limit)
+
+            if total == 0:
+                click.echo("No repositories to tag.")
+                return
+
+            click.echo(f"Tagging {total} repositories with {model}...")
+            pbar = tqdm(total=total, desc="Tagging", unit="repo")
+
+            result = await tag_batch(
+                db=db,
+                api_key=api_key,
+                model=model,
+                embedding_model=embedding_model,
+                limit=limit,
+                retag=retag,
+                progress_callback=lambda n: pbar.update(n),
+            )
+            pbar.close()
+
+            click.echo(f"\nTagged: {result.total_processed}")
+            click.echo(f"New tags created: {result.total_new_tags}")
+            if result.errors:
+                click.echo(f"Errors: {len(result.errors)}")
+
+            # Show tag stats
+            tag_stats = db.get_tag_stats()
+            click.echo(f"\nTaxonomy: {tag_stats['total_tags']} tags")
+            click.echo(f"Tagged repos: {tag_stats['total_tagged_repos']}")
+            click.echo(f"Avg tags/repo: {tag_stats['avg_tags_per_repo']}")
+            if tag_stats["top_tags"]:
+                click.echo("\nTop tags:")
+                for tag_name, count in tag_stats["top_tags"][:10]:
+                    click.echo(f"  {tag_name}: {count}")
+
+        asyncio.run(_run())
+    finally:
+        db.close()
+
+
+@main.command()
 @click.pass_context
 def stats(ctx: click.Context) -> None:
     """Show database statistics."""
@@ -135,5 +212,16 @@ def stats(ctx: click.Context) -> None:
             click.echo("\nTop languages:")
             for row in rows:
                 click.echo(f"  {row['language']}: {row['cnt']}")
+
+        # Tag stats
+        tag_stats = db.get_tag_stats()
+        if tag_stats["total_tags"] > 0:
+            click.echo(f"\nTaxonomy: {tag_stats['total_tags']} tags")
+            click.echo(f"Tagged repos: {tag_stats['total_tagged_repos']}")
+            click.echo(f"Avg tags/repo: {tag_stats['avg_tags_per_repo']}")
+            if tag_stats["top_tags"]:
+                click.echo("\nTop tags:")
+                for tag_name, cnt in tag_stats["top_tags"][:10]:
+                    click.echo(f"  {tag_name}: {cnt}")
     finally:
         db.close()

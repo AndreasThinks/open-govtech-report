@@ -86,6 +86,47 @@ uv run pytest                    # Run tests
 uv run govtech-scraper --help    # CLI help
 ```
 
+## Tagger Module
+
+The `tagger/` package implements an agentic tagging pipeline:
+
+### Architecture
+```
+tagger/
+├── __init__.py      # Public API: tag_repo(), tag_batch()
+├── schemas.py       # Pydantic models for structured LLM output
+├── prompts.py       # Prompt templates (separate from logic)
+├── context.py       # Builds LLM context within token budget
+├── suggest.py       # Step 1: LLM tag suggestion via OpenRouter
+├── dedup.py         # Step 2: Embedding similarity + LLM merge decision
+├── taxonomy.py      # Living tag vocabulary with embedding cache
+└── embeddings.py    # Embedding provider abstraction
+```
+
+### Pipeline
+1. **Context building** — assembles repo metadata, README, file tree, dependency manifest, entry point code within a ~2000 token budget
+2. **Tag suggestion** — sends context to LLM (default: Gemini Flash via OpenRouter) with structured output, gets back tags + category + tech stack
+3. **Deduplication** — embeds suggested tags, finds similar existing tags via cosine similarity, asks LLM "are these the same concept?" to decide merge vs keep
+4. **Cold start** — first 50 repos skip dedup and seed the taxonomy freely
+
+### DB Tables
+- `tags` — tag vocabulary with cached embeddings and usage counts
+- `repository_tags` — many-to-many repo-tag associations with confidence and source
+
+### CLI
+```bash
+uv run govtech-scraper tag              # tag all untagged repos
+uv run govtech-scraper tag --limit 50   # test run
+uv run govtech-scraper tag --retag      # re-tag everything
+uv run govtech-scraper tag --model google/gemini-2.0-flash-001  # use different model
+```
+
+### Extractability
+The tagger/ package only depends on the parent project through the `Repository` dataclass and `Database` for reading/storing. To spin out as a library, swap those for generic interfaces.
+
+### Environment
+Requires `OPENROUTER_API_KEY` in .env for both LLM calls and embeddings.
+
 ## Important Notes
 
 - Always use `uv` for running Python, installing packages, etc.
