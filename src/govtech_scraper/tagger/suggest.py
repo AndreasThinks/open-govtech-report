@@ -17,6 +17,11 @@ from .prompts import (
 logger = logging.getLogger(__name__)
 
 
+class CreditExhaustedError(RuntimeError):
+    """Raised when OpenRouter returns HTTP 402 (out of credits)."""
+    pass
+
+
 class TagSuggester:
     """Suggests tags for repositories using an LLM via OpenRouter."""
 
@@ -74,6 +79,9 @@ class TagSuggester:
                         return await self._make_request(
                             temp_session, system_prompt, user_prompt, response_schema
                         )
+            except CreditExhaustedError:
+                # Don't retry credit exhaustion - re-raise immediately
+                raise
             except aiohttp.ClientError as e:
                 # Retry on network errors and timeouts
                 if attempt < max_retries - 1:
@@ -139,6 +147,8 @@ class TagSuggester:
         ) as resp:
             if resp.status != 200:
                 body = await resp.text()
+                if resp.status == 402:
+                    raise CreditExhaustedError(f"OpenRouter credits exhausted: {body}")
                 raise RuntimeError(f"OpenRouter API error: {resp.status} {body}")
             data = await resp.json()
 

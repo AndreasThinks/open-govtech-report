@@ -172,6 +172,14 @@ def tag(
             click.echo(f"New tags created: {result.total_new_tags}")
             if result.errors:
                 click.echo(f"Errors: {len(result.errors)}")
+                # Check if any errors are credit exhaustion
+                credit_errors = [e for e in result.errors if "credit" in e.lower() or "402" in e]
+                if credit_errors:
+                    click.echo(
+                        f"\nCredit limit reached. {result.total_processed} repos tagged before stopping. "
+                        f"Top up credits and re-run — progress is saved automatically.",
+                        err=True
+                    )
 
             # Show tag stats
             tag_stats = db.get_tag_stats()

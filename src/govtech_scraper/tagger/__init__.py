@@ -16,7 +16,7 @@ import aiohttp
 from ..models import Repository
 from ..db import Database
 from .context import build_context
-from .suggest import TagSuggester
+from .suggest import TagSuggester, CreditExhaustedError
 from .dedup import TagReconciler
 from .taxonomy import Taxonomy
 from .embeddings import OpenRouterEmbeddings
@@ -296,6 +296,7 @@ async def tag_batch(
     async with aiohttp.ClientSession() as session:
         # Process in batches with parallel suggest, sequential reconcile (Optimization 1)
         semaphore = asyncio.Semaphore(concurrency)
+        consecutive_credit_errors = 0
         
         for batch_start in range(0, total, concurrency):
             batch_end = min(batch_start + concurrency, total)
@@ -303,6 +304,7 @@ async def tag_batch(
             
             # Phase 1: Parallel suggestion
             async def suggest_with_semaphore(repo_row):
+                nonlocal consecutive_credit_errors
                 async with semaphore:
                     try:
                         # Build Repository object from DB row
@@ -329,7 +331,16 @@ async def tag_batch(
                             commit_count=repo_row["commit_count"],
                             fork_source=repo_row["fork_source"],
                         )
-                        return await _suggest_phase(repo, db, suggester, taxonomy, session)
+                        suggestion_result = await _suggest_phase(repo, db, suggester, taxonomy, session)
+                        # Success - reset credit error counter
+                        consecutive_credit_errors = 0
+                        return suggestion_result
+                    except CreditExhaustedError as e:
+                        consecutive_credit_errors += 1
+                        error_msg = f"{repo_row['html_url']}: credit exhaustion (402): {e}"
+                        logger.error(f"Credit exhaustion in suggest phase: {error_msg}")
+                        result.errors.append(error_msg)
+                        return None
                     except Exception as e:
                         error_msg = f"{repo_row['html_url']}: {e}"
                         logger.error(f"Error in suggest phase: {error_msg}")
@@ -340,6 +351,14 @@ async def tag_batch(
                 *[suggest_with_semaphore(repo_row) for repo_row in batch_repos],
                 return_exceptions=False
             )
+            
+            # Check circuit breaker: if 3+ consecutive credit errors, stop
+            if consecutive_credit_errors >= 3:
+                logger.error(
+                    "OpenRouter credits exhausted. Top up at https://openrouter.ai/settings/credits "
+                    "and re-run. Progress is saved — will resume from where it stopped."
+                )
+                break
             
             # Phase 2: Sequential reconciliation (to maintain taxonomy consistency)
             for i, suggestion_result in enumerate(suggestion_results):
