@@ -127,6 +127,43 @@ The tagger/ package only depends on the parent project through the `Repository` 
 ### Environment
 Requires `OPENROUTER_API_KEY` in .env for both LLM calls and embeddings.
 
+## Dashboard (HuggingFace Space)
+
+The `web/` directory contains a Streamlit dashboard for exploring the dataset, deployed as a HuggingFace Space.
+
+### Architecture
+```
+web/
+├── app.py              # Streamlit app (single-file, multi-tab)
+└── requirements.txt    # Streamlit, plotly, pandas, huggingface-hub
+```
+
+### Pages
+1. **Overview** — headline metrics, country distribution bar chart, language distribution, creation timeline
+2. **Explorer** — filterable, searchable, paginated repo table with country/language/stars/archived/fork filters
+3. **Tags** — top tags bar chart, tag groups with expandable members, browse repos by tag. Shows "tagging in progress" banner when <50% tagged
+4. **Insights** — top 50 starred repos, license breakdown pie, fork vs original ratio, most recently active repos, language×country heatmap
+
+### Data Source
+The app looks for `govtech.db` in:
+1. `../govtech.db` (parent directory — for local dev)
+2. `./govtech.db` (current directory)
+3. Downloads from HuggingFace dataset `AndreasThinks/government-github-repos` (for Space deployment)
+
+All queries use `@st.cache_data(ttl=300)` for performance.
+
+### Local Development
+```bash
+cd web
+uv run streamlit run app.py
+```
+
+### HuggingFace Spaces Deployment
+- SDK: Streamlit
+- Hardware: Free tier (no GPU needed)
+- The app auto-downloads the DB from the HF dataset repo on startup
+- Weekly pipeline (GitHub Actions) pushes updated DB → Space auto-refreshes on next visit
+
 ## Important Notes
 
 - Always use `uv` for running Python, installing packages, etc.
