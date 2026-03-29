@@ -5,6 +5,12 @@ import plotly.graph_objects as go
 import sqlite3
 import os
 import json
+import logging
+
+# Configure logging for HF Space container logs
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+logger = logging.getLogger("govtech-dashboard")
+logger.info("Starting GovTech Dashboard...")
 
 st.set_page_config(
     page_title="GovTech GitHub Explorer",
@@ -24,9 +30,12 @@ def get_db_path():
         "../govtech.db",
     ]
     for p in candidates:
+        logger.info(f"Checking for DB at: {os.path.abspath(p)}")
         if os.path.exists(p):
+            logger.info(f"Found local DB: {os.path.abspath(p)}")
             return os.path.abspath(p)
     # Download from HuggingFace
+    logger.info("No local DB found, downloading from HuggingFace Hub...")
     try:
         from huggingface_hub import hf_hub_download
         path = hf_hub_download(
@@ -34,13 +43,23 @@ def get_db_path():
             filename="data/govtech.db",
             repo_type="dataset",
         )
+        logger.info(f"Downloaded DB to: {path}")
         return path
     except Exception as e:
+        logger.error(f"Failed to download DB: {e}")
         st.error(f"Could not find or download govtech.db: {e}")
         st.stop()
 
 
 DB_PATH = get_db_path()
+logger.info(f"Using database: {DB_PATH} ({os.path.getsize(DB_PATH) / 1024 / 1024:.1f} MB)")
+try:
+    _conn = sqlite3.connect(DB_PATH)
+    _tables = [r[0] for r in _conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    _conn.close()
+    logger.info(f"DB tables: {', '.join(_tables)}")
+except Exception as e:
+    logger.error(f"DB validation failed: {e}")
 
 
 def get_conn():
