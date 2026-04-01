@@ -158,6 +158,10 @@ class Taxonomy:
                 result.append((tag_name, entry.embedding))
         return result
 
+    def all_tags(self) -> list[str]:
+        """Return all tag names currently in the taxonomy."""
+        return list(self._tags.keys())
+
     @property
     def size(self) -> int:
         return len(self._tags)

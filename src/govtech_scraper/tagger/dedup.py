@@ -1,4 +1,13 @@
-"""Step 2: Embedding-based tag deduplication and reconciliation."""
+"""Step 2: Hybrid tag deduplication and reconciliation.
+
+Candidate pairs are generated via two independent signals (OR'd together):
+  1. Embedding cosine similarity >= embedding_threshold (default 0.80)
+  2. String similarity (rapidfuzz token_sort_ratio) >= string_threshold (default 0.82)
+
+Both signals feed into the same LLM confirmation step, which makes the final
+merge/keep decision. This catches semantic duplicates (embedding) AND
+punctuation/hyphen/plural variants (string) that embeddings miss.
+"""
 
 import asyncio
 import json
@@ -6,6 +15,7 @@ import logging
 from typing import Optional
 
 import aiohttp
+from rapidfuzz import fuzz
 
 from .schemas import TaggingResult, DeduplicationDecision
 from .taxonomy import Taxonomy
@@ -14,9 +24,17 @@ from .prompts import DEDUP_SYSTEM, DEDUP_USER
 
 logger = logging.getLogger(__name__)
 
+# String similarity threshold for hybrid dedup (rapidfuzz token_sort_ratio, 0–100 scale)
+_STRING_THRESHOLD = 82
+
+
+def _string_similar(a: str, b: str, threshold: int = _STRING_THRESHOLD) -> bool:
+    """Return True if tags are string-similar enough to warrant LLM review."""
+    return fuzz.token_sort_ratio(a, b) >= threshold
+
 
 class TagReconciler:
-    """Reconciles suggested tags against the existing taxonomy."""
+    """Reconciles suggested tags against the existing taxonomy using hybrid similarity."""
 
     def __init__(
         self,
@@ -25,7 +43,8 @@ class TagReconciler:
         api_key: str,
         model: str = "qwen/qwen3-32b",
         base_url: str = "https://openrouter.ai/api/v1",
-        similarity_threshold: float = 0.85,
+        similarity_threshold: float = 0.80,
+        string_threshold: int = _STRING_THRESHOLD,
     ):
         self.taxonomy = taxonomy
         self.embeddings = embedding_provider
@@ -33,6 +52,7 @@ class TagReconciler:
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.similarity_threshold = similarity_threshold
+        self.string_threshold = string_threshold
 
     async def reconcile(
         self,
@@ -68,14 +88,33 @@ class TagReconciler:
                 logger.debug(f"Exact match: {tag}")
                 continue
 
-            # 2. Similarity search
+            # 2. Hybrid similarity — embedding OR string, whichever fires first
+            # 2a. Embedding similarity (semantic)
             similar = self.taxonomy.find_similar(
                 embedding, threshold=self.similarity_threshold
             )
 
+            best_match: Optional[str] = None
+            best_score: float = 0.0
+            match_signal: str = ""
+
             if similar:
                 best_match, best_score = similar[0]
-                logger.debug(f"Similar match for '{tag}': '{best_match}' (score={best_score:.3f})")
+                match_signal = "embedding"
+                logger.debug(f"Embedding match for '{tag}': '{best_match}' (score={best_score:.3f})")
+
+            # 2b. String similarity (catches hyphen/plural/punctuation variants)
+            if best_match is None:
+                for existing_tag in self.taxonomy.all_tags():
+                    if _string_similar(tag, existing_tag, self.string_threshold):
+                        best_match = existing_tag
+                        best_score = fuzz.token_sort_ratio(tag, existing_tag) / 100.0
+                        match_signal = "string"
+                        logger.debug(f"String match for '{tag}': '{best_match}' (ratio={best_score:.2f})")
+                        break
+
+            if best_match is not None:
+                logger.debug(f"Candidate match for '{tag}': '{best_match}' via {match_signal}")
 
                 # Ask LLM if they're the same concept
                 decision = await self._ask_dedup(

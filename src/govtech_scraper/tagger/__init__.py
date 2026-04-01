@@ -26,6 +26,14 @@ logger = logging.getLogger(__name__)
 # Number of repos to tag before the dedup step kicks in
 COLD_START_THRESHOLD = 50
 
+# Language names that duplicate the `language` field — skip saving as tech-stack tags
+_LANGUAGE_NOISE = frozenset([
+    "javascript", "python", "java", "typescript", "html", "css", "php",
+    "ruby", "shell", "r", "scala", "c#", "kotlin", "go", "rust", "c",
+    "c++", "perl", "swift", "matlab", "bash", "json", "xml", "yaml",
+    "sql", "makefile",
+])
+
 
 @dataclass
 class TagResult:
@@ -121,9 +129,12 @@ async def _reconcile_phase(
         )
         db.save_repo_tag(repo.html_url, tag, confidence, source="llm")
 
-    # Save tech stack as tags with a different source
+    # Save tech stack as tags with a different source, skipping bare language names
     for tech in suggestions.tech_stack:
         tech_tag = tech.lower().replace(" ", "-")
+        if tech_tag in _LANGUAGE_NOISE:
+            logger.debug(f"Skipping language-noise tech-stack tag: {tech_tag}")
+            continue
         db.save_repo_tag(repo.html_url, tech_tag, 1.0, source="tech-stack")
 
     return TagResult(
@@ -200,9 +211,12 @@ async def tag_repo(
         )
         db.save_repo_tag(repo.html_url, tag, confidence, source="llm")
 
-    # Save tech stack as tags with a different source
+    # Save tech stack as tags with a different source, skipping bare language names
     for tech in suggestions.tech_stack:
         tech_tag = tech.lower().replace(" ", "-")
+        if tech_tag in _LANGUAGE_NOISE:
+            logger.debug(f"Skipping language-noise tech-stack tag: {tech_tag}")
+            continue
         db.save_repo_tag(repo.html_url, tech_tag, 1.0, source="tech-stack")
 
     return TagResult(
