@@ -2,6 +2,9 @@
 
 Scrapes and catalogs every public GitHub repository belonging to government organizations worldwide, then uses an LLM-powered tagging pipeline to automatically categorize them.
 
+**🏛️ [Live Dashboard](https://huggingface.co/spaces/AndreasThinks/govtech-dashboard)** — explore the data interactively.
+**📦 [Dataset on Hugging Face](https://huggingface.co/datasets/AndreasThinks/government-github-repos)** — download the full SQLite DB, CSV, and Parquet exports.
+
 Uses the [government.github.com](https://github.com/github/government.github.com) registry as the source of truth for government GitHub accounts.
 
 ## What it does
