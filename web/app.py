@@ -7,6 +7,36 @@ import os
 import logging
 from datetime import datetime, timedelta, timezone
 
+# Tags that describe the dataset itself rather than individual repos — excluded from all charts/filters
+BLOCKLIST_TAGS = frozenset([
+    "government", "open-source", "public-sector", "open-government",
+    "government-software", "government-tool", "government-project",
+    "government-repository", "government-platform", "government-code",
+])
+
+# Tags that duplicate the language field already in the schema
+LANGUAGE_TAGS = frozenset([
+    "javascript", "python", "java", "typescript", "html", "css", "php",
+    "ruby", "shell", "r", "scala", "c#", "kotlin", "go", "rust", "c",
+    "c++", "perl", "swift", "matlab", "bash", "json", "xml", "yaml",
+    "sql", "makefile",
+])
+
+# Combined filter — tags to hide from dashboard display
+EXCLUDED_TAGS = BLOCKLIST_TAGS | LANGUAGE_TAGS
+
+# Minimum repos a tag must appear in to show in charts/filters
+MIN_TAG_REPOS = 2
+
+def _tag_filter_sql(tag_col: str = "tag") -> str:
+    """Return a SQL fragment excluding noise tags. Use with AND."""
+    excluded = EXCLUDED_TAGS
+    ph = ",".join(["?"] * len(excluded))
+    return f"{tag_col} NOT IN ({ph}) AND {tag_col} IS NOT NULL"
+
+def _tag_filter_params() -> list:
+    return list(EXCLUDED_TAGS)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("govtech-dashboard")
@@ -79,8 +109,11 @@ def load_filter_options():
     languages = pd.read_sql_query(
         "SELECT DISTINCT language FROM repositories WHERE language IS NOT NULL AND language != '' ORDER BY language", conn
     )["language"].tolist()
+    tf_sql = _tag_filter_sql()
+    tf_params = _tag_filter_params()
     tags = pd.read_sql_query(
-        "SELECT tag, COUNT(*) as c FROM repository_tags GROUP BY tag ORDER BY c DESC", conn
+        f"SELECT tag, COUNT(DISTINCT html_url) as c FROM repository_tags WHERE {tf_sql} GROUP BY tag HAVING c >= {MIN_TAG_REPOS} ORDER BY c DESC",
+        conn, params=tf_params
     )["tag"].tolist()
     orgs = pd.read_sql_query(
         "SELECT owner, COUNT(*) as c FROM repositories GROUP BY owner ORDER BY c DESC LIMIT 300", conn
@@ -380,15 +413,17 @@ with tab_tags:
 
     with col_tl:
         st.subheader("Top Tags")
+        tf_sql_t = _tag_filter_sql("rt2.tag")
+        tf_params_t = _tag_filter_params()
         df_top_tags = query_df(
             f"""SELECT rt2.tag, COUNT(DISTINCT r.html_url) as count
                 FROM repositories r
                 JOIN repository_tags rt2 ON r.html_url = rt2.html_url
                 {tag_join_t.replace("rt", "rt_f") if sel_tags else ""}
                 {where_t.replace("rt.", "rt2.") if where_t else ""}
-                {"AND" if where_t else "WHERE"} rt2.tag IS NOT NULL
-                GROUP BY rt2.tag ORDER BY count DESC LIMIT 30""",
-            params_t,
+                {"AND" if where_t else "WHERE"} {tf_sql_t}
+                GROUP BY rt2.tag HAVING count >= {MIN_TAG_REPOS} ORDER BY count DESC LIMIT 30""",
+            params_t + tf_params_t,
         )
         if not df_top_tags.empty:
             fig = px.bar(
@@ -690,6 +725,8 @@ with tab_trends:
     w_base = (" AND ".join(conds_base)) if conds_base else ""
     and_base = ("AND " + w_base) if w_base else ""
 
+    tf_sql_mom = _tag_filter_sql("rt.tag")
+    tf_params_mom = _tag_filter_params()
     df_momentum = query_df(
         f"""
         SELECT
@@ -698,13 +735,13 @@ with tab_trends:
             COUNT(DISTINCT CASE WHEN r.created_at >= ? AND r.created_at < ? THEN r.html_url END) as prior
         FROM repository_tags rt
         JOIN repositories r ON rt.html_url = r.html_url
-        WHERE r.created_at IS NOT NULL {and_base}
+        WHERE r.created_at IS NOT NULL AND {tf_sql_mom} {and_base}
         GROUP BY rt.tag
         HAVING recent >= 5 AND prior >= 5
         ORDER BY (CAST(recent AS FLOAT) / prior) DESC
         LIMIT 30
         """,
-        [cutoff_12m, cutoff_24m_str, cutoff_12m] + params_base,
+        [cutoff_12m, cutoff_24m_str, cutoff_12m] + tf_params_mom + params_base,
     )
 
     if not df_momentum.empty:
@@ -734,10 +771,10 @@ with tab_trends:
                 f"""
                 SELECT rt.tag, COUNT(DISTINCT r.html_url) as recent_count
                 FROM repository_tags rt JOIN repositories r ON rt.html_url = r.html_url
-                WHERE r.created_at >= ? {and_base}
+                WHERE r.created_at >= ? AND {tf_sql_mom} {and_base}
                 GROUP BY rt.tag ORDER BY recent_count DESC LIMIT 20
                 """,
-                [cutoff_12m] + params_base,
+                [cutoff_12m] + tf_params_mom + params_base,
             )
             if not df_recent_top.empty:
                 fig2 = px.bar(
