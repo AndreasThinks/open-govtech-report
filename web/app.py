@@ -152,8 +152,9 @@ min_stars = st.sidebar.slider("Min stars", 0, 500, 0, key="g_stars")
 
 st.sidebar.divider()
 st.sidebar.markdown(
-    "🔗 [GitHub Repo](https://github.com/AndreasThinks/open-govtech-report) &nbsp;|&nbsp; "
-    "[Dataset on HF](https://huggingface.co/datasets/AndreasThinks/government-github-repos)",
+    "🔗 [GitHub](https://github.com/AndreasThinks/open-govtech-report) &nbsp;|&nbsp; "
+    "[Dataset](https://huggingface.co/datasets/AndreasThinks/government-github-repos) &nbsp;|&nbsp; "
+    "[➕ Submit a missing org](https://github.com/AndreasThinks/open-govtech-report/blob/main/CONTRIBUTING.md)",
     unsafe_allow_html=True,
 )
 
@@ -971,10 +972,17 @@ with tab_about:
 
     st.divider()
 
-    st.subheader("Source")
+    st.subheader("Contribute")
+    st.write(
+        "Know a government GitHub organisation that's missing from the dataset? "
+        "Submit it via a pull request — it'll be included in the next weekly scrape."
+    )
+    st.markdown(
+        "📋 **[How to submit a missing organisation](https://github.com/AndreasThinks/open-govtech-report/blob/main/CONTRIBUTING.md)**"
+    )
     st.write(
         "The scraper, tagger, and dashboard are all open source. "
-        "Pull requests and issues welcome."
+        "Issues and pull requests welcome."
     )
     st.markdown("[github.com/AndreasThinks/open-govtech-report](https://github.com/AndreasThinks/open-govtech-report)")
 
@@ -991,5 +999,6 @@ st.caption(
     "Data sourced from government GitHub accounts worldwide. Updated weekly. "
     "| [GitHub](https://github.com/AndreasThinks/open-govtech-report) "
     "| [Dataset](https://huggingface.co/datasets/AndreasThinks/government-github-repos) "
+    "| [➕ Submit a missing org](https://github.com/AndreasThinks/open-govtech-report/blob/main/CONTRIBUTING.md) "
     "| ✨ A project by [AndreasThinks](https://andreasthinks.me)"
 )
