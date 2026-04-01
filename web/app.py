@@ -181,8 +181,8 @@ st.title("🏛️ GovTech GitHub Explorer")
 st.caption("Exploring 70k+ government GitHub repositories worldwide")
 
 # ==================== TABS ====================
-tab_overview, tab_explorer, tab_tags, tab_insights, tab_about = st.tabs(
-    ["📊 Overview", "🔍 Explorer", "🏷️ Tags", "💡 Insights", "ℹ️ About"]
+tab_overview, tab_explorer, tab_tags, tab_insights, tab_trends, tab_about = st.tabs(
+    ["📊 Overview", "🔍 Explorer", "🏷️ Tags", "💡 Insights", "📈 Trends", "ℹ️ About"]
 )
 
 
@@ -632,6 +632,190 @@ with tab_insights:
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Not enough data for heatmap.")
+
+
+# ==================== TRENDS ====================
+with tab_trends:
+    st.subheader("📈 Trends Over Time")
+    st.caption("How government open source has evolved — new activity, rising tags, and shifting languages.")
+
+    # ---- 1. New repos per month (last 24 months) ----
+    st.markdown("### 🗓️ New Repositories per Month")
+    st.caption("Monthly repo creation over the last 2 years.")
+
+    cutoff_24m = (datetime.now(timezone.utc) - timedelta(days=730)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conds_m, params_m = build_where(base_table="r")
+    conds_m.append("r.created_at >= ?")
+    params_m.append(cutoff_24m)
+    w_m = ("WHERE " + " AND ".join(conds_m)) if conds_m else ""
+    tj_m = "JOIN repository_tags rt ON r.html_url = rt.html_url" if sel_tags else ""
+    if sel_tags:
+        ph = ",".join(["?"] * len(sel_tags))
+        conds_m.append(f"rt.tag IN ({ph})")
+        params_m.extend(sel_tags)
+        w_m = ("WHERE " + " AND ".join(conds_m)) if conds_m else ""
+
+    df_monthly = query_df(
+        f"""SELECT SUBSTR(r.created_at, 1, 7) as month, COUNT(DISTINCT r.html_url) as new_repos
+            FROM repositories r {tj_m} {w_m}
+            GROUP BY month ORDER BY month""",
+        params_m,
+    )
+    df_monthly = df_monthly[df_monthly["month"].str.match(r"^\d{{4}}-\d{{2}}$", na=False)]
+    if not df_monthly.empty:
+        fig = px.bar(
+            df_monthly, x="month", y="new_repos",
+            labels={"month": "Month", "new_repos": "New repositories"},
+            color="new_repos", color_continuous_scale="Blues",
+        )
+        fig.update_layout(coloraxis_showscale=False, xaxis_title="Month", yaxis_title="New repos")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Not enough data for monthly chart.")
+
+    st.divider()
+
+    # ---- 2. Tag momentum ----
+    st.markdown("### 🚀 Tag Momentum")
+    st.caption(
+        "Tags ranked by growth — repos tagged with each label in the last 12 months vs the previous 12 months. "
+        "Higher ratio = faster-growing category."
+    )
+
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff_12m = (datetime.now(timezone.utc) - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff_24m_str = (datetime.now(timezone.utc) - timedelta(days=730)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    conds_base, params_base = build_where(base_table="r")
+    w_base = (" AND ".join(conds_base)) if conds_base else ""
+    and_base = ("AND " + w_base) if w_base else ""
+
+    df_momentum = query_df(
+        f"""
+        SELECT
+            rt.tag,
+            COUNT(DISTINCT CASE WHEN r.created_at >= ? THEN r.html_url END) as recent,
+            COUNT(DISTINCT CASE WHEN r.created_at >= ? AND r.created_at < ? THEN r.html_url END) as prior
+        FROM repository_tags rt
+        JOIN repositories r ON rt.html_url = r.html_url
+        WHERE r.created_at IS NOT NULL {and_base}
+        GROUP BY rt.tag
+        HAVING recent >= 5 AND prior >= 5
+        ORDER BY (CAST(recent AS FLOAT) / prior) DESC
+        LIMIT 30
+        """,
+        [cutoff_12m, cutoff_24m_str, cutoff_12m] + params_base,
+    )
+
+    if not df_momentum.empty:
+        df_momentum["growth_ratio"] = (df_momentum["recent"] / df_momentum["prior"]).round(2)
+        df_momentum["growth_pct"] = ((df_momentum["growth_ratio"] - 1) * 100).round(1)
+
+        col_m1, col_m2 = st.columns(2)
+
+        with col_m1:
+            st.markdown("**Fastest growing tags** (last 12m vs prior 12m)")
+            fig = px.bar(
+                df_momentum.head(20), x="growth_ratio", y="tag", orientation="h",
+                color="growth_ratio", color_continuous_scale="Greens",
+                labels={"growth_ratio": "Growth ratio (recent / prior)", "tag": "Tag"},
+                hover_data={"recent": True, "prior": True, "growth_pct": True},
+            )
+            fig.update_layout(
+                yaxis=dict(autorange="reversed"), height=550,
+                coloraxis_showscale=False, xaxis_title="Growth ratio", yaxis_title="",
+            )
+            fig.add_vline(x=1.0, line_dash="dash", line_color="grey", annotation_text="no change")
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col_m2:
+            st.markdown("**Top 20 by absolute recent volume**")
+            df_recent_top = query_df(
+                f"""
+                SELECT rt.tag, COUNT(DISTINCT r.html_url) as recent_count
+                FROM repository_tags rt JOIN repositories r ON rt.html_url = r.html_url
+                WHERE r.created_at >= ? {and_base}
+                GROUP BY rt.tag ORDER BY recent_count DESC LIMIT 20
+                """,
+                [cutoff_12m] + params_base,
+            )
+            if not df_recent_top.empty:
+                fig2 = px.bar(
+                    df_recent_top, x="recent_count", y="tag", orientation="h",
+                    color="recent_count", color_continuous_scale="Purples",
+                    labels={"recent_count": "Repos (last 12m)", "tag": "Tag"},
+                )
+                fig2.update_layout(
+                    yaxis=dict(autorange="reversed"), height=550,
+                    coloraxis_showscale=False, xaxis_title="Repos (last 12m)", yaxis_title="",
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+
+        # Emerging tags table
+        st.markdown("**Emerging tags** — ratio > 1.5, sorted by growth")
+        df_emerging = df_momentum[df_momentum["growth_ratio"] >= 1.5][
+            ["tag", "recent", "prior", "growth_ratio", "growth_pct"]
+        ].rename(columns={
+            "tag": "Tag", "recent": "Last 12m", "prior": "Prior 12m",
+            "growth_ratio": "Ratio", "growth_pct": "Growth %"
+        })
+        if not df_emerging.empty:
+            st.dataframe(df_emerging, use_container_width=True, hide_index=True)
+        else:
+            st.info("No tags with >50% growth in this period.")
+    else:
+        st.info("Not enough tagged data yet to compute momentum.")
+
+    st.divider()
+
+    # ---- 3. Language trends ----
+    st.markdown("### 💻 Language Trends")
+    st.caption("Year-over-year share of new repositories by primary language — top 10 languages.")
+
+    df_lang_year = query_df(
+        f"""
+        SELECT SUBSTR(r.created_at, 1, 4) as year, r.language,
+               COUNT(DISTINCT r.html_url) as count
+        FROM repositories r
+        WHERE r.language IS NOT NULL AND r.language != ''
+          AND r.created_at IS NOT NULL
+          AND r.language IN (
+              SELECT language FROM repositories
+              WHERE language IS NOT NULL AND language != ''
+              GROUP BY language ORDER BY COUNT(*) DESC LIMIT 10
+          )
+          AND SUBSTR(r.created_at, 1, 4) BETWEEN '2015' AND SUBSTR(?, 1, 4)
+        GROUP BY year, r.language ORDER BY year
+        """,
+        [now_str],
+    )
+    df_lang_year = df_lang_year[df_lang_year["year"].str.match(r"^\d{4}$", na=False)]
+
+    if not df_lang_year.empty:
+        # Absolute count line chart
+        fig_lang = px.line(
+            df_lang_year, x="year", y="count", color="language",
+            labels={"year": "Year", "count": "New repositories", "language": "Language"},
+            markers=True,
+        )
+        fig_lang.update_layout(legend=dict(orientation="h", y=-0.25))
+        st.plotly_chart(fig_lang, use_container_width=True)
+
+        # Share / normalised stacked area
+        st.caption("As a share of all new repos that year (top 10 languages).")
+        df_totals = df_lang_year.groupby("year")["count"].sum().reset_index().rename(columns={"count": "total"})
+        df_share = df_lang_year.merge(df_totals, on="year")
+        df_share["share"] = (df_share["count"] / df_share["total"] * 100).round(1)
+
+        fig_share = px.area(
+            df_share, x="year", y="share", color="language",
+            labels={"year": "Year", "share": "Share of new repos (%)", "language": "Language"},
+            groupnorm="",
+        )
+        fig_share.update_layout(legend=dict(orientation="h", y=-0.25), yaxis_title="Share (%)")
+        st.plotly_chart(fig_share, use_container_width=True)
+    else:
+        st.info("Not enough data for language trends.")
 
 
 # ==================== ABOUT ====================
