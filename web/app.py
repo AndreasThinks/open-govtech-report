@@ -674,14 +674,61 @@ with tab_trends:
     st.subheader("📈 Trends Over Time")
     st.caption("How government open source has evolved — new activity, rising tags, and shifting languages.")
 
-    # ---- 1. New repos per month (last 24 months) ----
-    st.markdown("### 🗓️ New Repositories per Month")
-    st.caption("Monthly repo creation over the last 2 years.")
+    # ---- Period selector ----
+    PERIOD_OPTIONS = {
+        "This week":     7,
+        "This month":    30,
+        "Last 3 months": 90,
+        "Last 6 months": 180,
+        "Last 12 months": 365,
+        "Last 2 years":  730,
+    }
+    period_label = st.radio(
+        "Period", list(PERIOD_OPTIONS.keys()), index=4,
+        horizontal=True, key="trends_period",
+    )
+    period_days = PERIOD_OPTIONS[period_label]
+    period_prior_days = period_days * 2  # prior window = same length, shifted back
 
-    cutoff_24m = (datetime.now(timezone.utc) - timedelta(days=730)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now_utc = datetime.now(timezone.utc)
+    now_str = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff_recent = (now_utc - timedelta(days=period_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff_prior  = (now_utc - timedelta(days=period_prior_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Granularity: week/month buckets depending on period
+    if period_days <= 30:
+        bucket_fmt = "%Y-%W"   # ISO week
+        bucket_label = "Week"
+    elif period_days <= 365:
+        bucket_fmt = "%Y-%m"   # Month
+        bucket_label = "Month"
+    else:
+        bucket_fmt = "%Y-%m"
+        bucket_label = "Month"
+
+    # For the repos chart, show the bucket pattern for the selected period
+    # SQLite STRFTIME format
+    if period_days <= 30:
+        sql_bucket = "STRFTIME('%Y-%W', r.created_at)"
+        bucket_re = r"^\d{4}-\d{2}$"
+    else:
+        sql_bucket = "SUBSTR(r.created_at, 1, 7)"
+        bucket_re = r"^\d{4}-\d{2}$"
+
+    st.divider()
+
+    conds_base, params_base = build_where(base_table="r")
+    w_base = (" AND ".join(conds_base)) if conds_base else ""
+    and_base = ("AND " + w_base) if w_base else ""
+    tf_sql_mom = _tag_filter_sql("rt.tag")
+    tf_params_mom = _tag_filter_params()
+
+    # ---- 1. New repos per period ----
+    st.markdown(f"### 🗓️ New Repositories — {period_label}")
+
     conds_m, params_m = build_where(base_table="r")
     conds_m.append("r.created_at >= ?")
-    params_m.append(cutoff_24m)
+    params_m.append(cutoff_recent)
     w_m = ("WHERE " + " AND ".join(conds_m)) if conds_m else ""
     tj_m = "JOIN repository_tags rt ON r.html_url = rt.html_url" if sel_tags else ""
     if sel_tags:
@@ -690,43 +737,68 @@ with tab_trends:
         params_m.extend(sel_tags)
         w_m = ("WHERE " + " AND ".join(conds_m)) if conds_m else ""
 
-    df_monthly = query_df(
-        f"""SELECT SUBSTR(r.created_at, 1, 7) as month, COUNT(DISTINCT r.html_url) as new_repos
+    df_activity = query_df(
+        f"""SELECT {sql_bucket} as bucket, COUNT(DISTINCT r.html_url) as new_repos
             FROM repositories r {tj_m} {w_m}
-            GROUP BY month ORDER BY month""",
+            GROUP BY bucket ORDER BY bucket""",
         params_m,
     )
-    df_monthly = df_monthly[df_monthly["month"].str.match(r"^\d{{4}}-\d{{2}}$", na=False)]
-    if not df_monthly.empty:
+    df_activity = df_activity[df_activity["bucket"].str.match(bucket_re, na=False)]
+    if not df_activity.empty:
         fig = px.bar(
-            df_monthly, x="month", y="new_repos",
-            labels={"month": "Month", "new_repos": "New repositories"},
+            df_activity, x="bucket", y="new_repos",
+            labels={"bucket": bucket_label, "new_repos": "New repositories"},
             color="new_repos", color_continuous_scale="Blues",
         )
-        fig.update_layout(coloraxis_showscale=False, xaxis_title="Month", yaxis_title="New repos")
+        fig.update_layout(coloraxis_showscale=False, xaxis_title=bucket_label, yaxis_title="New repos")
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("Not enough data for monthly chart.")
+        st.info("Not enough data for this period.")
+
+    # Fastest growing repos this period (by stars delta proxy: recently created + high stars)
+    st.markdown(f"#### 🌟 Top New Repos — {period_label}")
+    st.caption("Highest-starred repositories created in the selected period.")
+    conds_nr, params_nr = build_where(base_table="r")
+    conds_nr.append("r.created_at >= ?")
+    params_nr.append(cutoff_recent)
+    w_nr = ("WHERE " + " AND ".join(conds_nr)) if conds_nr else ""
+    tj_nr = "JOIN repository_tags rt ON r.html_url = rt.html_url" if sel_tags else ""
+    if sel_tags:
+        ph = ",".join(["?"] * len(sel_tags))
+        conds_nr.append(f"rt.tag IN ({ph})")
+        params_nr.extend(sel_tags)
+        w_nr = ("WHERE " + " AND ".join(conds_nr)) if conds_nr else ""
+    df_new_repos = query_df(
+        f"""SELECT r.name, r.owner, r.country, r.language, r.stars, r.created_at, r.html_url
+            FROM repositories r {tj_nr} {w_nr}
+            GROUP BY r.html_url ORDER BY r.stars DESC LIMIT 20""",
+        params_nr,
+    )
+    if not df_new_repos.empty:
+        st.dataframe(
+            df_new_repos,
+            column_config={
+                "html_url": st.column_config.LinkColumn("URL", display_text="Open"),
+                "stars": st.column_config.NumberColumn("⭐ Stars"),
+                "created_at": st.column_config.TextColumn("Created"),
+            },
+            use_container_width=True, hide_index=True,
+        )
+    else:
+        st.info("No new repos in this period.")
 
     st.divider()
 
     # ---- 2. Tag momentum ----
-    st.markdown("### 🚀 Tag Momentum")
+    st.markdown(f"### 🚀 Tag Momentum — {period_label} vs prior {period_label.lower()}")
     st.caption(
-        "Tags ranked by growth — repos tagged with each label in the last 12 months vs the previous 12 months. "
+        f"Tags ranked by growth — repos created in the selected period vs the equivalent period before it. "
         "Higher ratio = faster-growing category."
     )
 
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    cutoff_12m = (datetime.now(timezone.utc) - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    cutoff_24m_str = (datetime.now(timezone.utc) - timedelta(days=730)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Minimum repo count scales with period to avoid noise on short windows
+    min_repos = max(2, period_days // 60)
 
-    conds_base, params_base = build_where(base_table="r")
-    w_base = (" AND ".join(conds_base)) if conds_base else ""
-    and_base = ("AND " + w_base) if w_base else ""
-
-    tf_sql_mom = _tag_filter_sql("rt.tag")
-    tf_params_mom = _tag_filter_params()
     df_momentum = query_df(
         f"""
         SELECT
@@ -737,11 +809,11 @@ with tab_trends:
         JOIN repositories r ON rt.html_url = r.html_url
         WHERE r.created_at IS NOT NULL AND {tf_sql_mom} {and_base}
         GROUP BY rt.tag
-        HAVING recent >= 5 AND prior >= 5
+        HAVING recent >= {min_repos} AND prior >= {min_repos}
         ORDER BY (CAST(recent AS FLOAT) / prior) DESC
         LIMIT 30
         """,
-        [cutoff_12m, cutoff_24m_str, cutoff_12m] + tf_params_mom + params_base,
+        [cutoff_recent, cutoff_prior, cutoff_recent] + tf_params_mom + params_base,
     )
 
     if not df_momentum.empty:
@@ -751,7 +823,7 @@ with tab_trends:
         col_m1, col_m2 = st.columns(2)
 
         with col_m1:
-            st.markdown("**Fastest growing tags** (last 12m vs prior 12m)")
+            st.markdown(f"**Fastest growing tags**")
             fig = px.bar(
                 df_momentum.head(20), x="growth_ratio", y="tag", orientation="h",
                 color="growth_ratio", color_continuous_scale="Greens",
@@ -766,7 +838,7 @@ with tab_trends:
             st.plotly_chart(fig, use_container_width=True)
 
         with col_m2:
-            st.markdown("**Top 20 by absolute recent volume**")
+            st.markdown(f"**Top tags by volume**")
             df_recent_top = query_df(
                 f"""
                 SELECT rt.tag, COUNT(DISTINCT r.html_url) as recent_count
@@ -774,26 +846,27 @@ with tab_trends:
                 WHERE r.created_at >= ? AND {tf_sql_mom} {and_base}
                 GROUP BY rt.tag ORDER BY recent_count DESC LIMIT 20
                 """,
-                [cutoff_12m] + tf_params_mom + params_base,
+                [cutoff_recent] + tf_params_mom + params_base,
             )
             if not df_recent_top.empty:
                 fig2 = px.bar(
                     df_recent_top, x="recent_count", y="tag", orientation="h",
                     color="recent_count", color_continuous_scale="Purples",
-                    labels={"recent_count": "Repos (last 12m)", "tag": "Tag"},
+                    labels={"recent_count": f"Repos ({period_label.lower()})", "tag": "Tag"},
                 )
                 fig2.update_layout(
                     yaxis=dict(autorange="reversed"), height=550,
-                    coloraxis_showscale=False, xaxis_title="Repos (last 12m)", yaxis_title="",
+                    coloraxis_showscale=False,
+                    xaxis_title=f"Repos ({period_label.lower()})", yaxis_title="",
                 )
                 st.plotly_chart(fig2, use_container_width=True)
 
         # Emerging tags table
-        st.markdown("**Emerging tags** — ratio > 1.5, sorted by growth")
+        st.markdown("**Emerging tags** — ratio > 1.5")
         df_emerging = df_momentum[df_momentum["growth_ratio"] >= 1.5][
             ["tag", "recent", "prior", "growth_ratio", "growth_pct"]
         ].rename(columns={
-            "tag": "Tag", "recent": "Last 12m", "prior": "Prior 12m",
+            "tag": "Tag", "recent": period_label, "prior": f"Prior {period_label.lower()}",
             "growth_ratio": "Ratio", "growth_pct": "Growth %"
         })
         if not df_emerging.empty:
@@ -801,7 +874,7 @@ with tab_trends:
         else:
             st.info("No tags with >50% growth in this period.")
     else:
-        st.info("Not enough tagged data yet to compute momentum.")
+        st.info("Not enough tagged data for this period — try a longer window.")
 
     st.divider()
 
@@ -829,7 +902,6 @@ with tab_trends:
     df_lang_year = df_lang_year[df_lang_year["year"].str.match(r"^\d{4}$", na=False)]
 
     if not df_lang_year.empty:
-        # Absolute count line chart
         fig_lang = px.line(
             df_lang_year, x="year", y="count", color="language",
             labels={"year": "Year", "count": "New repositories", "language": "Language"},
@@ -838,7 +910,6 @@ with tab_trends:
         fig_lang.update_layout(legend=dict(orientation="h", y=-0.25))
         st.plotly_chart(fig_lang, use_container_width=True)
 
-        # Share / normalised stacked area
         st.caption("As a share of all new repos that year (top 10 languages).")
         df_totals = df_lang_year.groupby("year")["count"].sum().reset_index().rename(columns={"count": "total"})
         df_share = df_lang_year.merge(df_totals, on="year")
