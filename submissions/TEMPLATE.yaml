@@ -1,0 +1,34 @@
+# Government GitHub Repository Submission Template
+#
+# Copy this file to submissions/pending/<country-code>-<org-name>.yaml
+# Example: submissions/pending/gb-nhs-digital.yaml
+#
+# One file per organisation. Open a pull request when done.
+# See CONTRIBUTING.md for full guidance.
+
+# GitHub organisation or user login (required)
+# The exact name as it appears in the GitHub URL: github.com/<org>
+org: your-org-name
+
+# ISO 3166-1 alpha-2 country code (required)
+# Full list: https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
+country: GB
+
+# Account type: "org" or "user" (required)
+account_type: org
+
+# Short description of the organisation (required)
+# One sentence, plain English.
+description: "UK National Health Service digital services organisation"
+
+# Evidence that this is a real government entity (required)
+# Link to an official government website, Wikipedia article, government register,
+# or other authoritative source confirming this organisation's government status.
+# At least one link required. More is better.
+evidence:
+  - https://digital.nhs.uk
+  - https://en.wikipedia.org/wiki/NHS_Digital
+
+# Additional notes (optional)
+# Anything the reviewer should know: sub-agency of a larger body, recently renamed, etc.
+notes: ""
