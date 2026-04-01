@@ -1,0 +1,70 @@
+name: Deploy Dashboard to HF Spaces
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual deploy'
+        required: false
+        default: 'Manual trigger'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install huggingface_hub
+        run: pip install --quiet huggingface_hub
+
+      - name: Push dashboard to HF Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python3 - <<'EOF'
+          import os
+          from pathlib import Path
+          from huggingface_hub import HfApi, CommitOperationAdd
+
+          token = os.environ["HF_TOKEN"]
+          api = HfApi(token=token)
+          space_id = "AndreasThinks/govtech-dashboard"
+
+          web_dir = Path("web")
+          deploy_files = ["app.py", "Dockerfile", "requirements.txt"]
+
+          operations = []
+          for filename in deploy_files:
+              src = web_dir / filename
+              if src.exists():
+                  operations.append(
+                      CommitOperationAdd(
+                          path_in_repo=filename,
+                          path_or_fileobj=str(src),
+                      )
+                  )
+                  print(f"  Queued: {filename} ({src.stat().st_size} bytes)")
+              else:
+                  print(f"  Skipping: {filename} (not found)")
+
+          if not operations:
+              print("Nothing to deploy.")
+              raise SystemExit(1)
+
+          result = api.create_commit(
+              repo_id=space_id,
+              repo_type="space",
+              operations=operations,
+              commit_message="chore: deploy dashboard from GitHub Actions",
+          )
+          print(f"\nDeployed {len(operations)} file(s) to {space_id}")
+          print(f"Commit: {result.commit_url}")
+          print(f"Space:  https://huggingface.co/spaces/{space_id}")
+          EOF

@@ -124,3 +124,43 @@ jobs:
         run: |
           pip install huggingface_hub
           python scripts/publish_hf.py
+
+      - name: Deploy dashboard to HF Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python3 - <<'EOF'
+          import os
+          from pathlib import Path
+          from huggingface_hub import HfApi, CommitOperationAdd
+
+          token = os.environ["HF_TOKEN"]
+          api = HfApi(token=token)
+          space_id = "AndreasThinks/govtech-dashboard"
+
+          web_dir = Path("web")
+          deploy_files = ["app.py", "Dockerfile", "requirements.txt"]
+
+          operations = []
+          for filename in deploy_files:
+              src = web_dir / filename
+              if src.exists():
+                  operations.append(
+                      CommitOperationAdd(
+                          path_in_repo=filename,
+                          path_or_fileobj=str(src),
+                      )
+                  )
+                  print(f"  Queued: {filename}")
+
+          if operations:
+              result = api.create_commit(
+                  repo_id=space_id,
+                  repo_type="space",
+                  operations=operations,
+                  commit_message="chore: redeploy dashboard after scrape",
+              )
+              print(f"Dashboard deployed: {result.commit_url}")
+          else:
+              print("No dashboard files found, skipping Space deploy.")
+          EOF
