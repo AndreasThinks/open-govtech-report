@@ -181,8 +181,8 @@ st.title("🏛️ GovTech GitHub Explorer")
 st.caption("Exploring 70k+ government GitHub repositories worldwide")
 
 # ==================== TABS ====================
-tab_overview, tab_explorer, tab_tags, tab_insights = st.tabs(
-    ["📊 Overview", "🔍 Explorer", "🏷️ Tags", "💡 Insights"]
+tab_overview, tab_explorer, tab_tags, tab_insights, tab_about = st.tabs(
+    ["📊 Overview", "🔍 Explorer", "🏷️ Tags", "💡 Insights", "ℹ️ About"]
 )
 
 
@@ -634,9 +634,70 @@ with tab_insights:
         st.info("Not enough data for heatmap.")
 
 
+# ==================== ABOUT ====================
+with tab_about:
+    st.subheader("About GovTech GitHub Explorer")
+    st.write(
+        """
+        **GovTech GitHub Explorer** maps the global landscape of government open source software.
+        It discovers, scrapes, and automatically categorises every public GitHub repository
+        belonging to government organisations worldwide — updated weekly.
+        """
+    )
+
+    st.subheader("How it works")
+    col_a1, col_a2, col_a3, col_a4 = st.columns(4)
+    with col_a1:
+        st.markdown("### 🔍 Discover")
+        st.write("Government GitHub accounts are sourced from the [government.github.com](https://github.com/github/government.github.com) registry — ~2,000 organisations across 100+ countries.")
+    with col_a2:
+        st.markdown("### 🕷️ Scrape")
+        st.write("Repository metadata is collected via the GitHub API using a GitHub App installation, giving high-throughput authenticated access.")
+    with col_a3:
+        st.markdown("### 🏷️ Tag")
+        st.write("An LLM pipeline (Qwen3-32B via OpenRouter) reads each repository's metadata and README, then assigns structured tags and categories.")
+    with col_a4:
+        st.markdown("### 📊 Explore")
+        st.write("Tags are clustered into groups using embedding similarity, and the full dataset is published to HuggingFace for anyone to use.")
+
+    st.divider()
+
+    st.subheader("Data")
+    col_d1, col_d2, col_d3 = st.columns(3)
+    total_a = query_one("SELECT COUNT(*) FROM repositories")
+    tagged_a = query_one("SELECT COUNT(DISTINCT html_url) FROM repository_tags")
+    tag_count_a = query_one("SELECT COUNT(*) FROM tags")
+    col_d1.metric("Repositories", f"{total_a:,}")
+    col_d2.metric("Tagged", f"{tagged_a:,}")
+    col_d3.metric("Unique tags", f"{tag_count_a:,}")
+
+    st.write(
+        "The full dataset — including repo metadata, tags, and tag groups — is available on "
+        "[HuggingFace](https://huggingface.co/datasets/AndreasThinks/government-github-repos) "
+        "in CSV, Parquet, and SQLite formats. Updated every Sunday."
+    )
+
+    st.divider()
+
+    st.subheader("Source")
+    st.write(
+        "The scraper, tagger, and dashboard are all open source. "
+        "Pull requests and issues welcome."
+    )
+    st.markdown("[github.com/AndreasThinks/open-govtech-report](https://github.com/AndreasThinks/open-govtech-report)")
+
+    st.divider()
+    st.markdown(
+        "✨ A project by [AndreasThinks](https://andreasthinks.me), built with ❤️ using Streamlit, "
+        "and some ✨vibes✨",
+        unsafe_allow_html=True,
+    )
+
+
 st.divider()
 st.caption(
-    "Data sourced from government GitHub accounts worldwide. Built with Streamlit. "
+    "Data sourced from government GitHub accounts worldwide. Updated weekly. "
     "| [GitHub](https://github.com/AndreasThinks/open-govtech-report) "
-    "| [Dataset](https://huggingface.co/datasets/AndreasThinks/government-github-repos)"
+    "| [Dataset](https://huggingface.co/datasets/AndreasThinks/government-github-repos) "
+    "| ✨ A project by [AndreasThinks](https://andreasthinks.me)"
 )

@@ -1,6 +1,7 @@
 """Step 2: Embedding-based tag deduplication and reconciliation."""
 
 import asyncio
+import json
 import logging
 from typing import Optional
 
@@ -120,8 +121,6 @@ class TagReconciler:
         session: Optional[aiohttp.ClientSession] = None,
     ) -> DeduplicationDecision:
         """Ask LLM whether two tags should be merged."""
-        import json
-
         user_prompt = DEDUP_USER.format(
             new_tag=new_tag,
             existing_tag=existing_tag,
@@ -237,6 +236,6 @@ class TagReconciler:
             logger.warning(f"Failed to parse dedup response: {e}")
             return DeduplicationDecision(
                 same_concept=False,
-                preferred_tag=user_prompt.split("'")[1],  # Extract new_tag from prompt
+                preferred_tag=new_tag,
                 reasoning=f"Parse error: {e}",
             )

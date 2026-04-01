@@ -164,6 +164,11 @@ uv run streamlit run app.py
 - The app auto-downloads the DB from the HF dataset repo on startup
 - Weekly pipeline (GitHub Actions) pushes updated DB → Space auto-refreshes on next visit
 
+## Known Bugs / To-Do
+
+- ~~**`json` NameError in dedup**~~ — Fixed: `import json` moved to module top-level in `dedup.py`.
+- ~~**`list index out of range` in reconcile phase**~~ — Fixed: fallback in parse error handler now uses `new_tag` directly instead of fragile `user_prompt.split("'")[1]`.
+
 ## Important Notes
 
 - Always use `uv` for running Python, installing packages, etc.
