@@ -45,28 +45,7 @@ jobs:
       - name: Download previous database
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          python3 - <<'EOF'
-          import os, sys, urllib.request, pathlib
-
-          # Try HuggingFace dataset first (survives killed runs)
-          token = os.environ.get("HF_TOKEN", "")
-          hf_url = "https://huggingface.co/datasets/AndreasThinks/government-github-repos/resolve/main/data/govtech.db"
-          headers = {"Authorization": f"Bearer {token}"} if token else {}
-
-          req = urllib.request.Request(hf_url, headers=headers)
-          try:
-              print("Downloading govtech.db from HuggingFace dataset...")
-              with urllib.request.urlopen(req, timeout=300) as resp:
-                  data = resp.read()
-              pathlib.Path("govtech.db").write_bytes(data)
-              size_mb = len(data) / 1024 / 1024
-              print(f"Downloaded {size_mb:.1f} MB from HuggingFace")
-              sys.exit(0)
-          except Exception as e:
-              print(f"HuggingFace download failed: {e}")
-              print("Will start with empty database.")
-          EOF
+        run: python3 scripts/download_db.py
 
       - name: Scrape repositories
         env:
