@@ -98,34 +98,55 @@ class TagGrouper:
             f"({cluster_id} named + {'1 other' if other_tags else '0 other'})"
         )
 
-        # Name each cluster using LLM
+        # Load existing groups to skip already-named clusters (incremental)
+        existing_groups = {
+            frozenset(db.get_group_members(row["id"])): (row["name"], row["id"])
+            for row in db.get_tag_groups()
+        }
+        logger.info(f"Found {len(existing_groups)} existing tag groups in DB")
+
+        # Name each cluster using LLM — parallel with semaphore
+        semaphore = asyncio.Semaphore(20)
         groups: list[dict] = []
 
-        async def _process_cluster(key: str, tags: list[str]) -> dict:
+        async def _process_cluster(
+            key: str, tags: list[str], http_session: aiohttp.ClientSession
+        ) -> dict | None:
+            # Skip if this exact cluster already exists
+            tag_set = frozenset(tags)
+            if tag_set in existing_groups:
+                return None  # already named, skip
+
             if key == "other":
                 name = "Other"
                 description = "Tags that don't fit neatly into larger categories."
             else:
-                name, description = await self._name_cluster(tags, session=session)
+                async with semaphore:
+                    name, description = await self._name_cluster(
+                        tags, session=http_session
+                    )
             return {"name": name, "description": description, "tags": tags}
 
-        if session:
-            for key, tags in final_clusters.items():
-                group = await _process_cluster(key, tags)
-                groups.append(group)
-        else:
-            async with aiohttp.ClientSession() as temp_session:
-                for key, tags in final_clusters.items():
-                    group = await _process_cluster(key, tags)
-                    groups.append(group)
+        async with aiohttp.ClientSession() as http_session:
+            tasks = [
+                _process_cluster(key, tags, http_session)
+                for key, tags in final_clusters.items()
+            ]
+            results = await asyncio.gather(*tasks)
 
-        # Save to database
-        for group in groups:
+        new_groups = [r for r in results if r is not None]
+        skipped = len(results) - len(new_groups)
+        logger.info(f"Naming complete: {len(new_groups)} new, {skipped} skipped (already exist)")
+
+        # Save new groups to database
+        for group in new_groups:
             group_id = db.save_tag_group(group["name"], group["description"])
             for tag in group["tags"]:
                 db.save_tag_group_member(tag, group_id)
 
-        logger.info(f"Saved {len(groups)} tag groups to database")
+        logger.info(f"Saved {len(new_groups)} new tag groups to database")
+        # Return all groups (existing + new)
+        groups = new_groups
         return groups
 
     async def _name_cluster(
