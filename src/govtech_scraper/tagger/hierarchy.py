@@ -173,7 +173,7 @@ class TagGrouper:
                         return await self._make_request(
                             temp_session, system_prompt, user_prompt, response_schema
                         )
-            except aiohttp.ClientError as e:
+            except (aiohttp.ClientError, asyncio.CancelledError) as e:
                 if attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)
                     logger.warning(
@@ -244,7 +244,7 @@ class TagGrouper:
                 "temperature": 0,
                 "reasoning": {"enabled": False},
             },
-            timeout=aiohttp.ClientTimeout(total=30),
+            timeout=aiohttp.ClientTimeout(total=120),
         ) as resp:
             if resp.status != 200:
                 body = await resp.text()
