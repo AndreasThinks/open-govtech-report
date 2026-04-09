@@ -221,37 +221,40 @@ class TagGrouper:
         response_schema: dict,
     ) -> tuple[str, str]:
         """Make the actual API request to name a cluster."""
-        async with session.post(
-            f"{self.base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "cluster_name",
-                        "strict": True,
-                        "schema": response_schema,
-                    },
+        try:
+            async with session.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
                 },
-                "temperature": 0,
-                "reasoning": {"enabled": False},
-            },
-            timeout=aiohttp.ClientTimeout(total=120),
-        ) as resp:
-            if resp.status != 200:
-                body = await resp.text()
-                raise RuntimeError(
-                    f"Cluster naming API error: {resp.status} {body}"
-                )
-            data = await resp.json()
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "cluster_name",
+                            "strict": True,
+                            "schema": response_schema,
+                        },
+                    },
+                    "temperature": 0,
+                    "reasoning": {"enabled": False},
+                },
+                timeout=aiohttp.ClientTimeout(total=120),
+            ) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    raise RuntimeError(
+                        f"Cluster naming API error: {resp.status} {body}"
+                    )
+                data = await resp.json()
+        except (asyncio.TimeoutError, asyncio.CancelledError) as e:
+            raise aiohttp.ClientError(f"Request timed out: {e}") from e
 
         content = data["choices"][0]["message"]["content"]
         try:
