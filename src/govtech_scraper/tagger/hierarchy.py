@@ -106,7 +106,7 @@ class TagGrouper:
         logger.info(f"Found {len(existing_groups)} existing tag groups in DB")
 
         # Name each cluster using LLM — parallel with semaphore
-        semaphore = asyncio.Semaphore(20)
+        semaphore = asyncio.Semaphore(5)
         groups: list[dict] = []
 
         async def _process_cluster(
@@ -132,10 +132,15 @@ class TagGrouper:
                 _process_cluster(key, tags, http_session)
                 for key, tags in final_clusters.items()
             ]
-            results = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        new_groups = [r for r in results if r is not None]
-        skipped = len(results) - len(new_groups)
+        new_groups = [
+            r for r in results if r is not None and not isinstance(r, BaseException)
+        ]
+        failures = sum(1 for r in results if isinstance(r, BaseException))
+        skipped = len(results) - len(new_groups) - failures
+        if failures:
+            logger.warning(f"{failures} clusters failed to name — will retry on next run")
         logger.info(f"Naming complete: {len(new_groups)} new, {skipped} skipped (already exist)")
 
         # Save new groups to database
@@ -276,6 +281,9 @@ class TagGrouper:
                 data = await resp.json()
         except (asyncio.TimeoutError, asyncio.CancelledError) as e:
             raise aiohttp.ClientError(f"Request timed out: {e}") from e
+
+        if not data or not data.get("choices"):
+            raise aiohttp.ClientError(f"API returned empty response: {data!r}")
 
         content = data["choices"][0]["message"]["content"]
         try:
