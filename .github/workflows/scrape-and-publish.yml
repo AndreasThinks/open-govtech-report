@@ -61,8 +61,8 @@ jobs:
           fi
           uv run govtech-scraper -v scrape $FORCE_FLAG
 
-    - name: Run tagging
-      if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_tagging != 'false'
+      - name: Run tagging
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_tagging != 'false'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
@@ -73,8 +73,8 @@ jobs:
           fi
           uv run govtech-scraper -v tag $LIMIT_FLAG
 
-    - name: Group tags
-      if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_tagging != 'false'
+      - name: Group tags
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_tagging != 'false'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: uv run govtech-scraper -v group
