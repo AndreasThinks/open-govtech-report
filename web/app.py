@@ -100,6 +100,18 @@ def query_one(sql, params=None):
     return result
 
 
+@st.cache_data(ttl=300)
+def get_last_updated_display():
+    iso = query_one("SELECT MAX(last_scraped) FROM repositories")
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso).astimezone(timezone.utc)
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+    except (ValueError, TypeError):
+        return None
+
+
 @st.cache_data(ttl=600)
 def load_filter_options():
     conn = get_conn()
@@ -995,8 +1007,10 @@ with tab_about:
 
 
 st.divider()
+last_updated = get_last_updated_display()
+updated_str = f"Last updated: {last_updated}" if last_updated else "Update time unavailable"
 st.caption(
-    "Data sourced from government GitHub accounts worldwide. Updated weekly. "
+    f"Data sourced from government GitHub accounts worldwide. {updated_str}. "
     "| [GitHub](https://github.com/AndreasThinks/open-govtech-report) "
     "| [Dataset](https://huggingface.co/datasets/AndreasThinks/government-github-repos) "
     "| [➕ Submit a missing org](https://github.com/AndreasThinks/open-govtech-report/blob/main/CONTRIBUTING.md) "
