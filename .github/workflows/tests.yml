@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Include stacked PRs targeting another feature branch.
 
 jobs:
   test:
@@ -23,10 +23,24 @@ jobs:
       - name: Install dependencies
         run: |
           uv lock --check
-          uv sync --frozen --dev
+          uv sync --frozen --dev --extra api
 
       - name: Run tests
         run: uv run --frozen pytest tests/ -v --tb=short
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run UI behavioral tests
+        run: node tests/site_behavior.cjs
+
+      - name: Install test browser
+        run: uv run --frozen --with playwright playwright install --with-deps chromium
+
+      - name: Run desktop and mobile browser regressions
+        run: uv run --frozen --with playwright python tests/site_browser.py
 
       - name: Build package
         run: uv build --no-sources

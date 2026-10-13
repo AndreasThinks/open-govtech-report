@@ -22,12 +22,25 @@ dependencies = [
 [project.scripts]
 govtech-scraper = "govtech_scraper.cli:main"
 
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.115",
+    "mcp>=2.3",
+    "uvicorn>=0.30",
+]
+decision = [
+    "gradio-client>=2.0",
+]
+
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+govtech_scraper = ["decision/taxonomy.yaml", "site/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

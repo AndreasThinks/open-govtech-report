@@ -1,0 +1,6 @@
+# torch comes with the ZeroGPU image. Kev's own Space uses the same list.
+transformers>=5.17,<6
+peft>=0.21
+accelerate>=1.15
+safetensors
+pydantic>=2.9

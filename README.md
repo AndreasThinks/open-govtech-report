@@ -107,6 +107,11 @@ The tagger uses a two-step approach to build a clean, deduplicated taxonomy:
 
 Cold start lasts until the concept taxonomy contains 50 tags (not 50 repositories). After that, deduplication kicks in to prevent drift.
 
+## Experimental: decision-model tagging and public API
+
+- **Decision-model tagging** scores repos against a fixed COFOG taxonomy using an open-weight Kev model (or hosted Jev), with probabilities instead of generated tags. See [docs/decision-tagging.md](docs/decision-tagging.md).
+- **Public API and MCP tools**: read-only REST endpoints and an MCP server over the dataset. See [docs/api.md](docs/api.md).
+
 ## Data
 
 All data lives in a single SQLite database (`govtech.db`). Key tables:
