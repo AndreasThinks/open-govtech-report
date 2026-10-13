@@ -197,7 +197,11 @@ async def score_repos(
             stage2_request(
                 state,
                 taxonomy,
-                candidate_domains(result.domain_probabilities, max_domains, domain_floor),
+                (
+                    [domain.id for domain in taxonomy.domains]
+                    if max_domains >= len(taxonomy.domains)
+                    else candidate_domains(result.domain_probabilities, max_domains, domain_floor)
+                ),
             )
             for result, state in pending
         ]
