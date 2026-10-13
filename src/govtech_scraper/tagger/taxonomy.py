@@ -45,7 +45,7 @@ class Taxonomy:
     def _load_from_db(self) -> None:
         """Load all tags and their embeddings from the database."""
         rows = self.db.conn.execute(
-            "SELECT tag, usage_count, embedding FROM tags WHERE merged_into IS NULL"
+            "SELECT tag, usage_count, embedding FROM tags WHERE merged_into IS NULL AND kind='concept'"
         ).fetchall()
         for row in rows:
             embedding = _unpack_embedding(row["embedding"]) if row["embedding"] else None

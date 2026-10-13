@@ -63,6 +63,5 @@ def test_fallback_parse(suggester):
 
 
 def test_fallback_parse_garbage(suggester):
-    result = suggester._fallback_parse("completely unparseable garbage")
-    assert result.tags == []
-    assert result.primary_category == "unknown"
+    with pytest.raises(ValueError):
+        suggester._fallback_parse("completely unparseable garbage")

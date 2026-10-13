@@ -34,5 +34,5 @@ class Repository:
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     pushed_at: Optional[str] = None
-    commit_count: int = 0
+    commit_count: Optional[int] = None
     fork_source: Optional[str] = None

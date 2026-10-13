@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS repositories (
     created_at TEXT,
     updated_at TEXT,
     pushed_at TEXT,
-    commit_count INTEGER DEFAULT 0,
+    commit_count INTEGER DEFAULT NULL,
     fork_source TEXT,
     last_scraped TEXT NOT NULL
 );
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS repository_snapshots (
     forks INTEGER DEFAULT 0,
     watchers INTEGER DEFAULT 0,
     open_issues INTEGER DEFAULT 0,
-    commit_count INTEGER DEFAULT 0,
+    commit_count INTEGER DEFAULT NULL,
     scrape_timestamp TEXT NOT NULL
 );
 
@@ -129,6 +129,30 @@ class Database:
 
     def _init_schema(self) -> None:
         self.conn.executescript(SCHEMA)
+        # Additive, backwards-compatible schema upgrades. Historical rows stay intact.
+        for table, column, declaration in [
+            ('repositories', 'current', 'INTEGER DEFAULT 1'),
+            ('tags', 'kind', "TEXT DEFAULT 'concept'"),
+        ]:
+            columns = {r[1] for r in self.conn.execute(f'PRAGMA table_info({table})')}
+            if column not in columns:
+                self.conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} {declaration}')
+        self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS scrape_runs (
+                id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT,
+                expected INTEGER NOT NULL, attempted INTEGER NOT NULL, complete INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS account_fetches (
+                run_id TEXT NOT NULL, username TEXT NOT NULL, status TEXT NOT NULL,
+                repo_count INTEGER NOT NULL, error_type TEXT, checked_at TEXT NOT NULL,
+                PRIMARY KEY(run_id, username)
+            );
+            CREATE TABLE IF NOT EXISTS tag_label_history (
+                html_url TEXT NOT NULL, original_tag TEXT NOT NULL, normalized_tag TEXT NOT NULL,
+                source TEXT NOT NULL, confidence REAL,
+                PRIMARY KEY(html_url, original_tag)
+            );
+        """)
         self.conn.commit()
 
     def save_accounts(self, accounts: list[GovernmentAccount]) -> None:
@@ -226,14 +250,27 @@ class Database:
         self, html_url: str, tag: str, confidence: float = 0.8, source: str = "llm"
     ) -> None:
         """Associate a tag with a repository."""
+        from .migration import normalize_label, tag_kind
+        if source == 'tech-stack':
+            tag = normalize_label(tag)
+        if not tag:
+            raise ValueError('Empty tag label')
+        kind = tag_kind(tag) if source == 'tech-stack' else 'concept'
+        self.conn.execute(
+            "INSERT INTO tags(tag, kind, first_seen) VALUES (?,?,?) ON CONFLICT(tag) DO NOTHING",
+            (tag, kind, datetime.now(timezone.utc).isoformat()),
+        )
+        if source == 'llm':
+            self.conn.execute("UPDATE tags SET kind='concept' WHERE tag=?", (tag,))
         self.conn.execute(
             """INSERT INTO repository_tags (html_url, tag, confidence, source)
                VALUES (?, ?, ?, ?)
                ON CONFLICT(html_url, tag) DO UPDATE SET
                    confidence = excluded.confidence,
-                   source = excluded.source""",
+                   source = CASE WHEN repository_tags.source='llm' THEN 'llm' ELSE excluded.source END""",
             (html_url, tag, confidence, source),
         )
+        self.conn.execute('UPDATE tags SET usage_count=(SELECT COUNT(*) FROM repository_tags WHERE tag=?) WHERE tag=?', (tag, tag))
         self.conn.commit()
 
     def get_all_repos(self) -> list[sqlite3.Row]:

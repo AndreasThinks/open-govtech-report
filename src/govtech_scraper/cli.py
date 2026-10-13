@@ -58,7 +58,7 @@ def accounts(ctx: click.Context) -> None:
     db = Database(ctx.obj["db_path"])
     try:
         async def _run():
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=90)) as session:
                 accts = await fetch_government_accounts(session)
                 db.save_accounts(accts)
                 click.echo(f"Saved {len(accts)} government accounts")
@@ -79,7 +79,7 @@ def scrape(ctx: click.Context, force: bool, limit: int | None) -> None:
 
     try:
         async def _run():
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=90)) as session:
                 # Step 1: Fetch accounts
                 click.echo("Fetching government accounts...")
                 accts = await fetch_government_accounts(session)
@@ -100,7 +100,6 @@ def scrape(ctx: click.Context, force: bool, limit: int | None) -> None:
 
                 # Step 3: Save
                 if repos:
-                    db.save_repositories(repos)
                     click.echo(f"\nSaved {len(repos)} repositories")
                     click.echo(f"Total in database: {db.get_repo_count()}")
                 else:
@@ -181,6 +180,10 @@ def tag(
                         err=True
                     )
 
+            click.echo(f"Intentionally skipped empty repositories: {result.total_skipped}")
+            if result.errors:
+                raise click.ClickException(f"Tagging failed for {len(result.errors)} operations; saved progress retained")
+
             # Show tag stats
             tag_stats = db.get_tag_stats()
             click.echo(f"\nTaxonomy: {tag_stats['total_tags']} tags")
@@ -249,7 +252,7 @@ def group(
                 distance_threshold=distance_threshold,
             )
 
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=90)) as session:
                 groups = await grouper.build_groups(
                     taxonomy, db, session=session, recalculate=recalculate
                 )
@@ -320,3 +323,14 @@ def stats(ctx: click.Context) -> None:
                 click.echo(f"  {group['name']}: {len(members)} tags")
     finally:
         db.close()
+
+
+@main.command(name='export')
+@click.option('--format', 'file_format', type=click.Choice(['csv', 'parquet']), required=True)
+@click.option('--output', default=None, type=click.Path())
+@click.pass_context
+def export_command(ctx, file_format, output):
+    """Export current metadata; use prepare_publication.py for validated publication."""
+    from .export import export_to_csv, export_to_parquet
+    exporter = export_to_csv if file_format == 'csv' else export_to_parquet
+    click.echo(exporter(ctx.obj['db_path'], output))

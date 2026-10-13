@@ -17,13 +17,13 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
         with:
-          version: "latest"
+          version: "0.11.7"
 
       - name: Set up Python
         run: uv python install 3.11
 
       - name: Install PyYAML
-        run: pip install --quiet pyyaml
+        run: uv sync --frozen
 
       - name: Find changed submission files
         id: changed
@@ -40,7 +40,7 @@ jobs:
             echo "No submission files changed."
             exit 0
           fi
-          python scripts/validate_submission.py $FILES
+          uv run --frozen python scripts/validate_submission.py $FILES
 
       - name: Post result comment
         if: failure()

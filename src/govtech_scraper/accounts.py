@@ -57,7 +57,7 @@ async def fetch_government_accounts(
                     accounts.append(GovernmentAccount(username=name, country=country))
                     seen_usernames.add(name.lower())
 
-    logger.info(f"Found {len(accounts)} government accounts across {len(data)} countries")
+    logger.info("Found %d registry accounts across %d country labels", len(accounts), len({a.country for a in accounts}))
 
     # Merge community submissions
     community = _load_community_submissions(seen_usernames)

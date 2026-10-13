@@ -55,19 +55,19 @@ class OpenRouterEmbeddings:
                 if session:
                     return await self._make_request(session, texts)
                 else:
-                    async with aiohttp.ClientSession() as temp_session:
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=90)) as temp_session:
                         return await self._make_request(temp_session, texts)
             except aiohttp.ClientError as e:
                 # Retry on network errors and timeouts
                 if attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)
                     logger.warning(
-                        f"Embedding request failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Embedding request failed (attempt {attempt + 1}/{max_retries}): {type(e).__name__}. "
                         f"Retrying in {delay}s..."
                     )
                     await asyncio.sleep(delay)
                 else:
-                    logger.error(f"Embedding request failed after {max_retries} attempts: {e}")
+                    logger.error(f"Embedding request failed after {max_retries} attempts: {type(e).__name__}")
                     raise
             except RuntimeError as e:
                 # Check if it's a retryable HTTP error
@@ -76,12 +76,12 @@ class OpenRouterEmbeddings:
                     if attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)
                         logger.warning(
-                            f"Embedding API error (attempt {attempt + 1}/{max_retries}): {e}. "
+                            f"Embedding API error (attempt {attempt + 1}/{max_retries}): {type(e).__name__}. "
                             f"Retrying in {delay}s..."
                         )
                         await asyncio.sleep(delay)
                     else:
-                        logger.error(f"Embedding API error after {max_retries} attempts: {e}")
+                        logger.error(f"Embedding API error after {max_retries} attempts: {type(e).__name__}")
                         raise
                 else:
                     # Non-retryable error (400, 401, 404, etc.)
@@ -103,8 +103,7 @@ class OpenRouterEmbeddings:
             timeout=aiohttp.ClientTimeout(total=30),
         ) as resp:
             if resp.status != 200:
-                body = await resp.text()
-                raise RuntimeError(f"Embedding API error: {resp.status} {body}")
+                raise RuntimeError(f"Embedding API error: {resp.status}")
             data = await resp.json()
             # Sort by index to preserve order
             sorted_data = sorted(data["data"], key=lambda x: x["index"])

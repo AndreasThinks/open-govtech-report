@@ -22,6 +22,10 @@ on:
         type: number
         default: 0
 
+concurrency:
+  group: govtech-publication
+  cancel-in-progress: false
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
@@ -34,18 +38,26 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
         with:
-          version: "latest"
+          version: "0.11.7"
 
       - name: Set up Python
         run: uv python install 3.11
 
       - name: Install dependencies
-        run: uv sync
+        run: |
+          uv lock --check
+          uv sync --frozen --dev
+
+      - name: Test before any publication or deployment
+        run: uv run --frozen pytest tests/ -q
 
       - name: Download previous database
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python3 scripts/download_db.py
+        run: uv run --frozen python scripts/download_db.py
+
+      - name: Migrate restored history offline
+        run: uv run --frozen python scripts/migrate_reliability.py
 
       - name: Scrape repositories
         env:
@@ -57,7 +69,7 @@ jobs:
           if [ "${{ github.event.inputs.force_update }}" = "true" ]; then
             FORCE_FLAG="--force"
           fi
-          uv run govtech-scraper -v scrape $FORCE_FLAG
+          uv run --frozen govtech-scraper -v scrape $FORCE_FLAG
 
       - name: Run tagging
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_tagging != 'false'
@@ -69,65 +81,39 @@ jobs:
           if [ -n "$LIMIT" ] && [ "$LIMIT" != "0" ]; then
             LIMIT_FLAG="--limit $LIMIT"
           fi
-          uv run govtech-scraper -v tag $LIMIT_FLAG
+          uv run --frozen govtech-scraper -v tag $LIMIT_FLAG
 
       - name: Group tags
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_tagging != 'false'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: uv run govtech-scraper -v group
+        run: uv run --frozen govtech-scraper -v group
 
       - name: Show stats
-        run: uv run govtech-scraper stats
+        run: uv run --frozen govtech-scraper stats
 
-      - name: Export data
-        run: |
-          uv run python -c "
-          from govtech_scraper.db import Database
-          from govtech_scraper.export import export_to_csv, export_to_parquet, export_tag_groups_csv, export_tag_group_members_csv
-          export_to_csv('govtech.db', 'government_repos_latest.csv')
-          print('CSV exported')
-          export_tag_groups_csv('govtech.db', 'tag_groups.csv')
-          print('Tag groups CSV exported')
-          export_tag_group_members_csv('govtech.db', 'tag_group_members.csv')
-          print('Tag group members CSV exported')
-          try:
-              export_to_parquet('govtech.db', 'government_repos_latest.parquet')
-              print('Parquet exported')
-          except RuntimeError:
-              print('Parquet export skipped (pyarrow not installed)')
-          "
+      - name: Prepare and verify one WAL-safe publication snapshot
+        run: uv run --frozen python scripts/prepare_publication.py
 
-      - name: Upload database artifact
+      - name: Retain validated snapshot and exports
         uses: actions/upload-artifact@v4
         with:
-          name: govtech-db
-          path: govtech.db
-          retention-days: 90
-
-      - name: Upload dataset artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: govtech-dataset-${{ github.run_number }}
-          path: |
-            government_repos_latest.csv
-            government_repos_latest.parquet
-            tag_groups.csv
-            tag_group_members.csv
+          name: govtech-publication-${{ github.run_number }}
+          path: publication/
+          if-no-files-found: error
           retention-days: 90
 
       - name: Publish to HuggingFace
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          pip install huggingface_hub
-          python scripts/publish_hf.py
+          uv run --frozen python scripts/publish_hf.py
 
       - name: Deploy dashboard to HF Spaces
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          python3 - <<'EOF'
+          uv run --frozen python - <<'EOF'
           import os
           from pathlib import Path
           from huggingface_hub import HfApi, CommitOperationAdd
@@ -137,11 +123,13 @@ jobs:
           space_id = "AndreasThinks/govtech-dashboard"
 
           web_dir = Path("web")
-          deploy_files = ["app.py", "Dockerfile", "requirements.txt"]
+          deploy_files = ["app.py", "queries.py", "Dockerfile", "requirements.txt"]
 
           operations = []
           for filename in deploy_files:
               src = web_dir / filename
+              if not src.is_file():
+                  raise RuntimeError(f"Missing dashboard artifact: {filename}")
               if src.exists():
                   operations.append(
                       CommitOperationAdd(

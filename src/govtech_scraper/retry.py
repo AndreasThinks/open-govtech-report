@@ -35,7 +35,7 @@ def retry_async(
                     delay = base_delay * (2 ** attempt if exponential else 1)
                     delay = min(delay, max_delay)
                     logger.warning(
-                        f"{func.__name__} attempt {attempt + 1}/{max_attempts} failed: {e}. "
+                        f"{func.__name__} attempt {attempt + 1}/{max_attempts} failed ({type(e).__name__}). "
                         f"Retrying in {delay:.1f}s..."
                     )
                     await asyncio.sleep(delay)

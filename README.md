@@ -1,6 +1,6 @@
 # GovTech Scraper
 
-Scrapes and catalogs every public GitHub repository belonging to government organizations worldwide, then uses an LLM-powered tagging pipeline to automatically categorize them.
+Catalogs public GitHub repositories owned by accounts in the government.github.com registry and accepted community submissions, then uses an LLM-powered tagging pipeline to automatically categorize them.
 
 **🏛️ [Live Dashboard](https://huggingface.co/spaces/AndreasThinks/govtech-dashboard)** — explore the data interactively.
 **📦 [Dataset on Hugging Face](https://huggingface.co/datasets/AndreasThinks/government-github-repos)** — download the full SQLite DB, CSV, and Parquet exports.
@@ -11,7 +11,7 @@ Uses the [government.github.com](https://github.com/github/government.github.com
 
 ## What it does
 
-1. **Discovers** government GitHub accounts from the global registry (~2000+ orgs across 100+ countries)
+1. **Discovers** government GitHub accounts from the upstream registry; counts are measured per run, not a worldwide census
 2. **Scrapes** repository metadata via the GitHub API (stars, forks, language, license, topics, etc.)
 3. **Tags** repositories using an agentic LLM pipeline with structured output and embedding-based deduplication
 4. **Stores** everything in SQLite with historical snapshots for tracking changes over time
@@ -46,7 +46,7 @@ git clone https://github.com/AndreasThinks/open-govtech-report.git
 cd open-govtech-report
 cp .env.example .env
 # Fill in your credentials (see below)
-uv sync
+uv sync --frozen
 ```
 
 ### Credentials
@@ -70,7 +70,7 @@ OPENROUTER_API_KEY=your_key
 ## Usage
 
 ```bash
-# Scrape all government repos
+# Scrape repositories for registry accounts
 uv run govtech-scraper scrape
 
 # Just refresh the account list
@@ -101,11 +101,11 @@ uv run govtech-scraper -v scrape             # Verbose logging
 
 The tagger uses a two-step approach to build a clean, deduplicated taxonomy:
 
-1. **Suggest** — An LLM reads repo metadata, README, and (when available) dependency manifests, file trees, and entry point code. It returns structured tags via OpenRouter with a ~2000 token context budget per repo.
+1. **Suggest** — Batch tagging uses repository metadata only. README caching/fetching is not implemented; `get_readme` returns `None`, and batch calls do not supply manifests, file trees or entry points. The lower-level `tag_repo` API can accept caller-supplied context. It returns structured tags via OpenRouter with a ~2000 token context budget per repo.
 
 2. **Deduplicate** — Each suggested tag is embedded and compared against the existing taxonomy via cosine similarity. When a close match is found (>0.85), a lightweight LLM call decides whether to merge ("is 'ml' the same as 'machine-learning'?") or keep both.
 
-The first 50 repos seed the taxonomy freely (cold start). After that, deduplication kicks in to prevent drift.
+Cold start lasts until the concept taxonomy contains 50 tags (not 50 repositories). After that, deduplication kicks in to prevent drift.
 
 ## Data
 
@@ -123,6 +123,87 @@ Export to flat files when needed:
 uv run govtech-scraper export --format csv
 uv run govtech-scraper export --format parquet
 ```
+
+## Reliability and recovery
+
+The weekly pipeline restores history before scraping. A failed restore is fatal; it
+never silently bootstraps an empty replacement. Initial creation is an explicit local
+operation (`govtech-scraper --db new.db scrape`), separate from the publication workflow.
+Do not restore over a database with live connections or WAL sidecars.
+
+`repositories` retains previously observed repositories, including ones no longer
+returned. `current=0` is set only after complete enumeration of that account; a 404
+retains prior rows. `repository_snapshots` is append-only. `scrape_runs` and
+`account_fetches` retain succeeded/unchanged/not-found/failed coverage. Any unresolved
+fetch error fails the CLI and publication gate. Limited test scrapes are not complete
+coverage. Authentication errors, timeouts, and later-page 404s are failures.
+First-page conditional caching is deliberately disabled: an ETag on one page cannot
+prove that the entire account enumeration is unchanged.
+
+Run the idempotent offline migration on a backup/copy before updating legacy data:
+
+```bash
+uv run --frozen python scripts/migrate_reliability.py --db copied.db
+```
+
+The migration registers normalized technology labels without embeddings or paid calls.
+Original normalized-away labels and confidences remain in `tag_label_history`;
+meaningful concepts are not automatically merged. Historical language labels remain
+classified as `language`, and technology labels as `technology`. Embedding grouping
+uses `concept` labels only. Usage counts are recalculated from actual links. Existing
+snapshots are preserved verbatim. Unmeasured legacy `commit_count=0` becomes NULL in
+latest-state rows; historical zero values also mean unknown, not measured zero commits.
+New unknown commit counts and unknown fork parents are NULL; no per-repo API calls are
+made to fill these fields.
+
+Tagging failures (including credit exhaustion) exit nonzero while retaining saved work.
+Empty metadata repositories are intentionally skipped and reported separately.
+`group` updates clusters for new concept tags and reuses names for exact clusters or
+strict expansions. `group --recalculate` explicitly requests fresh naming; the weekly
+pipeline does not use it, avoiding unnecessary paid calls. Failed naming leaves the
+previous complete grouping intact.
+
+Prepare one immutable publication directory (the directory must not already exist):
+
+```bash
+uv run --frozen pytest tests/ -q
+uv run --frozen python scripts/prepare_publication.py --db govtech.db --output publication
+# Only an authorized publisher with HF_TOKEN runs this next command:
+uv run --frozen python scripts/publish_hf.py
+```
+
+SQLite's backup API captures WAL data and history. All CSV/Parquet/group exports come
+from that snapshot; integrity, schema, links, counts, every repository value and URL,
+and SHA-256 checksums are checked before a single HF commit. Missing exports fail the
+publication; old remote Parquet files cannot silently survive a successful update.
+`data/manifest.json` separates source commit, maximum repository scrape timestamp,
+publication timestamp and refresh coverage. A maximum scrape timestamp alone does not
+prove full coverage. No automatic cleanup deletes historical snapshots.
+
+Pipeline and dashboard deployments share a concurrency group with cancellation disabled.
+Tests must pass before either write. The dashboard's selected tags mean **any selected
+tag**; one EXISTS filter defines the cohort across charts. Explorer text search is local
+to Explorer. Tag-group browsing loads one selected group, and capped lists label both
+displayed and total counts. Set `GOVTECH_DB_PATH` to use an offline fixture/copy.
+
+GitHub may disable scheduled workflows in inactive public repositories (60 days without
+repository activity). A green old run is not proof of freshness. An independent scheduler
+outside GitHub should execute this read-only check daily and alert on any nonzero exit:
+
+```bash
+uv run --frozen python scripts/check_freshness.py --max-age-days 14
+```
+
+It checks an immutable remote revision, manifest freshness, complete coverage, and
+artifact metadata. Do not use empty commits as a keepalive. To recover: re-enable the
+Scrape & Publish workflow in GitHub Actions, verify credentials, manually dispatch a
+full run, inspect coverage and retained artifacts, then run the independent check and
+confirm dashboard publication/scrape dates. These are operator steps, not actions taken
+by the repair tests. Never bypass a failed restore, test, export or coverage gate.
+
+Offline tests mock only network/provider boundaries and use temporary SQLite fixtures.
+Streamlit AppTest covers default/search/archived, tag combinations, other sidebar filters,
+empty results and pagination. Production DBs and paid providers are not needed.
 
 ## License
 

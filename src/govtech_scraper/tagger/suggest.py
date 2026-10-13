@@ -75,7 +75,7 @@ class TagSuggester:
                         session, system_prompt, user_prompt, response_schema
                     )
                 else:
-                    async with aiohttp.ClientSession() as temp_session:
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=90)) as temp_session:
                         return await self._make_request(
                             temp_session, system_prompt, user_prompt, response_schema
                         )
@@ -87,12 +87,12 @@ class TagSuggester:
                 if attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)
                     logger.warning(
-                        f"Request failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Request failed (attempt {attempt + 1}/{max_retries}): {type(e).__name__}. "
                         f"Retrying in {delay}s..."
                     )
                     await asyncio.sleep(delay)
                 else:
-                    logger.error(f"Request failed after {max_retries} attempts: {e}")
+                    logger.error(f"Request failed after {max_retries} attempts: {type(e).__name__}")
                     raise
             except RuntimeError as e:
                 # Check if it's a retryable HTTP error
@@ -101,12 +101,12 @@ class TagSuggester:
                     if attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)
                         logger.warning(
-                            f"API error (attempt {attempt + 1}/{max_retries}): {e}. "
+                            f"API error (attempt {attempt + 1}/{max_retries}): {type(e).__name__}. "
                             f"Retrying in {delay}s..."
                         )
                         await asyncio.sleep(delay)
                     else:
-                        logger.error(f"API error after {max_retries} attempts: {e}")
+                        logger.error(f"API error after {max_retries} attempts: {type(e).__name__}")
                         raise
                 else:
                     # Non-retryable error (400, 401, 404, etc.)
@@ -146,10 +146,9 @@ class TagSuggester:
             timeout=aiohttp.ClientTimeout(total=30),
         ) as resp:
             if resp.status != 200:
-                body = await resp.text()
                 if resp.status == 402:
-                    raise CreditExhaustedError(f"OpenRouter credits exhausted: {body}")
-                raise RuntimeError(f"OpenRouter API error: {resp.status} {body}")
+                    raise CreditExhaustedError(f"OpenRouter credits exhausted:")
+                raise RuntimeError(f"OpenRouter API error: {resp.status}")
             data = await resp.json()
 
         content = data["choices"][0]["message"]["content"]
@@ -158,7 +157,7 @@ class TagSuggester:
             parsed = json.loads(content)
             result = TaggingResult.model_validate(parsed)
         except (json.JSONDecodeError, Exception) as e:
-            logger.warning(f"Failed to parse structured output, attempting recovery: {e}")
+            logger.warning(f"Failed to parse structured output, attempting recovery: {type(e).__name__}")
             # Fallback: try to extract JSON from the response
             result = self._fallback_parse(content)
 
@@ -174,5 +173,5 @@ class TagSuggester:
             return TaggingResult.model_validate(parsed)
         
         # Last resort: return empty result
-        logger.error(f"Could not parse LLM output: {content[:200]}")
-        return TaggingResult(tags=[], primary_category="unknown", tech_stack=[])
+        logger.error("Could not parse LLM output")
+        raise ValueError("Unparseable tagging response")

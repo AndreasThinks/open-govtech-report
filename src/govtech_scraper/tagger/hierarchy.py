@@ -51,8 +51,6 @@ class TagGrouper:
         Returns:
             List of dicts with keys: name, description, tags
         """
-        if recalculate:
-            db.clear_tag_groups()
 
         # Get all tags with embeddings
         tags_with_embeddings = taxonomy.get_all_tags_with_embeddings()
@@ -100,7 +98,7 @@ class TagGrouper:
 
         # Load existing groups to skip already-named clusters (incremental)
         existing_groups = {
-            frozenset(db.get_group_members(row["id"])): (row["name"], row["id"])
+            frozenset(db.get_group_members(row["id"])): (row["name"], row["id"], row["description"])
             for row in db.get_tag_groups()
         }
         logger.info(f"Found {len(existing_groups)} existing tag groups in DB")
@@ -114,8 +112,17 @@ class TagGrouper:
         ) -> dict | None:
             # Skip if this exact cluster already exists
             tag_set = frozenset(tags)
-            if tag_set in existing_groups:
-                return None  # already named, skip
+            if not recalculate:
+                # Reuse names only for exact clusters or strict expansions. Changed
+                # concept boundaries require a new name; no automatic tag merging.
+                candidates = [(members, info) for members, info in existing_groups.items()
+                              if members and members <= tag_set and info[0] != 'Other']
+                if len(candidates) == 1:
+                    _, (name, group_id, description) = candidates[0]
+                    return {"name": name, "description": description, "tags": tags}
+                if tag_set in existing_groups:
+                    name, _, description = existing_groups[tag_set]
+                    return {"name": name, "description": description, "tags": tags}
 
             if key == "other":
                 name = "Other"
@@ -127,7 +134,7 @@ class TagGrouper:
                     )
             return {"name": name, "description": description, "tags": tags}
 
-        async with aiohttp.ClientSession() as http_session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=90)) as http_session:
             tasks = [
                 _process_cluster(key, tags, http_session)
                 for key, tags in final_clusters.items()
@@ -140,14 +147,30 @@ class TagGrouper:
         failures = sum(1 for r in results if isinstance(r, BaseException))
         skipped = len(results) - len(new_groups) - failures
         if failures:
-            logger.warning(f"{failures} clusters failed to name — will retry on next run")
+            raise RuntimeError(f"{failures} clusters failed to name; existing groups retained")
         logger.info(f"Naming complete: {len(new_groups)} new, {skipped} skipped (already exist)")
 
-        # Save new groups to database
-        for group in new_groups:
-            group_id = db.save_tag_group(group["name"], group["description"])
-            for tag in group["tags"]:
-                db.save_tag_group_member(tag, group_id)
+        # Replace memberships only after every cluster has a name. One transaction
+        # keeps the previous complete grouping if any insert fails.
+        with db.conn:
+            db.conn.execute('DELETE FROM tag_group_members')
+            names = set()
+            for group in new_groups:
+                name = group['name']
+                if name in names:
+                    import hashlib
+                    name += ' (' + hashlib.sha256(','.join(group['tags']).encode()).hexdigest()[:8] + ')'
+                names.add(name)
+                from datetime import datetime, timezone
+                group_id = db.conn.execute(
+                    "INSERT INTO tag_groups(name,description,created_at) VALUES (?,?,?) "
+                    "ON CONFLICT(name) DO UPDATE SET description=excluded.description RETURNING id",
+                    (name, group['description'], datetime.now(timezone.utc).isoformat()),
+                ).fetchone()[0]
+                db.conn.executemany('INSERT INTO tag_group_members(tag,group_id) VALUES (?,?)',
+                                    [(tag, group_id) for tag in group['tags']])
+            # Keep empty historical group definitions, but dashboard only shows
+            # groups with current memberships in the selected cohort.
 
         logger.info(f"Saved {len(new_groups)} new tag groups to database")
         # Return all groups (existing + new)
@@ -195,24 +218,24 @@ class TagGrouper:
                         session, system_prompt, user_prompt, response_schema
                     )
                 else:
-                    async with aiohttp.ClientSession() as temp_session:
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=90)) as temp_session:
                         return await self._make_request(
                             temp_session, system_prompt, user_prompt, response_schema
                         )
-            except (aiohttp.ClientError, asyncio.CancelledError) as e:
+            except (aiohttp.ClientError, TimeoutError) as e:
                 if attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)
                     logger.warning(
-                        f"Cluster naming request failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Cluster naming request failed (attempt {attempt + 1}/{max_retries}): {type(e).__name__}. "
                         f"Retrying in {delay}s..."
                     )
                     await asyncio.sleep(delay)
                 else:
                     logger.error(
-                        f"Cluster naming failed after {max_retries} attempts: {e}"
+                        f"Cluster naming failed after {max_retries} attempts: {type(e).__name__}"
                     )
                     # Fallback name
-                    return ("Unnamed Group", "Failed to generate group name.")
+                    raise RuntimeError("Cluster naming failed")
             except RuntimeError as e:
                 error_msg = str(e)
                 if any(
@@ -222,22 +245,22 @@ class TagGrouper:
                     if attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)
                         logger.warning(
-                            f"Cluster naming API error (attempt {attempt + 1}/{max_retries}): {e}. "
+                            f"Cluster naming API error (attempt {attempt + 1}/{max_retries}): {type(e).__name__}. "
                             f"Retrying in {delay}s..."
                         )
                         await asyncio.sleep(delay)
                     else:
                         logger.error(
-                            f"Cluster naming API error after {max_retries} attempts: {e}"
+                            f"Cluster naming API error after {max_retries} attempts: {type(e).__name__}"
                         )
-                        return ("Unnamed Group", "Failed to generate group name.")
+                        raise RuntimeError("Cluster naming failed")
                 else:
                     # Non-retryable error
-                    logger.warning(f"Cluster naming API error: {e}, using fallback")
-                    return ("Unnamed Group", "Failed to generate group name.")
+                    logger.warning(f"Cluster naming API error: {type(e).__name__}, using fallback")
+                    raise RuntimeError("Cluster naming failed")
 
         # Should not reach here, but just in case
-        return ("Unnamed Group", "Failed to generate group name.")
+        raise RuntimeError("Cluster naming failed")
 
     async def _make_request(
         self,
@@ -274,21 +297,20 @@ class TagGrouper:
                 timeout=aiohttp.ClientTimeout(total=120),
             ) as resp:
                 if resp.status != 200:
-                    body = await resp.text()
                     raise RuntimeError(
-                        f"Cluster naming API error: {resp.status} {body}"
+                        f"Cluster naming API error: {resp.status}"
                     )
                 data = await resp.json()
-        except (asyncio.TimeoutError, asyncio.CancelledError) as e:
-            raise aiohttp.ClientError(f"Request timed out: {e}") from e
+        except asyncio.TimeoutError as e:
+            raise aiohttp.ClientError(f"Request timed out: {type(e).__name__}") from e
 
         if not data or not data.get("choices"):
-            raise aiohttp.ClientError(f"API returned empty response: {data!r}")
+            raise aiohttp.ClientError("API returned empty response")
 
         content = data["choices"][0]["message"]["content"]
         try:
             parsed = json.loads(content)
             return (parsed["name"], parsed["description"])
         except (json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Failed to parse cluster name response: {e}")
-            return ("Unnamed Group", "Failed to parse group name.")
+            logger.warning(f"Failed to parse cluster name response: {type(e).__name__}")
+            raise ValueError("Invalid cluster name response") from None

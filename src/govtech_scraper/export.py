@@ -15,20 +15,18 @@ def export_to_csv(db_path: str, output: str | None = None) -> str:
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    rows = conn.execute("SELECT * FROM repositories ORDER BY stars DESC").fetchall()
+    cursor = conn.execute("SELECT * FROM repositories ORDER BY stars DESC")
+    columns = [c[0] for c in cursor.description]
+    rows = cursor.fetchall()
     conn.close()
 
     if not output:
         date = datetime.now().strftime("%Y%m%d")
         output = f"government_repos_{date}.csv"
 
-    if not rows:
-        logger.warning("No data to export")
-        return output
-
-    with open(output, "w", newline="") as f:
+    with open(output, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(rows[0].keys())
+        writer.writerow(columns)
         for row in rows:
             writer.writerow(tuple(row))
 
@@ -42,19 +40,17 @@ def export_tag_groups_csv(db_path: str, output: str | None = None) -> str:
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    rows = conn.execute("SELECT * FROM tag_groups ORDER BY name").fetchall()
+    cursor = conn.execute("SELECT * FROM tag_groups ORDER BY name")
+    columns = [c[0] for c in cursor.description]
+    rows = cursor.fetchall()
     conn.close()
 
     if not output:
         output = "tag_groups.csv"
 
-    if not rows:
-        logger.warning("No tag groups to export")
-        return output
-
-    with open(output, "w", newline="") as f:
+    with open(output, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(rows[0].keys())
+        writer.writerow(columns)
         for row in rows:
             writer.writerow(tuple(row))
 
@@ -68,21 +64,17 @@ def export_tag_group_members_csv(db_path: str, output: str | None = None) -> str
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT * FROM tag_group_members ORDER BY group_id, tag"
-    ).fetchall()
+    cursor = conn.execute("SELECT * FROM tag_group_members ORDER BY group_id, tag")
+    columns = [c[0] for c in cursor.description]
+    rows = cursor.fetchall()
     conn.close()
 
     if not output:
         output = "tag_group_members.csv"
 
-    if not rows:
-        logger.warning("No tag group members to export")
-        return output
-
-    with open(output, "w", newline="") as f:
+    with open(output, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(rows[0].keys())
+        writer.writerow(columns)
         for row in rows:
             writer.writerow(tuple(row))
 
@@ -100,19 +92,16 @@ def export_to_parquet(db_path: str, output: str | None = None) -> str:
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    rows = conn.execute("SELECT * FROM repositories ORDER BY stars DESC").fetchall()
+    cursor = conn.execute("SELECT * FROM repositories ORDER BY stars DESC")
+    columns = [c[0] for c in cursor.description]
+    rows = cursor.fetchall()
     conn.close()
 
     if not output:
         date = datetime.now().strftime("%Y%m%d")
         output = f"government_repos_{date}.parquet"
 
-    if not rows:
-        logger.warning("No data to export")
-        return output
-
     # Convert to dict of lists for pyarrow
-    columns = rows[0].keys()
     data = {col: [row[col] for row in rows] for col in columns}
     table = pa.table(data)
     pq.write_table(table, output)

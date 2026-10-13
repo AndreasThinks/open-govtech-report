@@ -2,6 +2,10 @@
 
 import asyncio
 import logging
+import json
+import uuid
+from dataclasses import asdict
+from datetime import datetime, timezone
 from typing import Optional, Callable
 
 import aiohttp
@@ -20,6 +24,11 @@ RATE_LIMITER = AsyncLimiter(12, 1.0)
 
 # Max concurrent connections
 MAX_CONCURRENT = 20
+
+
+class AccountNotFound(Exception):
+    """A confirmed HTTP 404, distinct from network or permission failure."""
+
 
 
 def _parse_repo(data: dict, country: str) -> Repository:
@@ -51,10 +60,11 @@ def _parse_repo(data: dict, country: str) -> Repository:
         created_at=data.get("created_at"),
         updated_at=data.get("updated_at"),
         pushed_at=data.get("pushed_at"),
+        fork_source=fork_source,
     )
 
 
-@retry_async(max_attempts=3, base_delay=2.0, retry_on=(aiohttp.ClientError, RuntimeError))
+@retry_async(max_attempts=3, base_delay=2.0, retry_on=(aiohttp.ClientError, RuntimeError, TimeoutError))
 async def _fetch_page(
     session: aiohttp.ClientSession,
     url: str,
@@ -65,20 +75,20 @@ async def _fetch_page(
     async with RATE_LIMITER:
         async with session.get(url, headers=headers, params=params) as resp:
             if resp.status == 304:
-                return [], None  # Not modified
+                raise RuntimeError("Unexpected 304 without a complete cached enumeration")
             if resp.status == 404:
-                return [], None  # Account doesn't exist or has no repos
+                raise AccountNotFound()
             if resp.status == 403:
                 # Rate limited or secondary limit
                 retry_after = resp.headers.get("Retry-After")
                 if retry_after:
-                    wait = int(retry_after)
+                    wait = min(60, max(0, int(retry_after)))
                     logger.warning(f"Rate limited. Waiting {wait}s...")
                     await asyncio.sleep(wait)
                     raise RuntimeError("Rate limited, retrying")
                 remaining = resp.headers.get("X-RateLimit-Remaining", "?")
                 logger.warning(f"403 Forbidden (remaining: {remaining})")
-                raise RuntimeError(f"GitHub API 403: {await resp.text()}")
+                raise RuntimeError("GitHub API 403")
             if resp.status != 200:
                 raise RuntimeError(f"GitHub API error: {resp.status}")
 
@@ -103,26 +113,31 @@ async def fetch_repos_for_account(
     token = await auth.get_token(session)
     headers = auth.get_headers(token)
 
-    # Check cache unless forcing
+    # A first-page ETag cannot prove that later pages are unchanged. Until
+    # complete page bodies are cached, enumerate unconditionally, even without --force.
     cache_url = f"https://api.github.com/users/{account.username}/repos"
-    if not force:
-        cached = db.get_cache(cache_url)
-        if cached:
-            if cached.get("etag"):
-                headers["If-None-Match"] = cached["etag"]
-            if cached.get("last_modified"):
-                headers["If-Modified-Since"] = cached["last_modified"]
 
     repos: list[Repository] = []
     url = cache_url
     params = {"per_page": "100", "type": "all", "sort": "updated"}
 
+    seen_pages = set()
     while url:
-        data, next_url = await _fetch_page(session, url, headers, params)
-        if not data:
-            break
+        if url in seen_pages or len(seen_pages) >= 10000:
+            raise RuntimeError("Invalid or excessive pagination")
+        seen_pages.add(url)
+        try:
+            data, next_url = await _fetch_page(session, url, headers, params)
+        except AccountNotFound:
+            if len(seen_pages) > 1:
+                raise RuntimeError('Pagination failed after account enumeration started') from None
+            raise
+        if not isinstance(data, list):
+            raise RuntimeError("Invalid repository response")
         for item in data:
             repos.append(_parse_repo(item, account.country))
+        if next_url and not next_url.startswith('https://api.github.com/'):
+            raise RuntimeError('Invalid pagination origin')
         url = next_url
         params = None  # params only on first request; next_url has them
 
@@ -142,29 +157,58 @@ async def fetch_all_repos(
     progress_callback: Optional[Callable[[int], None]] = None,
 ) -> list[Repository]:
     """Fetch repositories for all government accounts with concurrency control."""
-    if limit:
+    expected = len(accounts)
+    if limit is not None:
         accounts = accounts[:limit]
-
+    run_id = uuid.uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+    db.conn.execute('INSERT INTO scrape_runs(id,started_at,expected,attempted) VALUES (?,?,?,?)',
+                    (run_id, now, expected, len(accounts)))
+    db.conn.commit()
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
-    all_repos: list[Repository] = []
 
-    async def _fetch_one(account: GovernmentAccount) -> list[Repository]:
+    async def _fetch_one(account):
+        status, error_type, repos = 'failed', None, []
         async with semaphore:
             try:
                 repos = await fetch_repos_for_account(session, auth, account, db, force)
+                old = db.conn.execute('SELECT * FROM repositories WHERE lower(owner)=lower(?) AND current=1', (account.username,)).fetchall()
+                old_by_url = {r['html_url']: r for r in old}
+                def equal(repo):
+                    row = old_by_url.get(repo.html_url)
+                    if row is None:
+                        return False
+                    values = asdict(repo)
+                    values['topics'] = json.dumps(repo.topics)
+                    return all(row[k] == v for k, v in values.items())
+                status = 'unchanged' if len(old) == len(repos) and all(equal(r) for r in repos) else 'succeeded'
+                # Save and mark current only after this account's entire enumeration succeeds.
+                db.save_repositories(repos)
+                db.conn.execute('UPDATE repositories SET current=0 WHERE lower(owner)=lower(?)', (account.username,))
+                db.conn.executemany('UPDATE repositories SET current=1 WHERE html_url=?', [(r.html_url,) for r in repos])
+            except AccountNotFound:
+                status = 'not-found'
+                # Keep prior repositories and snapshots; a 404 may be transient.
+            except Exception as exc:
+                status = 'failed'
+                db.conn.rollback()
+                error_type = type(exc).__name__
+                logger.error('Account fetch failed (%s)', error_type)
+            finally:
+                db.conn.execute('INSERT INTO account_fetches VALUES (?,?,?,?,?,?)',
+                                (run_id, account.username, status, len(repos), error_type,
+                                 datetime.now(timezone.utc).isoformat()))
+                db.conn.commit()
                 if progress_callback:
                     progress_callback(1)
-                return repos
-            except Exception as e:
-                logger.error(f"Failed to fetch {account.username}: {e}")
-                if progress_callback:
-                    progress_callback(1)
-                return []
+        return status, repos
 
-    tasks = [_fetch_one(account) for account in accounts]
-    results = await asyncio.gather(*tasks)
-
-    for repo_list in results:
-        all_repos.extend(repo_list)
-
-    return all_repos
+    results = await asyncio.gather(*[_fetch_one(account) for account in accounts])
+    failures = sum(status == 'failed' for status, _ in results)
+    complete = bool(expected and len(accounts) == expected and not failures)
+    db.conn.execute('UPDATE scrape_runs SET finished_at=?, complete=? WHERE id=?',
+                    (datetime.now(timezone.utc).isoformat(), int(complete), run_id))
+    db.conn.commit()
+    if failures or not expected:
+        raise RuntimeError(f'Scrape incomplete: {failures} failed accounts; history retained')
+    return [repo for _, items in results for repo in items]

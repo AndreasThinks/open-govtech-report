@@ -307,7 +307,7 @@ async def tag_batch(
     initial_taxonomy_size = taxonomy.size
 
     # Create shared aiohttp session (Optimization 2)
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=90)) as session:
         # Process in batches with parallel suggest, sequential reconcile (Optimization 1)
         semaphore = asyncio.Semaphore(concurrency)
         consecutive_credit_errors = 0
@@ -351,12 +351,12 @@ async def tag_batch(
                         return suggestion_result
                     except CreditExhaustedError as e:
                         consecutive_credit_errors += 1
-                        error_msg = f"{repo_row['html_url']}: credit exhaustion (402): {e}"
+                        error_msg = f"{repo_row['html_url']}: credit exhaustion (402): {type(e).__name__}"
                         logger.error(f"Credit exhaustion in suggest phase: {error_msg}")
                         result.errors.append(error_msg)
                         return None
                     except Exception as e:
-                        error_msg = f"{repo_row['html_url']}: {e}"
+                        error_msg = f"{repo_row['html_url']}: {type(e).__name__}"
                         logger.error(f"Error in suggest phase: {error_msg}")
                         return None
             
@@ -392,7 +392,7 @@ async def tag_batch(
                         f"({'deduped' if tag_result.was_deduped else 'cold start'})"
                     )
                 except Exception as e:
-                    error_msg = f"{suggestion_result.repo.html_url}: {e}"
+                    error_msg = f"{suggestion_result.repo.html_url}: {type(e).__name__}"
                     logger.error(f"Error in reconcile phase: {error_msg}")
                     result.errors.append(error_msg)
                 

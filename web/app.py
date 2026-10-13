@@ -5,6 +5,11 @@ import plotly.graph_objects as go
 import sqlite3
 import os
 import logging
+import json
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from queries import Filters, build_where as cohort_where
 from datetime import datetime, timedelta, timezone
 
 # Tags that describe the dataset itself rather than individual repos — excluded from all charts/filters
@@ -19,7 +24,7 @@ LANGUAGE_TAGS = frozenset([
     "javascript", "python", "java", "typescript", "html", "css", "php",
     "ruby", "shell", "r", "scala", "c#", "kotlin", "go", "rust", "c",
     "c++", "perl", "swift", "matlab", "bash", "json", "xml", "yaml",
-    "sql", "makefile",
+    "sql", "makefile", "scss",
 ])
 
 # Combined filter — tags to hide from dashboard display
@@ -49,7 +54,10 @@ st.set_page_config(
 )
 
 
-def get_db_path():
+@st.cache_data(ttl=300)
+def get_db_path(override=None):
+    if override:
+        return override
     candidates = [
         os.path.join(os.path.dirname(__file__), "..", "govtech.db"),
         os.path.join(os.path.dirname(__file__), "govtech.db"),
@@ -62,21 +70,24 @@ def get_db_path():
             return os.path.abspath(p)
     logger.info("No local DB found, downloading from HuggingFace Hub...")
     try:
-        from huggingface_hub import hf_hub_download
+        from huggingface_hub import hf_hub_download, HfApi
+        revision = HfApi().dataset_info("AndreasThinks/government-github-repos").sha
+        hf_hub_download(repo_id="AndreasThinks/government-github-repos", filename="data/manifest.json", repo_type="dataset", revision=revision)
         path = hf_hub_download(
             repo_id="AndreasThinks/government-github-repos",
             filename="data/govtech.db",
             repo_type="dataset",
+            revision=revision,
         )
         logger.info(f"Downloaded DB to: {path}")
         return path
     except Exception as e:
-        logger.error(f"Failed to download DB: {e}")
-        st.error(f"Could not find or download govtech.db: {e}")
+        logger.error("Failed to download dataset (%s)", type(e).__name__)
+        st.error("Could not load a verified dataset revision.")
         st.stop()
 
 
-DB_PATH = get_db_path()
+DB_PATH = get_db_path(os.getenv('GOVTECH_DB_PATH'))
 
 
 def get_conn():
@@ -84,24 +95,32 @@ def get_conn():
 
 
 @st.cache_data(ttl=300)
-def query_df(sql, params=None):
-    conn = get_conn()
+def _query_df(db_path, sql, params=None):
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     df = pd.read_sql_query(sql, conn, params=params or [])
     conn.close()
     return df
 
 
 @st.cache_data(ttl=300)
-def query_one(sql, params=None):
-    conn = get_conn()
+def _query_one(db_path, sql, params=None):
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     cur = conn.cursor()
     result = cur.execute(sql, params or []).fetchone()[0]
     conn.close()
     return result
 
 
+def query_df(sql, params=None):
+    return _query_df(DB_PATH, sql, params)
+
+
+def query_one(sql, params=None):
+    return _query_one(DB_PATH, sql, params)
+
+
 @st.cache_data(ttl=300)
-def get_last_updated_display():
+def get_last_updated_display(db_path):
     iso = query_one("SELECT MAX(last_scraped) FROM repositories")
     if not iso:
         return None
@@ -113,7 +132,7 @@ def get_last_updated_display():
 
 
 @st.cache_data(ttl=600)
-def load_filter_options():
+def load_filter_options(db_path):
     conn = get_conn()
     countries = pd.read_sql_query(
         "SELECT DISTINCT country FROM repositories WHERE country IS NOT NULL AND country != '' ORDER BY country", conn
@@ -128,7 +147,7 @@ def load_filter_options():
         conn, params=tf_params
     )["tag"].tolist()
     orgs = pd.read_sql_query(
-        "SELECT owner, COUNT(*) as c FROM repositories GROUP BY owner ORDER BY c DESC LIMIT 300", conn
+        "SELECT owner, COUNT(*) as c FROM repositories GROUP BY owner ORDER BY c DESC ", conn
     )["owner"].tolist()
     conn.close()
     return countries, languages, tags, orgs
@@ -138,7 +157,7 @@ def load_filter_options():
 st.sidebar.title("🔭 Filters")
 st.sidebar.caption("Applied across all tabs")
 
-countries, languages, tags, orgs = load_filter_options()
+countries, languages, tags, orgs = load_filter_options(DB_PATH)
 
 sel_countries = st.sidebar.multiselect("🌍 Country", countries, key="g_country")
 sel_orgs = st.sidebar.multiselect("🏢 Organisation", orgs, key="g_org")
@@ -172,59 +191,21 @@ st.sidebar.markdown(
 
 
 def build_where(extra_conditions=None, base_table="r", tag_table="rt"):
-    """Build a WHERE clause and params list from global sidebar filters."""
-    conditions = list(extra_conditions or [])
-    params = []
-
-    if sel_countries:
-        ph = ",".join(["?"] * len(sel_countries))
-        conditions.append(f"{base_table}.country IN ({ph})")
-        params.extend(sel_countries)
-
-    if sel_orgs:
-        ph = ",".join(["?"] * len(sel_orgs))
-        conditions.append(f"{base_table}.owner IN ({ph})")
-        params.extend(sel_orgs)
-
-    if sel_languages:
-        ph = ",".join(["?"] * len(sel_languages))
-        conditions.append(f"{base_table}.language IN ({ph})")
-        params.extend(sel_languages)
-
-    if activity_days:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=activity_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        conditions.append(f"{base_table}.pushed_at >= ?")
-        params.append(cutoff)
-
-    if not show_archived:
-        conditions.append(f"({base_table}.archived = 0 OR {base_table}.archived IS NULL)")
-
-    if not show_forks:
-        conditions.append(f"({base_table}.fork = 0 OR {base_table}.fork IS NULL)")
-
-    if min_stars > 0:
-        conditions.append(f"{base_table}.stars >= ?")
-        params.append(min_stars)
-
+    filters = Filters(tuple(sel_countries), tuple(sel_languages), tuple(sel_orgs),
+                      tuple(sel_tags), show_archived, show_forks, min_stars, activity_days)
+    where, params = cohort_where(filters)
+    conditions = ([where[6:]] if where else []) + list(extra_conditions or [])
     return conditions, params
 
 
 def build_tag_join_where(extra_conditions=None):
-    """Build WHERE for queries that need to join repository_tags for tag filter."""
     conditions, params = build_where(extra_conditions)
-    tag_join = ""
-    if sel_tags:
-        tag_join = "JOIN repository_tags rt ON r.html_url = rt.html_url"
-        ph = ",".join(["?"] * len(sel_tags))
-        conditions.append(f"rt.tag IN ({ph})")
-        params.extend(sel_tags)
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    return where, params, tag_join
+    return ('WHERE ' + ' AND '.join(conditions) if conditions else ''), params, ''
 
 
 # ==================== HEADER ====================
 st.title("🏛️ GovTech GitHub Explorer")
-st.caption("Exploring 70k+ government GitHub repositories worldwide")
+st.caption("Public repositories from government registry accounts; sidebar filters apply across tabs")
 
 # ==================== TABS ====================
 tab_overview, tab_explorer, tab_tags, tab_insights, tab_trends, tab_about = st.tabs(
@@ -237,7 +218,7 @@ with tab_overview:
     where, params, tag_join = build_tag_join_where()
 
     total_filtered = query_one(f"SELECT COUNT(DISTINCT r.html_url) FROM repositories r {tag_join} {where}", params)
-    account_count = query_one("SELECT COUNT(*) FROM accounts")
+    account_count = query_one(f"SELECT COUNT(DISTINCT r.owner) FROM repositories r {where}", params)
     country_count_val = query_one(
         f"SELECT COUNT(DISTINCT r.country) FROM repositories r {tag_join} {where}", params
     )
@@ -254,11 +235,7 @@ with tab_overview:
     conds_12m, p_12m = build_where()
     conds_12m.append("r.pushed_at >= ?")
     p_12m.append(active_cutoff)
-    tj2 = "JOIN repository_tags rt ON r.html_url = rt.html_url" if sel_tags else ""
-    if sel_tags:
-        ph = ",".join(["?"] * len(sel_tags))
-        conds_12m.append(f"rt.tag IN ({ph})")
-        p_12m.extend(sel_tags)
+    tj2 = ""
     w12 = ("WHERE " + " AND ".join(conds_12m)) if conds_12m else ""
     active_12m = conn.execute(
         f"SELECT COUNT(DISTINCT r.html_url) FROM repositories r {tj2} {w12}", p_12m
@@ -284,7 +261,7 @@ with tab_overview:
         if not df_countries.empty:
             fig = px.bar(df_countries, x="country", y="count", color="count", color_continuous_scale="Blues")
             fig.update_layout(showlegend=False, xaxis_title="Country", yaxis_title="Repositories", coloraxis_showscale=False)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     with col_right:
         st.subheader("Top Languages")
@@ -298,7 +275,7 @@ with tab_overview:
         if not df_langs.empty:
             fig = px.bar(df_langs, x="count", y="language", orientation="h", color="count", color_continuous_scale="Greens")
             fig.update_layout(showlegend=False, yaxis=dict(autorange="reversed"), xaxis_title="Repositories", yaxis_title="", coloraxis_showscale=False)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     st.subheader("Repository Creation Timeline")
     df_timeline = query_df(
@@ -334,7 +311,7 @@ with tab_overview:
                 line=dict(color="#10b981"), fillcolor="rgba(16,185,129,0.15)"
             ))
         fig.update_layout(xaxis_title="Year", yaxis_title="Repositories", legend=dict(orientation="h"))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption("'Last pushed' shows when repositories last received a commit — a proxy for active maintenance.")
 
 
@@ -342,36 +319,32 @@ with tab_overview:
 with tab_explorer:
     where_e, params_e, tag_join_e = build_tag_join_where()
 
-    # Extra local search
     search_text = st.text_input("Search name / description", key="exp_search")
     if search_text:
-        where_e_conds, _ = build_where()
-        where_e_conds.append("(r.name LIKE ? OR r.description LIKE ?)")
-        params_e_local = params_e + [f"%{search_text}%", f"%{search_text}%"]
-        where_e_local = ("WHERE " + " AND ".join(where_e_conds + (["(r.name LIKE ? OR r.description LIKE ?)"] if search_text else []))) if where_e_conds else ""
-    else:
-        params_e_local = params_e
+        where_e += (" AND " if where_e else "WHERE ") + "(r.name LIKE ? OR r.description LIKE ?)"
+        params_e += [f"%{search_text}%"] * 2
 
     sort_col = st.selectbox("Sort by", ["stars", "forks", "pushed_at", "created_at"], key="exp_sort")
 
     conn = get_conn()
     count_sql = f"SELECT COUNT(DISTINCT r.html_url) FROM repositories r {tag_join_e} {where_e}"
-    if search_text:
-        extra = " AND (r.name LIKE ? OR r.description LIKE ?)"
-        total_results = conn.execute(count_sql + extra, params_e + [f"%{search_text}%", f"%{search_text}%"]).fetchone()[0]
-    else:
-        total_results = conn.execute(count_sql, params_e).fetchone()[0]
+    total_results = conn.execute(count_sql, params_e).fetchone()[0]
     conn.close()
 
     st.write(f"**{total_results:,}** repositories match current filters")
 
     page_size = 50
     total_pages = max(1, (total_results + page_size - 1) // page_size)
+    filter_signature = (where_e, tuple(params_e), sort_col)
+    if st.session_state.get('exp_filters') != filter_signature:
+        st.session_state['exp_page'] = 1
+        st.session_state['exp_filters'] = filter_signature
+    st.session_state['exp_page'] = min(st.session_state.get('exp_page', 1), total_pages)
     page = st.number_input("Page", min_value=1, max_value=total_pages, value=1, key="exp_page")
     offset = (page - 1) * page_size
 
-    search_clause = " AND (r.name LIKE ? OR r.description LIKE ?)" if search_text else ""
-    search_params = [f"%{search_text}%", f"%{search_text}%"] if search_text else []
+    search_clause = ""
+    search_params = []
 
     data_sql = f"""
         SELECT r.html_url, r.name, r.owner, r.country, r.language, r.stars, r.forks,
@@ -400,7 +373,7 @@ with tab_explorer:
                 "archived": st.column_config.CheckboxColumn("Archived"),
                 "fork": st.column_config.CheckboxColumn("Fork"),
             },
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
         st.caption(f"Page {page} of {total_pages}")
@@ -412,15 +385,9 @@ with tab_explorer:
 with tab_tags:
     where_t, params_t, tag_join_t = build_tag_join_where()
 
-    tagged_count_t = query_one("SELECT COUNT(DISTINCT html_url) FROM repository_tags")
-    total_repos_t = query_one("SELECT COUNT(*) FROM repositories")
-
-    if tagged_count_t < total_repos_t * 0.99:
-        pct = tagged_count_t / total_repos_t * 100 if total_repos_t > 0 else 0
-        st.info(
-            f"🏗️ **Tagging in progress** — {tagged_count_t:,} of {total_repos_t:,} repositories tagged ({pct:.1f}%). "
-            "Results below reflect partially tagged data."
-        )
+    tagged_count_t = query_one(f"SELECT COUNT(*) FROM repositories r {where_t} {'AND' if where_t else 'WHERE'} EXISTS (SELECT 1 FROM repository_tags x WHERE x.html_url=r.html_url AND x.source='llm')", params_t)
+    empty_count_t = query_one(f"SELECT COUNT(*) FROM repositories r {where_t} {'AND' if where_t else 'WHERE'} COALESCE(TRIM(r.description),'')='' AND r.language IS NULL AND r.stars=0 AND NOT EXISTS (SELECT 1 FROM repository_tags x WHERE x.html_url=r.html_url AND x.source='llm')", params_t)
+    st.caption(f"Selected cohort: {tagged_count_t:,} LLM tagged; {empty_count_t:,} intentionally empty; {max(0, total_filtered-tagged_count_t-empty_count_t):,} awaiting tags.")
 
     col_tl, col_tr = st.columns(2)
 
@@ -433,7 +400,7 @@ with tab_tags:
                 FROM repositories r
                 JOIN repository_tags rt2 ON r.html_url = rt2.html_url
                 {tag_join_t.replace("rt", "rt_f") if sel_tags else ""}
-                {where_t.replace("rt.", "rt2.") if where_t else ""}
+                {where_t}
                 {"AND" if where_t else "WHERE"} {tf_sql_t}
                 GROUP BY rt2.tag HAVING count >= {MIN_TAG_REPOS} ORDER BY count DESC LIMIT 30""",
             params_t + tf_params_t,
@@ -445,7 +412,7 @@ with tab_tags:
             )
             fig.update_layout(yaxis=dict(autorange="reversed"), showlegend=False, height=600,
                               xaxis_title="Repositories", yaxis_title="", coloraxis_showscale=False)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     with col_tr:
         st.subheader("Tags by Year Created")
@@ -472,7 +439,7 @@ with tab_tags:
                 fig = px.line(df_tag_time, x="year", y="count", color="tag",
                               labels={"year": "Year", "count": "Repos created", "tag": "Tag"})
                 fig.update_layout(legend=dict(orientation="h", y=-0.3))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
     st.divider()
     st.subheader("Browse Repos by Tag")
@@ -490,7 +457,8 @@ with tab_tags:
                {w_br} ORDER BY r.{sort_tag} DESC LIMIT 200""",
             params_br,
         )
-        st.write(f"**{len(df_tag_repos)}** repos tagged with **{sel_tag}**")
+        tag_total = query_one(f"SELECT COUNT(DISTINCT r.html_url) FROM repositories r JOIN repository_tags rt_b ON r.html_url=rt_b.html_url {w_br}", params_br)
+        st.write(f"Displaying {len(df_tag_repos):,} of {tag_total:,} repos tagged with **{sel_tag}**")
         if not df_tag_repos.empty:
             st.dataframe(
                 df_tag_repos,
@@ -500,26 +468,20 @@ with tab_tags:
                     "stars": st.column_config.NumberColumn("⭐ Stars"),
                     "pushed_at": st.column_config.TextColumn("Last pushed"),
                 },
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
     st.divider()
     st.subheader("Tag Groups")
-    df_groups = query_df("SELECT id, name, description FROM tag_groups ORDER BY name")
+    df_groups = query_df(f"SELECT DISTINCT g.id, g.name, g.description FROM tag_groups g JOIN tag_group_members gm ON gm.group_id=g.id JOIN repository_tags rt ON rt.tag=gm.tag JOIN repositories r ON r.html_url=rt.html_url {where_t} ORDER BY g.name", params_t)
     if not df_groups.empty:
-        for _, grp in df_groups.iterrows():
-            with st.expander(f"📁 {grp['name']}" + (f" — {grp['description']}" if grp["description"] else "")):
-                df_members = query_df(
-                    "SELECT tag FROM tag_group_members WHERE group_id = ? ORDER BY tag",
-                    [int(grp["id"])]
-                )
-                if not df_members.empty:
-                    st.write(", ".join(df_members["tag"].tolist()))
-                else:
-                    st.write("No tags in this group yet.")
+        group_id = st.selectbox("Browse a tag group", df_groups['id'].tolist(),
+                               format_func=lambda value: df_groups.set_index('id').loc[value, 'name'])
+        members = query_df(f"SELECT DISTINCT gm.tag FROM tag_group_members gm JOIN repository_tags rt ON rt.tag=gm.tag JOIN repositories r ON r.html_url=rt.html_url {where_t} {'AND' if where_t else 'WHERE'} gm.group_id=? ORDER BY gm.tag", params_t + [int(group_id)])
+        st.write(', '.join(members['tag'].tolist()))
     else:
-        st.info("No tag groups defined yet.")
+        st.info("No tag groups in the selected cohort.")
 
 
 # ==================== INSIGHTS ====================
@@ -543,7 +505,7 @@ with tab_insights:
                 "stars": st.column_config.NumberColumn("⭐ Stars"),
                 "pushed_at": st.column_config.TextColumn("Last pushed"),
             },
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -553,11 +515,7 @@ with tab_insights:
         conds_r, params_r = build_where(base_table="r")
         conds_r.append("r.pushed_at >= ?")
         params_r.append(rising_cutoff)
-        tj_r = "JOIN repository_tags rt ON r.html_url = rt.html_url" if sel_tags else ""
-        if sel_tags:
-            ph = ",".join(["?"] * len(sel_tags))
-            conds_r.append(f"rt.tag IN ({ph})")
-            params_r.extend(sel_tags)
+        tj_r = ""
         w_r = ("WHERE " + " AND ".join(conds_r)) if conds_r else ""
         df_rising = query_df(
             f"""SELECT r.name, r.owner, r.country, r.stars, r.language, r.pushed_at, r.html_url
@@ -572,7 +530,7 @@ with tab_insights:
                 "stars": st.column_config.NumberColumn("⭐ Stars"),
                 "pushed_at": st.column_config.TextColumn("Last pushed"),
             },
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -583,11 +541,7 @@ with tab_insights:
     conds_ao, params_ao = build_where(base_table="r")
     conds_ao.append("r.pushed_at >= ?")
     params_ao.append((datetime.now(timezone.utc) - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ"))
-    tj_ao = "JOIN repository_tags rt ON r.html_url = rt.html_url" if sel_tags else ""
-    if sel_tags:
-        ph = ",".join(["?"] * len(sel_tags))
-        conds_ao.append(f"rt.tag IN ({ph})")
-        params_ao.extend(sel_tags)
+    tj_ao = ""
     w_ao = ("WHERE " + " AND ".join(conds_ao)) if conds_ao else ""
     df_active_orgs = query_df(
         f"""SELECT r.owner, r.country, COUNT(DISTINCT r.html_url) as active_repos,
@@ -604,10 +558,10 @@ with tab_insights:
                          labels={"active_repos": "Active repos (12m)", "owner": ""})
             fig.update_layout(yaxis=dict(autorange="reversed"), showlegend=False,
                               height=500, coloraxis_showscale=False)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
     with col_org2:
         if not df_active_orgs.empty:
-            st.dataframe(df_active_orgs, use_container_width=True, hide_index=True,
+            st.dataframe(df_active_orgs, width="stretch", hide_index=True,
                          column_config={"total_stars": st.column_config.NumberColumn("⭐ Total stars"),
                                         "active_repos": st.column_config.NumberColumn("Active repos (12m)")})
 
@@ -634,7 +588,7 @@ with tab_insights:
                 df_lic_plot = df_lic
             fig = px.pie(df_lic_plot, names="license", values="count", hole=0.3)
             fig.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     with col_id:
         st.subheader("🍴 Fork vs Original")
@@ -654,7 +608,7 @@ with tab_insights:
             names="type", values="count", hole=0.4,
             color_discrete_sequence=["#2ecc71", "#e74c3c"],
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     st.divider()
     st.subheader("🌍 Language × Country Heatmap")
@@ -662,22 +616,19 @@ with tab_insights:
         f"""SELECT r.country, r.language, COUNT(DISTINCT r.html_url) as count
             FROM repositories r {tag_join_i} {where_i}
             {"AND" if where_i else "WHERE"} r.language IS NOT NULL AND r.language != ''
-              AND r.country IN (
-                SELECT country FROM repositories GROUP BY country ORDER BY COUNT(*) DESC LIMIT 15
-              )
-              AND r.language IN (
-                SELECT language FROM repositories WHERE language IS NOT NULL AND language != ''
-                GROUP BY language ORDER BY COUNT(*) DESC LIMIT 12
-              )
+
             GROUP BY r.country, r.language""",
         params_i,
     )
     if not df_heat.empty:
         pivot = df_heat.pivot_table(index="country", columns="language", values="count", fill_value=0)
+        top_countries = pivot.sum(axis=1).nlargest(15).index
+        top_languages = pivot.sum(axis=0).nlargest(12).index
+        pivot = pivot.loc[top_countries, top_languages]
         fig = px.imshow(pivot, text_auto=True, color_continuous_scale="YlOrRd",
                         labels=dict(x="Language", y="Country", color="Repos"), aspect="auto")
         fig.update_layout(height=500)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("Not enough data for heatmap.")
 
@@ -743,12 +694,7 @@ with tab_trends:
     conds_m.append("r.created_at >= ?")
     params_m.append(cutoff_recent)
     w_m = ("WHERE " + " AND ".join(conds_m)) if conds_m else ""
-    tj_m = "JOIN repository_tags rt ON r.html_url = rt.html_url" if sel_tags else ""
-    if sel_tags:
-        ph = ",".join(["?"] * len(sel_tags))
-        conds_m.append(f"rt.tag IN ({ph})")
-        params_m.extend(sel_tags)
-        w_m = ("WHERE " + " AND ".join(conds_m)) if conds_m else ""
+    tj_m = ""
 
     df_activity = query_df(
         f"""SELECT {sql_bucket} as bucket, COUNT(DISTINCT r.html_url) as new_repos
@@ -764,7 +710,7 @@ with tab_trends:
             color="new_repos", color_continuous_scale="Blues",
         )
         fig.update_layout(coloraxis_showscale=False, xaxis_title=bucket_label, yaxis_title="New repos")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("Not enough data for this period.")
 
@@ -775,12 +721,7 @@ with tab_trends:
     conds_nr.append("r.created_at >= ?")
     params_nr.append(cutoff_recent)
     w_nr = ("WHERE " + " AND ".join(conds_nr)) if conds_nr else ""
-    tj_nr = "JOIN repository_tags rt ON r.html_url = rt.html_url" if sel_tags else ""
-    if sel_tags:
-        ph = ",".join(["?"] * len(sel_tags))
-        conds_nr.append(f"rt.tag IN ({ph})")
-        params_nr.extend(sel_tags)
-        w_nr = ("WHERE " + " AND ".join(conds_nr)) if conds_nr else ""
+    tj_nr = ""
     df_new_repos = query_df(
         f"""SELECT r.name, r.owner, r.country, r.language, r.stars, r.created_at, r.html_url
             FROM repositories r {tj_nr} {w_nr}
@@ -795,7 +736,7 @@ with tab_trends:
                 "stars": st.column_config.NumberColumn("⭐ Stars"),
                 "created_at": st.column_config.TextColumn("Created"),
             },
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
     else:
         st.info("No new repos in this period.")
@@ -848,7 +789,7 @@ with tab_trends:
                 coloraxis_showscale=False, xaxis_title="Growth ratio", yaxis_title="",
             )
             fig.add_vline(x=1.0, line_dash="dash", line_color="grey", annotation_text="no change")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
         with col_m2:
             st.markdown(f"**Top tags by volume**")
@@ -872,7 +813,7 @@ with tab_trends:
                     coloraxis_showscale=False,
                     xaxis_title=f"Repos ({period_label.lower()})", yaxis_title="",
                 )
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, width="stretch")
 
         # Emerging tags table
         st.markdown("**Emerging tags** — ratio > 1.5")
@@ -883,7 +824,7 @@ with tab_trends:
             "growth_ratio": "Ratio", "growth_pct": "Growth %"
         })
         if not df_emerging.empty:
-            st.dataframe(df_emerging, use_container_width=True, hide_index=True)
+            st.dataframe(df_emerging, width="stretch", hide_index=True)
         else:
             st.info("No tags with >50% growth in this period.")
     else:
@@ -902,26 +843,24 @@ with tab_trends:
         FROM repositories r
         WHERE r.language IS NOT NULL AND r.language != ''
           AND r.created_at IS NOT NULL
-          AND r.language IN (
-              SELECT language FROM repositories
-              WHERE language IS NOT NULL AND language != ''
-              GROUP BY language ORDER BY COUNT(*) DESC LIMIT 10
-          )
-          AND SUBSTR(r.created_at, 1, 4) BETWEEN '2015' AND SUBSTR(?, 1, 4)
+
+          AND SUBSTR(r.created_at, 1, 4) BETWEEN '2015' AND SUBSTR(?, 1, 4) {and_base}
         GROUP BY year, r.language ORDER BY year
         """,
-        [now_str],
+        [now_str] + params_base,
     )
     df_lang_year = df_lang_year[df_lang_year["year"].str.match(r"^\d{4}$", na=False)]
 
     if not df_lang_year.empty:
+        top_languages = df_lang_year.groupby('language')['count'].sum().nlargest(10).index
+        df_lang_year = df_lang_year[df_lang_year['language'].isin(top_languages)]
         fig_lang = px.line(
             df_lang_year, x="year", y="count", color="language",
             labels={"year": "Year", "count": "New repositories", "language": "Language"},
             markers=True,
         )
         fig_lang.update_layout(legend=dict(orientation="h", y=-0.25))
-        st.plotly_chart(fig_lang, use_container_width=True)
+        st.plotly_chart(fig_lang, width="stretch")
 
         st.caption("As a share of all new repos that year (top 10 languages).")
         df_totals = df_lang_year.groupby("year")["count"].sum().reset_index().rename(columns={"count": "total"})
@@ -934,7 +873,7 @@ with tab_trends:
             groupnorm="",
         )
         fig_share.update_layout(legend=dict(orientation="h", y=-0.25), yaxis_title="Share (%)")
-        st.plotly_chart(fig_share, use_container_width=True)
+        st.plotly_chart(fig_share, width="stretch")
     else:
         st.info("Not enough data for language trends.")
 
@@ -945,8 +884,8 @@ with tab_about:
     st.write(
         """
         **GovTech GitHub Explorer** maps the global landscape of government open source software.
-        It discovers, scrapes, and automatically categorises every public GitHub repository
-        belonging to government organisations worldwide — updated weekly.
+        It discovers, scrapes, and automatically categorises public GitHub repositories
+        belonging to accounts in the government.github.com registry. Refreshes are scheduled weekly; actual freshness is shown below.
         """
     )
 
@@ -954,13 +893,13 @@ with tab_about:
     col_a1, col_a2, col_a3, col_a4 = st.columns(4)
     with col_a1:
         st.markdown("### 🔍 Discover")
-        st.write("Government GitHub accounts are sourced from the [government.github.com](https://github.com/github/government.github.com) registry — ~2,000 organisations across 100+ countries.")
+        st.write("Government GitHub accounts are sourced from the [government.github.com](https://github.com/github/government.github.com) registry, supplemented by accepted community submissions.")
     with col_a2:
         st.markdown("### 🕷️ Scrape")
         st.write("Repository metadata is collected via the GitHub API using a GitHub App installation, giving high-throughput authenticated access.")
     with col_a3:
         st.markdown("### 🏷️ Tag")
-        st.write("An LLM pipeline (Qwen3-32B via OpenRouter) reads each repository's metadata and README, then assigns structured tags and categories.")
+        st.write("An LLM pipeline (Qwen3-32B via OpenRouter) reads each repository's metadata (README and code are not fetched by batch tagging), then assigns structured tags and categories.")
     with col_a4:
         st.markdown("### 📊 Explore")
         st.write("Tags are clustered into groups using embedding similarity, and the full dataset is published to HuggingFace for anyone to use.")
@@ -969,9 +908,9 @@ with tab_about:
 
     st.subheader("Data")
     col_d1, col_d2, col_d3 = st.columns(3)
-    total_a = query_one("SELECT COUNT(*) FROM repositories")
-    tagged_a = query_one("SELECT COUNT(DISTINCT html_url) FROM repository_tags")
-    tag_count_a = query_one("SELECT COUNT(*) FROM tags")
+    total_a = total_filtered
+    tagged_a = tagged_count_t
+    tag_count_a = query_one(f"SELECT COUNT(DISTINCT rt.tag) FROM repository_tags rt JOIN repositories r ON r.html_url=rt.html_url {where}", params)
     col_d1.metric("Repositories", f"{total_a:,}")
     col_d2.metric("Tagged", f"{tagged_a:,}")
     col_d3.metric("Unique tags", f"{tag_count_a:,}")
@@ -979,7 +918,7 @@ with tab_about:
     st.write(
         "The full dataset — including repo metadata, tags, and tag groups — is available on "
         "[HuggingFace](https://huggingface.co/datasets/AndreasThinks/government-github-repos) "
-        "in CSV, Parquet, and SQLite formats. Updated every Sunday."
+        "in CSV, Parquet, and SQLite formats. Sunday updates depend on successful scheduled runs."
     )
 
     st.divider()
@@ -1007,8 +946,37 @@ with tab_about:
 
 
 st.divider()
-last_updated = get_last_updated_display()
-updated_str = f"Last updated: {last_updated}" if last_updated else "Update time unavailable"
+last_updated = get_last_updated_display(DB_PATH)
+updated_str = f"Maximum repository scrape: {last_updated}" if last_updated else "Scrape time unavailable"
+latest_iso = query_one("SELECT MAX(last_scraped) FROM repositories")
+if not latest_iso or datetime.now(timezone.utc) - datetime.fromisoformat(latest_iso).replace(tzinfo=timezone.utc) > timedelta(days=14):
+    st.warning("Repository data is stale or freshness is unknown (over 14 days).")
+manifest_path = Path(DB_PATH).with_name('manifest.json')
+if manifest_path.exists():
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        published = manifest.get('publication_timestamp')
+        coverage = manifest.get('coverage', {})
+        outcomes = coverage.get('outcomes', {})
+        st.caption(f"Publication: {published or 'unknown'}. Refresh: {coverage.get('attempted', '?')} of {coverage.get('expected', '?')} accounts checked; "
+                   f"{outcomes.get('succeeded', 0)} updated, {outcomes.get('unchanged', 0)} unchanged, "
+                   f"{outcomes.get('not-found', 0)} not found, {outcomes.get('failed', 0)} failed.")
+        if not published or datetime.now(timezone.utc) - datetime.fromisoformat(published).replace(tzinfo=timezone.utc) > timedelta(days=14):
+            st.warning('Publication is stale or its date is unknown (over 14 days).')
+        if not manifest.get('coverage', {}).get('complete'):
+            st.warning('Last publication lacks complete refresh coverage.')
+    except (ValueError, OSError):
+        st.warning('Publication metadata unavailable.')
+else:
+    st.caption('Publication time unknown; a repository scrape timestamp is not a publication timestamp.')
+    tables = query_df("SELECT name FROM sqlite_master WHERE type='table'")['name'].tolist()
+    if 'scrape_runs' in tables:
+        coverage = query_df('SELECT expected, attempted, complete, finished_at FROM scrape_runs ORDER BY started_at DESC LIMIT 1')
+        st.dataframe(coverage, hide_index=True)
+        if coverage.empty or not coverage.iloc[0]['complete']:
+            st.warning('Latest refresh coverage is incomplete or unknown.')
+    else:
+        st.warning('Refresh coverage is unknown for this legacy database.')
 st.caption(
     f"Data sourced from government GitHub accounts worldwide. {updated_str}. "
     "| [GitHub](https://github.com/AndreasThinks/open-govtech-report) "

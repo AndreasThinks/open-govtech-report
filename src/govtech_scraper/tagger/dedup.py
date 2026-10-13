@@ -181,7 +181,7 @@ class TagReconciler:
                         session, user_prompt, response_schema
                     )
                 else:
-                    async with aiohttp.ClientSession() as temp_session:
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=90)) as temp_session:
                         return await self._make_request(
                             temp_session, user_prompt, response_schema
                         )
@@ -190,18 +190,14 @@ class TagReconciler:
                 if attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)
                     logger.warning(
-                        f"Dedup request failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Dedup request failed (attempt {attempt + 1}/{max_retries}): {type(e).__name__}. "
                         f"Retrying in {delay}s..."
                     )
                     await asyncio.sleep(delay)
                 else:
-                    logger.error(f"Dedup request failed after {max_retries} attempts: {e}")
+                    logger.error(f"Dedup request failed after {max_retries} attempts: {type(e).__name__}")
                     # Return default decision on final failure
-                    return DeduplicationDecision(
-                        same_concept=False,
-                        preferred_tag=new_tag,
-                        reasoning=f"Network error after {max_retries} retries",
-                    )
+                    raise RuntimeError("Deduplication request failed") from None
             except RuntimeError as e:
                 # Check if it's a retryable HTTP error
                 error_msg = str(e)
@@ -209,26 +205,18 @@ class TagReconciler:
                     if attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)
                         logger.warning(
-                            f"Dedup API error (attempt {attempt + 1}/{max_retries}): {e}. "
+                            f"Dedup API error (attempt {attempt + 1}/{max_retries}): {type(e).__name__}. "
                             f"Retrying in {delay}s..."
                         )
                         await asyncio.sleep(delay)
                     else:
-                        logger.error(f"Dedup API error after {max_retries} attempts: {e}")
+                        logger.error(f"Dedup API error after {max_retries} attempts: {type(e).__name__}")
                         # Return default decision on final failure
-                        return DeduplicationDecision(
-                            same_concept=False,
-                            preferred_tag=new_tag,
-                            reasoning=f"API error after {max_retries} retries",
-                        )
+                        raise RuntimeError("Deduplication request failed") from None
                 else:
                     # Non-retryable error (400, 401, 404, etc.)
-                    logger.warning(f"Dedup API error: {e}, defaulting to no-merge")
-                    return DeduplicationDecision(
-                        same_concept=False,
-                        preferred_tag=new_tag,
-                        reasoning="API error, keeping both tags",
-                    )
+                    logger.warning(f"Dedup API error: {type(e).__name__}, defaulting to no-merge")
+                    raise RuntimeError("Deduplication request failed") from None
 
     async def _make_request(
         self,
@@ -263,8 +251,7 @@ class TagReconciler:
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             if resp.status != 200:
-                body = await resp.text()
-                raise RuntimeError(f"Dedup API error: {resp.status} {body}")
+                raise RuntimeError(f"Dedup API error: {resp.status}")
             data = await resp.json()
 
         content = data["choices"][0]["message"]["content"]
@@ -272,9 +259,5 @@ class TagReconciler:
             parsed = json.loads(content)
             return DeduplicationDecision.model_validate(parsed)
         except Exception as e:
-            logger.warning(f"Failed to parse dedup response: {e}")
-            return DeduplicationDecision(
-                same_concept=False,
-                preferred_tag=new_tag,
-                reasoning=f"Parse error: {e}",
-            )
+            logger.warning(f"Failed to parse dedup response: {type(e).__name__}")
+            raise ValueError("Invalid deduplication response") from None

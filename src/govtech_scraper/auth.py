@@ -4,6 +4,7 @@ Generates JWTs and exchanges them for installation access tokens.
 Handles automatic token refresh when expired.
 """
 
+import asyncio
 import time
 import logging
 from typing import Optional
@@ -26,6 +27,7 @@ class GitHubAuth:
         self.private_key = private_key
         self._token: Optional[str] = None
         self._token_expires_at: float = 0
+        self._refresh_lock = asyncio.Lock()
 
     def _generate_jwt(self) -> str:
         """Generate a JWT for GitHub App authentication."""
@@ -42,6 +44,12 @@ class GitHubAuth:
         if self._token and time.time() < self._token_expires_at - TOKEN_EXPIRY_BUFFER:
             return self._token
 
+        async with self._refresh_lock:
+            if self._token and time.time() < self._token_expires_at - TOKEN_EXPIRY_BUFFER:
+                return self._token
+            return await self._refresh_token(session)
+
+    async def _refresh_token(self, session: aiohttp.ClientSession) -> str:
         token_jwt = self._generate_jwt()
         url = f"https://api.github.com/app/installations/{self.installation_id}/access_tokens"
         headers = {
@@ -51,8 +59,7 @@ class GitHubAuth:
 
         async with session.post(url, headers=headers) as resp:
             if resp.status != 201:
-                body = await resp.text()
-                raise RuntimeError(f"Failed to get installation token: {resp.status} {body}")
+                raise RuntimeError(f"Failed to get installation token: HTTP {resp.status}")
             data = await resp.json()
 
         self._token = data["token"]

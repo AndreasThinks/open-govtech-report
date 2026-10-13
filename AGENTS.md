@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Scrapes and catalogs every public GitHub repository belonging to government organizations worldwide. Source of truth for government accounts is the [government.github.com](https://github.com/github/government.github.com) YAML registry.
+Catalogs public GitHub repositories from accounts in the government.github.com registry and accepted community submissions; this is not a worldwide census. Source of truth for government accounts is the [government.github.com](https://github.com/github/government.github.com) YAML registry.
 
 ## Architecture
 
@@ -104,10 +104,10 @@ tagger/
 ```
 
 ### Pipeline
-1. **Context building** — assembles repo metadata, README, file tree, dependency manifest, entry point code within a ~2000 token budget
+1. **Context building** — batch tagging currently supplies metadata only within a ~2000 token budget. The lower-level API accepts caller-supplied README, tree, manifests and code; the batch pipeline does not fetch them.
 2. **Tag suggestion** — sends context to LLM (default: Gemini Flash via OpenRouter) with structured output, gets back tags + category + tech stack
 3. **Deduplication** — embeds suggested tags, finds similar existing tags via cosine similarity, asks LLM "are these the same concept?" to decide merge vs keep
-4. **Cold start** — first 50 repos skip dedup and seed the taxonomy freely
+4. **Cold start** — until the concept taxonomy reaches 50 tags, suggestions seed it freely
 
 ### DB Tables
 - `tags` — tag vocabulary with cached embeddings and usage counts
@@ -162,7 +162,7 @@ uv run streamlit run app.py
 - SDK: Streamlit
 - Hardware: Free tier (no GPU needed)
 - The app auto-downloads the DB from the HF dataset repo on startup
-- Weekly pipeline (GitHub Actions) pushes updated DB → Space auto-refreshes on next visit
+- Weekly pipeline (GitHub Actions) restores history, tests, scrapes and validates one SQLite backup plus all exports before publication. Scheduled workflows can be disabled by inactivity; independent freshness monitoring is required.
 
 ## Known Bugs / To-Do
 
