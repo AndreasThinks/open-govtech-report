@@ -72,6 +72,10 @@ class Catalogue:
             raise FileNotFoundError(f"Database not found: {self.db_path}")
         self.taxonomy = taxonomy or load_taxonomy()
         self._domain_names = {d.id: d.name for d in self.taxonomy.domains}
+        with self._connect() as conn:
+            self._has_current = any(
+                row["name"] == "current" for row in conn.execute("PRAGMA table_info(repositories)")
+            )
         self.decision_model = os.getenv("DECISION_MODEL") or self._default_decision_model()
 
     @contextmanager
@@ -82,6 +86,11 @@ class Catalogue:
             yield conn
         finally:
             conn.close()
+
+    def current_predicate(self, alias: str = "") -> str:
+        """Legacy publications contain only current rows; never migrate an input database."""
+        column = f"{alias}.current" if alias else "current"
+        return f"COALESCE({column}, 1) = 1" if self._has_current else "1 = 1"
 
     def _has_table(self, conn: sqlite3.Connection, table: str) -> bool:
         return (
@@ -97,8 +106,8 @@ class Catalogue:
             if not self._has_table(conn, "decision_results"):
                 return None
             row = conn.execute(
-                """SELECT model FROM decision_results
-                   WHERE taxonomy_version=? AND error IS NULL
+                f"""SELECT model FROM decision_results d JOIN repositories r ON r.html_url = d.html_url
+                   WHERE {self.current_predicate("r")} AND taxonomy_version=? AND error IS NULL
                    GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1""",
                 (self.taxonomy.version,),
             ).fetchone()
@@ -162,7 +171,7 @@ class Catalogue:
 
         join, params = self._decision_join()
         select_extra = ", d.domain AS d_domain, d.kind AS d_kind" if join else ""
-        where = ["COALESCE(r.current, 1) = 1", "r.stars >= ?"]
+        where = [self.current_predicate("r"), "r.stars >= ?"]
         params.append(min_stars)
         if q:
             where.append(
@@ -219,7 +228,8 @@ class Catalogue:
         """One repository with its tags and classification, or None."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM repositories WHERE LOWER(owner)=LOWER(?) AND LOWER(name)=LOWER(?)",
+                f"SELECT * FROM repositories WHERE {self.current_predicate()} "
+                "AND LOWER(owner)=LOWER(?) AND LOWER(name)=LOWER(?)",
                 (owner, name),
             ).fetchone()
             if row is None:
@@ -281,9 +291,9 @@ class Catalogue:
         """Countries with repository counts."""
         with self._connect() as conn:
             rows = conn.execute(
-                """SELECT country, COUNT(*) AS repos, COUNT(DISTINCT owner) AS accounts,
+                f"""SELECT country, COUNT(*) AS repos, COUNT(DISTINCT owner) AS accounts,
                           SUM(stars) AS stars
-                   FROM repositories WHERE COALESCE(current, 1) = 1
+                   FROM repositories WHERE {self.current_predicate()}
                    GROUP BY country ORDER BY repos DESC"""
             ).fetchall()
         return [dict(row) for row in rows]
@@ -297,15 +307,15 @@ class Catalogue:
             with self._connect() as conn:
                 domain_counts = dict(
                     conn.execute(
-                        """SELECT domain, COUNT(*) FROM decision_results
-                       WHERE taxonomy_version=? AND model=? AND error IS NULL GROUP BY domain""",
+                        f"""SELECT domain, COUNT(*) FROM decision_results d JOIN repositories r ON r.html_url = d.html_url
+                       WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=? AND error IS NULL GROUP BY domain""",
                         key,
                     )
                 )
                 tag_counts = dict(
                     conn.execute(
-                        """SELECT label, COUNT(*) FROM decision_probabilities
-                       WHERE taxonomy_version=? AND model=? AND facet='tag' AND probability >= ?
+                        f"""SELECT label, COUNT(*) FROM decision_probabilities p JOIN repositories r ON r.html_url = p.html_url
+                       WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=? AND facet='tag' AND probability >= ?
                        GROUP BY label""",
                         (*key, TAG_THRESHOLD),
                     )
@@ -333,21 +343,21 @@ class Catalogue:
         """Headline numbers for the whole catalogue."""
         with self._connect() as conn:
             base = conn.execute(
-                """SELECT COUNT(*) AS repos, COUNT(DISTINCT owner) AS accounts,
+                f"""SELECT COUNT(*) AS repos, COUNT(DISTINCT owner) AS accounts,
                           COUNT(DISTINCT country) AS countries, SUM(fork = 0) AS original_repos,
                           SUM(archived = 1) AS archived_repos, MAX(last_scraped) AS last_scraped
-                   FROM repositories WHERE COALESCE(current, 1) = 1"""
+                   FROM repositories WHERE {self.current_predicate()}"""
             ).fetchone()
             languages = conn.execute(
-                """SELECT language, COUNT(*) AS repos FROM repositories
-                   WHERE COALESCE(current, 1) = 1 AND language IS NOT NULL
+                f"""SELECT language, COUNT(*) AS repos FROM repositories
+                   WHERE {self.current_predicate()} AND language IS NOT NULL
                    GROUP BY language ORDER BY repos DESC LIMIT 15"""
             ).fetchall()
             classified = 0
             if self.decision_model:
                 classified = conn.execute(
-                    """SELECT COUNT(*) FROM decision_results
-                       WHERE taxonomy_version=? AND model=? AND error IS NULL""",
+                    f"""SELECT COUNT(*) FROM decision_results d JOIN repositories r ON r.html_url = d.html_url
+                       WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=? AND error IS NULL""",
                     (self.taxonomy.version, self.decision_model),
                 ).fetchone()[0]
         return {

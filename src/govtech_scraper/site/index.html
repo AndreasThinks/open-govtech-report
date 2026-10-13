@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Open GovTech Index</title>
+<meta name="description" content="Every public repository from government GitHub accounts, sorted into themes so you can see what is being built, what is growing, and who to learn from.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%232340b8'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='16' font-weight='700' fill='white' text-anchor='middle'%3E%7B%7D%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Public+Sans:wght@400;600;800;900&display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="banner" id="banner" hidden></div>
+<header class="pad"><div class="in">
+  <a class="logo" href="#/"><span>{ }</span>Open GovTech Index</a>
+  <nav aria-label="Main">
+    <a href="#/" data-nav="overview">Overview</a>
+    <a href="#/themes" data-nav="themes">Themes</a>
+    <a href="#/repos" data-nav="repos">Repositories</a>
+    <a href="#/method" data-nav="method">Method</a>
+    <a href="#/data" data-nav="data">Data and API</a>
+  </nav>
+  <form class="mini" role="search" id="sf"><label for="sq" class="vh">Search the index</label><input id="sq" type="search" placeholder="Search themes and repositories"></form>
+</div></header>
+
+<main id="app" aria-live="polite"><div class="loading pad"><div class="in">Loading the index…</div></div></main>
+
+<footer class="pad"><div class="in foot">
+  <span>Covers accounts in the <a href="https://github.com/github/government.github.com">government.github.com registry</a> plus accepted submissions. It is not a census of all government code.</span>
+  <span>govtechindex.cloud · <a href="#/method">Method</a> · <a href="#/data">Data and API</a> · <a href="https://github.com/AndreasThinks/open-govtech-report">Source</a></span>
+</div></footer>
+
+<div class="tip" id="tip" role="tooltip"></div>
+<script src="config.js"></script>
+<script src="sample.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -112,6 +112,8 @@ def test_mcp_lists_and_calls_tools(client):
         "list_countries",
         "get_taxonomy",
         "get_statistics",
+        "list_themes",
+        "get_theme",
     }
 
     result = _rpc(
@@ -125,3 +127,55 @@ def test_mcp_lists_and_calls_tools(client):
     )["result"]
     payload = result.get("structuredContent") or json.loads(result["content"][0]["text"])
     assert payload["total"] == 2
+
+
+def test_overview(client):
+    body = client.get("/v1/overview").json()
+    assert body["totals"]["repos"] == 3 and body["totals"]["original"] == 3
+    assert len(body["timeline"]) == 36
+    assert body["classification"]["model"] == "fake-kev"
+    assert body["classification"]["classified_original_repos"] == 3
+    assert {c["country"] for c in body["countries"]} == {"United Kingdom", "United States", "France"}
+
+
+def test_themes_list_and_detail(client):
+    themes = {t["id"]: t for t in client.get("/v1/themes").json()["themes"]}
+    assert themes["07"]["type"] == "domain" and themes["07"]["repos"] == 2
+    assert themes["notifications"]["type"] == "tag" and themes["notifications"]["repos"] == 1
+    assert themes["notifications"]["name"] == "Notifications"
+
+    health = client.get("/v1/themes/07").json()
+    assert health["name"] == "Health" and health["repos"] == 2
+    assert len(health["monthly_new"]) == 24
+    assert {r["full_name"] for r in health["top_repos"]} == {"us-gsa/sam-api", "france-data/cadastre"}
+    assert client.get("/v1/themes/not-a-theme").status_code == 404
+
+
+def test_repo_context(client):
+    body = client.get("/v1/repos/uk-gov/notify/context").json()
+    assert body["full_name"] == "uk-gov/notify"
+    assert body["history"] and body["reused_by"] == []
+    assert client.get("/v1/repos/nobody/nothing/context").status_code == 404
+
+
+def test_themes_empty_without_classification(tmp_db, sample_repos):
+    tmp_db.save_repositories(sample_repos)
+    with TestClient(create_app(Catalogue(tmp_db.db_path))) as c:
+        themes = c.get("/v1/themes").json()
+        assert themes["model"] is None and themes["themes"] == []
+        assert c.get("/v1/themes/07").json()["repos"] == 0
+        assert c.get("/v1/overview").json()["classification"]["model"] is None
+
+
+def test_site_is_served_at_root(client):
+    page = client.get("/")
+    assert page.status_code == 200 and "Open GovTech Index" in page.text
+    assert client.get("/app.js").status_code == 200
+    assert client.get("/api").json()["rest"] == "/v1/repos"
+
+
+def test_tag_names_are_readable():
+    from govtech_scraper.api.insights import tag_name
+
+    assert tag_name("ai-and-machine-learning") == "AI and machine learning"
+    assert tag_name("transparency-and-foi") == "Transparency and FOI"

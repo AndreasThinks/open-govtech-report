@@ -2,23 +2,30 @@
 
     GOVTECH_DB=govtech.db uv run --extra api uvicorn govtech_scraper.api.app:app
 
-REST endpoints live under /v1 (OpenAPI docs at /docs); the MCP server is at /mcp.
+REST endpoints live under /v1 (OpenAPI docs at /docs); the MCP server is at /mcp; the
+Open GovTech Index site is served from / when its files are installed.
 """
 
 import contextlib
 import os
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from mcp.server.transport_security import TransportSecuritySettings
 
+from .insights import Insights
 from .mcp_tools import build_mcp
 from .queries import MAX_LIMIT, SORTS, Catalogue
 
+SITE_DIR = Path(__file__).resolve().parent.parent / "site"
 
-def create_app(catalogue: Catalogue | None = None) -> FastAPI:
+
+def create_app(catalogue: Catalogue | None = None, site_dir: Path | None = SITE_DIR) -> FastAPI:
     catalogue = catalogue or Catalogue()
-    mcp = build_mcp(catalogue)
+    insights = Insights(catalogue)
+    mcp = build_mcp(catalogue, insights)
     # Stateless JSON responses: no sessions to keep on a small free host, and any client can call it.
     # DNS-rebinding protection guards local servers; this one is public by design.
     mcp_app = mcp.streamable_http_app(
@@ -89,6 +96,28 @@ def create_app(catalogue: Catalogue | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Repository not in the catalogue")
         return repo
 
+    @app.get("/v1/repos/{owner}/{name}/context", summary="History, government forks and similar repos")
+    def repo_context(owner: str, name: str):
+        context = insights.repo_context(owner, name)
+        if context is None:
+            raise HTTPException(status_code=404, detail="Repository not in the catalogue")
+        return context
+
+    @app.get("/v1/overview", summary="Headline numbers, timeline, countries and newest repos")
+    def overview():
+        return insights.overview()
+
+    @app.get("/v1/themes", summary="Domains and tags with size, growth and spread")
+    def themes():
+        return insights.themes()
+
+    @app.get("/v1/themes/{theme}", summary="One domain or tag in detail")
+    def theme(theme: str):
+        detail = insights.theme(theme)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Not a domain or tag in the taxonomy")
+        return detail
+
     @app.get("/v1/countries", summary="Countries with repository counts")
     def countries():
         return catalogue.list_countries()
@@ -101,11 +130,19 @@ def create_app(catalogue: Catalogue | None = None) -> FastAPI:
     def stats():
         return catalogue.stats()
 
-    @app.get("/", include_in_schema=False)
-    def root():
+    @app.get("/api", include_in_schema=False)
+    def api_index():
         return {"docs": "/docs", "openapi": "/openapi.json", "mcp": "/mcp/", "rest": "/v1/repos"}
 
     app.mount("/mcp", mcp_app)
+    if site_dir and (site_dir / "index.html").exists():
+        app.mount("/", StaticFiles(directory=site_dir, html=True), name="site")
+    else:
+
+        @app.get("/", include_in_schema=False)
+        def root():
+            return api_index()
+
     return app
 
 

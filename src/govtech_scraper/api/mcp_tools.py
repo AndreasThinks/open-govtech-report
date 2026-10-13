@@ -6,6 +6,7 @@ Served over streamable HTTP at /mcp by the API app, or over stdio with
 
 from mcp.server.mcpserver import MCPServer
 
+from .insights import Insights
 from .queries import Catalogue
 
 INSTRUCTIONS = """Query a catalogue of public GitHub repositories owned by government accounts listed
@@ -15,7 +16,8 @@ of all government code. Repositories are classified against the UN COFOG functio
 call get_taxonomy for the ids. Classifications are model probabilities, not ground truth."""
 
 
-def build_mcp(catalogue: Catalogue) -> MCPServer:
+def build_mcp(catalogue: Catalogue, insights: Insights | None = None) -> MCPServer:
+    insights = insights or Insights(catalogue)
     mcp = MCPServer(
         name="govtech-repos",
         title="Government GitHub repositories",
@@ -99,5 +101,25 @@ def build_mcp(catalogue: Catalogue) -> MCPServer:
     def get_statistics() -> dict:
         """Headline numbers: repositories, accounts, countries, top languages and coverage."""
         return catalogue.stats()
+
+    @mcp.tool(title="List themes")
+    def list_themes() -> dict:
+        """Every COFOG domain and tag with repository counts, 12-month growth and country spread.
+
+        Use it to see which themes are large or growing fast."""
+        return insights.themes()
+
+    @mcp.tool(title="Get theme")
+    def get_theme(theme: str) -> dict:
+        """One domain or tag in detail: new repositories per month, countries, adopting accounts,
+        related tags and top repositories.
+
+        Args:
+            theme: A domain id such as "07" or a tag id such as "digital-identity".
+        """
+        detail = insights.theme(theme)
+        if detail is None:
+            raise ValueError(f"{theme} is not a domain or tag; call get_taxonomy for the ids")
+        return detail
 
     return mcp

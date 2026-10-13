@@ -152,6 +152,8 @@ def tag_command(
     if summary.stopped_early:
         click.echo(f"Stopped early: {summary.stopped_early}. Re-run later to resume.", err=True)
         sys.exit(2)
+    if summary.failed:
+        sys.exit(1)
 
 
 @decide.command("show")
