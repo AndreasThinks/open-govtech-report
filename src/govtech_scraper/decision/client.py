@@ -13,8 +13,10 @@ Errors that will hit every later request too (no credit, no quota) raise instead
 import asyncio
 import json
 import logging
+import math
 import random
 import time
+import urllib.request
 from typing import Protocol
 
 import aiohttp
@@ -100,8 +102,10 @@ class HttpSystemOneClient:
 class SpaceClient:
     """Calls the batch endpoint of our own ZeroGPU Space with gradio_client.
 
-    Requests made with your Hugging Face token use your own ZeroGPU quota (40 GPU-minutes
-    a day on PRO). When it runs out, BackendExhaustedError stops the run; progress is saved.
+    Requests use your included ZeroGPU quota. HF can automatically bill prepaid credits
+    after exhaustion, so check included quota before every GPU allocation and fail closed.
+    A conservative 240-second reserve covers our scorer's 120-second duration cap even
+    at a 2x quota rate. This is not an atomic reservation against other account activity.
     """
 
     def __init__(
@@ -131,9 +135,38 @@ class SpaceClient:
             self._client = Client(self.space_id, token=self.hf_token, verbose=False)
         return self._client
 
+    def _check_included_quota(self) -> None:
+        if not self.hf_token:
+            raise BackendExhaustedError("HF_TOKEN is required to verify included ZeroGPU quota")
+        request = urllib.request.Request(
+            "https://huggingface.co/api/spaces/zero-gpu/quota",
+            headers={"Authorization": f"Bearer {self.hf_token}"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                quota = json.loads(response.read())
+            remaining = quota["current"]
+            if (isinstance(remaining, bool) or not isinstance(remaining, (int, float))
+                    or not math.isfinite(remaining) or remaining < 0):
+                raise ValueError("invalid quota")
+            if "runs" in quota:
+                runs = quota["runs"]["remaining"]
+                if (isinstance(runs, bool) or not isinstance(runs, (int, float))
+                        or not math.isfinite(runs) or runs <= 0):
+                    raise ValueError("no verified remaining runs")
+        except Exception:
+            raise BackendExhaustedError(
+                "Cannot verify included ZeroGPU quota; no GPU call made"
+            ) from None
+        if remaining < 240:
+            raise BackendExhaustedError(
+                "Insufficient included ZeroGPU quota for the safety reserve; paid overflow disabled"
+            )
+
     def _call(self, batch: list[dict]) -> list[dict]:
         last_error = "no attempt made"
         for attempt in range(self.max_attempts):
+            self._check_included_quota()
             try:
                 raw = self._gradio().predict(json.dumps(batch), api_name=self.api_name)
                 responses = json.loads(raw)

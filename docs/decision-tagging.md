@@ -54,8 +54,14 @@ spaces/decision-scorer/publish.sh AndreasThinks/govtech-decision-scorer
 ```
 
 The first start downloads Kev-4B and its Qwen3.5 base. Calls made with your `HF_TOKEN` use your
-own ZeroGPU quota, which is 40 minutes a day on PRO. When the quota runs out, the run stops and
-saves its progress. Run it again the next day to carry on.
+own ZeroGPU quota, which is 40 minutes a day on PRO. HF automatically consumes prepaid credits
+after included quota is exhausted, so the client checks `/api/spaces/zero-gpu/quota` before
+every GPU allocation and retry. It fails closed on missing credentials, an unavailable or
+malformed quota response, exhausted run limits, or fewer than 240 included GPU-seconds. This
+reserve covers our scorer's 120-second duration cap at a 2x quota rate. It is not an atomic
+reservation against concurrent activity elsewhere in the same account. Paid overflow is not
+enabled by this CLI. A stopped run retains local progress; durable runner checkpoints are a
+separate requirement. Rerun after the quota reset to continue.
 
 ### Running Kev locally instead
 
@@ -89,3 +95,11 @@ on the same gold set.
 - README text would likely help more than any model change. `build_state` already accepts it,
   but README fetching is not implemented yet.
 - Not yet tested: Space throughput, and whether a scheduled job can rely on it.
+
+## Automation boundary
+
+Metadata refresh no longer invokes the legacy paid tagger or grouping, including on schedules.
+`run_tagging=true` now fails explicitly with migration guidance. No decision schedule or
+classification publication workflow is enabled by this change. Sample quality, budget,
+checkpoint/resume safety and publication acceptance remain separate approval decisions.
+See [operations.md](operations.md) for the required follow-up gates.

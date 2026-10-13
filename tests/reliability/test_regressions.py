@@ -39,6 +39,9 @@ def test_publish_requires_token(monkeypatch):
 def test_restore_fails_closed(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     module = script('download_db')
+    from unittest.mock import Mock
+    from types import SimpleNamespace
+    monkeypatch.setattr('huggingface_hub.HfApi', Mock(return_value=Mock(repo_info=Mock(return_value=SimpleNamespace(sha='b' * 40)))))
     monkeypatch.setattr(module.urllib.request, 'urlopen', lambda *a, **k: (_ for _ in ()).throw(OSError('offline')))
     with pytest.raises((RuntimeError, SystemExit)):
         module.main()

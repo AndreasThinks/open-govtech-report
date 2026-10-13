@@ -88,3 +88,9 @@ uv run --with playwright python tests/site_browser.py
 It requires an installed Playwright Chromium (`uv run --with playwright playwright install chromium`
 if needed) and permission to launch a browser and bind a localhost socket. A startup error is not
 a passing browser/layout check. Neither suite calls a live model service.
+
+## Metadata rollout operations
+
+The metadata workflow now pins verified dataset revisions into the separately hosted Index.
+See [operations.md](operations.md) for receipts, restart recovery, exact operator commands,
+and the remaining independent-monitoring and classification boundaries.
