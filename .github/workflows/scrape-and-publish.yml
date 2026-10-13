@@ -46,7 +46,7 @@ jobs:
       - name: Install dependencies
         run: |
           uv lock --check
-          uv sync --frozen --dev
+          uv sync --frozen --dev --extra api
 
       - name: Test before any publication or deployment
         run: uv run --frozen pytest tests/ -q
