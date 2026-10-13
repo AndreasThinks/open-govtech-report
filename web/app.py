@@ -72,7 +72,13 @@ def get_db_path(override=None):
     try:
         from huggingface_hub import hf_hub_download, HfApi
         revision = HfApi().dataset_info("AndreasThinks/government-github-repos").sha
-        hf_hub_download(repo_id="AndreasThinks/government-github-repos", filename="data/manifest.json", repo_type="dataset", revision=revision)
+        from huggingface_hub.errors import EntryNotFoundError
+        try:
+            hf_hub_download(repo_id="AndreasThinks/government-github-repos", filename="data/manifest.json", repo_type="dataset", revision=revision)
+        except EntryNotFoundError:
+            # Legacy publications have no manifest. Keep them readable during the
+            # first migration/refresh, but never present them as verified or fresh.
+            st.warning("Legacy publication has no verification manifest. Refresh coverage is unknown.")
         path = hf_hub_download(
             repo_id="AndreasThinks/government-github-repos",
             filename="data/govtech.db",
