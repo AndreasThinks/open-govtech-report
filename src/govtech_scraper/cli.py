@@ -334,3 +334,32 @@ def export_command(ctx, file_format, output):
     from .export import export_to_csv, export_to_parquet
     exporter = export_to_csv if file_format == 'csv' else export_to_parquet
     click.echo(exporter(ctx.obj['db_path'], output))
+
+
+from .decision.cli import decide  # noqa: E402
+
+main.add_command(decide)
+
+
+@main.command("serve-api")
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", type=int, default=8000, show_default=True)
+@click.pass_context
+def serve_api(ctx: click.Context, host: str, port: int) -> None:
+    """Serve the read-only REST API (/v1, docs at /docs) and MCP endpoint (/mcp). Needs the api extra."""
+    import uvicorn
+
+    from .api.app import create_app
+    from .api.queries import Catalogue
+
+    uvicorn.run(create_app(Catalogue(ctx.obj["db_path"])), host=host, port=port)
+
+
+@main.command("serve-mcp")
+@click.pass_context
+def serve_mcp(ctx: click.Context) -> None:
+    """Run the MCP tools over stdio, for local clients such as Claude Desktop. Needs the api extra."""
+    from .api.mcp_tools import build_mcp
+    from .api.queries import Catalogue
+
+    build_mcp(Catalogue(ctx.obj["db_path"])).run("stdio")

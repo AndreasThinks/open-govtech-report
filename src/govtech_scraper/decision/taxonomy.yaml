@@ -1,0 +1,235 @@
+# Fixed taxonomy for decision-model tagging.
+#
+# Top level: the ten divisions of the UN Classification of the Functions of Government (COFOG),
+# plus "00" for cross-government capabilities that are not tied to one policy area.
+# Each tag's definition is the text the decision model reads, so keep it short and concrete.
+# Change this file through review; bump `version` whenever an id is added, removed or redefined.
+
+version: 1
+
+domains:
+  - id: "00"
+    name: Cross-government capabilities
+    definition: Shared digital building blocks used across many services, not tied to one policy area.
+    tags:
+      - id: design-system
+        definition: Reusable UI components, styles or front-end patterns for government websites and services.
+      - id: digital-identity
+        definition: Login, authentication, single sign-on, electronic ID or identity verification for citizens or staff.
+      - id: online-forms
+        definition: Building, publishing or processing online forms and applications.
+      - id: payments
+        definition: Collecting fees, fines or taxes online, or payment gateway integration.
+      - id: notifications
+        definition: Sending emails, SMS, letters or push notifications to the public.
+      - id: open-data-publishing
+        definition: Publishing government data openly, including data portals, catalogues and open data APIs.
+      - id: api-platform
+        definition: API gateways, developer portals or standards for government APIs.
+      - id: content-management
+        definition: Content management systems or publishing tools for government websites.
+      - id: geospatial
+        definition: Maps, GIS, geocoding, addresses or other location data.
+      - id: accessibility
+        definition: Testing or improving accessibility of digital services for disabled users.
+      - id: cloud-infrastructure
+        definition: Infrastructure as code, hosting platforms, deployment pipelines or cloud configuration.
+      - id: security-tooling
+        definition: Cybersecurity tools, vulnerability scanning, secrets management or security guidance.
+      - id: developer-tooling
+        definition: Libraries, linters, templates or utilities that help government developers build software.
+      - id: data-engineering
+        definition: ETL pipelines, data warehouses, scrapers or tools that move and clean data.
+      - id: analytics-and-statistics
+        definition: Statistical production, dashboards, data analysis or web analytics.
+      - id: ai-and-machine-learning
+        definition: Machine learning models, AI assistants, natural language processing or computer vision.
+      - id: records-and-archives
+        definition: Document management, records retention, digital preservation or archives.
+      - id: translation-and-language
+        definition: Multilingual content, translation, or support for official or minority languages.
+
+  - id: "01"
+    name: General public services
+    definition: Running government itself, including legislatures, public finance, tax, foreign affairs, elections and the civil service.
+    tags:
+      - id: legislation-and-parliament
+        definition: Bills, laws, regulations, parliamentary proceedings or legal drafting.
+      - id: public-finance-and-budget
+        definition: Government budgets, spending, accounting, treasury or fiscal transparency.
+      - id: tax-and-revenue
+        definition: Tax calculation, filing, customs duties or revenue collection.
+      - id: procurement
+        definition: Public tendering, contracts, supplier management or spending on goods and services.
+      - id: elections
+        definition: Voter registration, election results, polling places or electoral administration.
+      - id: foreign-affairs
+        definition: Diplomacy, consular services, visas, passports or international development aid.
+      - id: civil-service-and-hr
+        definition: Government workforce, recruitment, payroll or internal staff tools.
+      - id: transparency-and-foi
+        definition: Freedom of information requests, lobbying registers, open government or anti-corruption.
+      - id: civic-participation
+        definition: Public consultations, petitions, participatory budgeting or citizen feedback.
+      - id: government-websites
+        definition: The main website or portal of a government body, ministry or agency.
+      - id: official-statistics
+        definition: National statistics offices, census data or official statistical releases.
+
+  - id: "02"
+    name: Defence
+    definition: Military defence, armed forces, defence research and civil defence.
+    tags:
+      - id: military-and-defence
+        definition: Armed forces, defence logistics, military research or defence simulation.
+      - id: civil-defence
+        definition: Civil protection and national resilience planning against attack.
+
+  - id: "03"
+    name: Public order and safety
+    definition: Police, fire services, courts, prisons and emergency response.
+    tags:
+      - id: policing
+        definition: Police operations, crime data, crime mapping or law enforcement tools.
+      - id: justice-and-courts
+        definition: Courts, case management, judgments, legal aid or tribunals.
+      - id: prisons-and-probation
+        definition: Prisons, probation or offender management.
+      - id: emergency-services
+        definition: Fire, ambulance, 911/112 dispatch, disaster response or emergency alerts.
+      - id: immigration-and-borders
+        definition: Immigration casework, asylum, border control or residence permits.
+
+  - id: "04"
+    name: Economic affairs
+    definition: Business, labour, agriculture, energy, transport, communications and economic development.
+    tags:
+      - id: business-and-companies
+        definition: Company registers, business licensing, support for businesses or competition regulation.
+      - id: employment-and-labour
+        definition: Jobs, labour market data, employment services or workplace regulation.
+      - id: agriculture-and-food
+        definition: Farming, fisheries, forestry, food production or agricultural subsidies.
+      - id: energy
+        definition: Electricity, gas, renewable energy, fuel or energy efficiency.
+      - id: transport
+        definition: Roads, public transit, rail, aviation, shipping, traffic or vehicle licensing.
+      - id: telecommunications
+        definition: Broadband, mobile networks, spectrum or postal services.
+      - id: tourism
+        definition: Tourism promotion or visitor information.
+      - id: research-and-innovation
+        definition: Science funding, research infrastructure, innovation programmes or patents.
+      - id: trade-and-customs
+        definition: Imports, exports, trade statistics or customs processing.
+      - id: financial-regulation
+        definition: Banking supervision, financial markets, consumer finance or central banking.
+
+  - id: "05"
+    name: Environmental protection
+    definition: Pollution, waste, biodiversity, climate and the natural environment.
+    tags:
+      - id: climate
+        definition: Climate change data, emissions inventories, adaptation or net zero planning.
+      - id: air-and-water-quality
+        definition: Monitoring or reducing air, water or soil pollution.
+      - id: waste-and-recycling
+        definition: Waste collection, recycling or circular economy.
+      - id: biodiversity-and-nature
+        definition: Wildlife, protected areas, ecology or species data.
+      - id: earth-observation
+        definition: Satellite imagery, remote sensing, weather or environmental sensors.
+
+  - id: "06"
+    name: Housing and community amenities
+    definition: Housing, planning, local amenities, water supply and street lighting.
+    tags:
+      - id: housing
+        definition: Social housing, housing benefits, rents or the housing market.
+      - id: planning-and-land
+        definition: Land use planning, building permits, land registry or cadastre.
+      - id: water-supply
+        definition: Drinking water supply or water utilities.
+      - id: local-government-services
+        definition: Services run by cities, counties or municipalities for residents.
+
+  - id: "07"
+    name: Health
+    definition: Hospitals, public health, medical products and health services.
+    tags:
+      - id: health-services
+        definition: Hospitals, primary care, appointments, patient records or health service operations.
+      - id: public-health
+        definition: Disease surveillance, epidemics, vaccination or population health data.
+      - id: medicines-and-devices
+        definition: Medicines regulation, pharmacies or medical devices.
+      - id: health-data-standards
+        definition: Health data interoperability such as FHIR, HL7 or clinical terminologies.
+
+  - id: "08"
+    name: Recreation, culture and religion
+    definition: Culture, heritage, sport, broadcasting and libraries.
+    tags:
+      - id: culture-and-heritage
+        definition: Museums, cultural heritage, galleries or historic collections.
+      - id: libraries
+        definition: Public or national libraries and library catalogues.
+      - id: sport-and-recreation
+        definition: Sport, parks, leisure facilities or recreation.
+      - id: broadcasting-and-media
+        definition: Public broadcasting, media regulation or government communications.
+
+  - id: "09"
+    name: Education
+    definition: Schools, universities, training and educational data.
+    tags:
+      - id: schools
+        definition: Primary and secondary schools, school data or school administration.
+      - id: higher-education
+        definition: Universities, student finance or higher education data.
+      - id: skills-and-training
+        definition: Vocational training, apprenticeships or adult learning.
+      - id: learning-content
+        definition: Teaching materials, courses or educational software.
+
+  - id: "10"
+    name: Social protection
+    definition: Benefits, pensions, family support, disability and social care.
+    tags:
+      - id: benefits-and-welfare
+        definition: Welfare benefits, eligibility checks or claims processing.
+      - id: pensions
+        definition: State or public sector pensions and retirement.
+      - id: family-and-children
+        definition: Childcare, child protection or family support.
+      - id: disability-and-social-care
+        definition: Disability support, long-term care or social care services.
+
+# What kind of thing the repository is. Single choice, independent of domain.
+kinds:
+  - id: web-application
+    definition: An interactive web service or application used by the public or staff.
+  - id: website
+    definition: A mostly static website, blog or documentation site.
+  - id: api-service
+    definition: A back-end service or API.
+  - id: library
+    definition: A reusable code library, SDK or package.
+  - id: cli-tool
+    definition: A command-line tool or script.
+  - id: data-pipeline
+    definition: Code that collects, transforms or loads data.
+  - id: dataset
+    definition: The repository mainly holds data files.
+  - id: analysis
+    definition: Notebooks or code for a one-off analysis, report or research.
+  - id: mobile-app
+    definition: An Android or iOS application.
+  - id: infrastructure-config
+    definition: Infrastructure, deployment or configuration code.
+  - id: documentation
+    definition: Guidance, standards, policies or other documents, with little code.
+  - id: template
+    definition: A starter template, example or boilerplate.
+  - id: other
+    definition: None of the above.

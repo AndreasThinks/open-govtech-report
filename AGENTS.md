@@ -164,6 +164,14 @@ uv run streamlit run app.py
 - The app auto-downloads the DB from the HF dataset repo on startup
 - Weekly pipeline (GitHub Actions) restores history, tests, scrapes and validates one SQLite backup plus all exports before publication. Scheduled workflows can be disabled by inactivity; independent freshness monitoring is required.
 
+## Decision Tagging (experimental)
+
+`src/govtech_scraper/decision/` scores repos against a fixed, reviewed taxonomy (`decision/taxonomy.yaml`: COFOG domains, tags with definitions, kinds) using a System One decision model (hosted Jev, or open-weight Kev on our ZeroGPU Space in `spaces/decision-scorer/`). Results live in `decision_results` / `decision_probabilities`, keyed by taxonomy version and model; `repository_tags` is untouched. CLI: `uv run govtech-scraper decide --help`. Gold-set evaluation: `decide sample`, `decide label-gold`, `decide eval`. See `docs/decision-tagging.md`.
+
+## Public API and MCP
+
+`src/govtech_scraper/api/` serves a read-only REST API (`/v1/...`) and MCP tools (`/mcp/`) from one query layer (`queries.py`). Needs `uv sync --extra api`. Run with `govtech-scraper serve-api` or `serve-mcp` (stdio). Free hosting: `spaces/api/` Docker Space. See `docs/api.md`.
+
 ## Known Bugs / To-Do
 
 - ~~**`json` NameError in dedup**~~ — Fixed: `import json` moved to module top-level in `dedup.py`.
