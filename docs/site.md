@@ -31,8 +31,9 @@ is zero.
 ## Sample-data fallback
 
 - API unreachable: every view uses `sample.js`, with a banner saying so.
-- API up but no decision run stored: repo figures are live; theme views use sample themes,
-  with a banner saying so.
+- API up but classification unavailable: repository search and details are live; theme views
+  (including their repository lists) use labelled examples. Classification search filters are
+  unavailable; see the failure states below.
 
 ## Hosting elsewhere
 
@@ -47,3 +48,43 @@ curl -L -o govtech.db https://huggingface.co/datasets/AndreasThinks/government-g
 uv run govtech-scraper --db govtech.db serve-api
 # open http://127.0.0.1:8000/
 ```
+
+## Failure states and regression checks
+
+Legacy published SQLite files without `repositories.current` are queried read-only: all their
+repository rows count as current. When the column exists, `current=0` rows are excluded from
+search, details, classification counts and Insights. No schema migration or history rewrite is
+performed by the API.
+
+Once the API boots successfully, a repository 404 shows **Not found**. A failed context request
+shows unavailable history, government forks and similar repositories; it does not substitute
+sample data or report zero forks. A successful, genuinely empty context retains the usual empty
+messages. Navigating back to the repository retries the requests.
+
+When the API is live but classification is unavailable, repository search and details stay live.
+Domain and tag controls are disabled. Bookmarked searches with a domain, tag or kind show an
+explicit unavailable message and no repository rows; **Apply** clears unavailable filters and
+searches with the remaining filters. Theme views can still show examples, with their repository
+lists explicitly labelled **Example repositories**. Those links resolve against the live API,
+so an example repository missing from the live index shows **Not found**. When boot cannot reach
+the API, the entire site remains in the banner-labelled sample mode until reload.
+
+Run the dependency-free UI behavioral regressions and API endpoint regressions with:
+
+```bash
+node tests/site_behavior.cjs
+uv run pytest tests/api
+```
+
+The real Chromium suite runs in CI and is optional for local development. It mocks all API requests
+and serves only local static files. It
+checks desktop (1280px) and mobile (390px) overflow, offline labels, filtered bookmarks, missing
+repositories, context errors, navigation recovery, and healthy classified details:
+
+```bash
+uv run --with playwright python tests/site_browser.py
+```
+
+It requires an installed Playwright Chromium (`uv run --with playwright playwright install chromium`
+if needed) and permission to launch a browser and bind a localhost socket. A startup error is not
+a passing browser/layout check. Neither suite calls a live model service.

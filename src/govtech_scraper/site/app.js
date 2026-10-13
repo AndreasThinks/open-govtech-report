@@ -71,7 +71,7 @@
       banner.innerHTML = "Sample data: the index API could not be reached, so every figure on this site is an example.";
       banner.hidden = false;
     } else if (state.sampleThemes) {
-      banner.innerHTML = "Repository figures are live. Themes show example figures until the classification run is published. <a href=\"#/method\">Why?</a>";
+      banner.innerHTML = "Repository search and details are live. Theme views, including their repository lists, are examples until the classification run is published. <a href=\"#/method\">Why?</a>";
       banner.hidden = false;
     }
   }
@@ -79,16 +79,17 @@
     theme: id => state.sampleThemes ? Promise.resolve(SAMPLE.theme(id)) : get(`/v1/themes/${enc(id)}`).catch(e => e.status === 404 ? null : Promise.reject(e)),
     repos: params => {
       const themed = params.get("domain") || params.get("tag") || params.get("kind");
-      if (!state.live || (themed && state.sampleThemes)) return Promise.resolve(SAMPLE.repos(params));
+      if (!state.live) return Promise.resolve(SAMPLE.repos(params));
+      if (themed && state.sampleThemes) return Promise.resolve({ unavailable: true, items: [], total: null });
       return get(`/v1/repos?${params}`);
     },
     repo: async (o, n) => {
       if (!state.live) return SAMPLE.repo(o, n);
-      try { return await get(`/v1/repos/${enc(o)}/${enc(n)}`); } catch (e) { if (e.status === 404) return SAMPLE.repo(o, n); throw e; }
+      try { return await get(`/v1/repos/${enc(o)}/${enc(n)}`); } catch (e) { if (e.status === 404) return null; throw e; }
     },
     context: async (o, n) => {
       if (!state.live) return SAMPLE.context(o, n);
-      try { return await get(`/v1/repos/${enc(o)}/${enc(n)}/context`); } catch (e) { return SAMPLE.context(o, n); }
+      try { return await get(`/v1/repos/${enc(o)}/${enc(n)}/context`); } catch (e) { return null; }
     },
     countries: async () => state.countries ||= state.live ? await get("/v1/countries") : SAMPLE.countries,
   };
@@ -395,6 +396,7 @@
       </div>
     </div></div></section>
     <section class="sec pad"><div class="in">
+      ${state.sampleThemes ? '<p class="sub"><strong>Example repositories</strong>: these theme lists are sample data. Repository links open live details when the API is available.</p>' : ""}
       <h2>Most starred</h2><p class="sub">Original repositories with this ${t.type === "domain" ? "domain" : "tag"}. <a href="#/repos?${filter}">Browse all ${num(t.repos)}</a>.</p>
       ${repoTable(t.top_repos, "No repositories yet.")}
       <h2 style="margin-top:32px">Newest</h2><p class="sub">The most recently created.</p>
@@ -413,22 +415,23 @@
     p.set("limit", "25");
     const [res, countries] = await Promise.all([data.repos(p), data.countries().catch(() => [])]);
     const off = +p.get("offset") || 0, total = res.total;
+    const classificationDisabled = state.live && state.sampleThemes ? " disabled" : "";
     const opt = (v, label, cur) => `<option value="${esc(v)}"${v === (cur || "") ? " selected" : ""}>${esc(label)}</option>`;
     app.innerHTML = `
     <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / Repositories</div>
-      <h1>Repositories</h1><p>${num(total)} match. Original, unarchived repositories unless you include the rest.</p></div></section>
+      <h1>Repositories</h1><p>${res.unavailable ? "Classification filters are unavailable until a classification run is published. Clear these filters to search live repositories." : `${num(total)} match. Original, unarchived repositories unless you include the rest.`}</p></div></section>
     <section class="sec pad"><div class="in">
       <form class="filters" id="ff">
         <label>Search<input name="q" value="${esc(p.get("q") || "")}" placeholder="Name, description or topic"></label>
         <label>Country<select name="country">${opt("", "Any")}${countries.map(c => opt(c.country, c.country, p.get("country"))).join("")}</select></label>
-        <label>Domain<select name="domain">${opt("", "Any")}${domains().map(d => opt(d.id, d.name, p.get("domain"))).join("")}</select></label>
-        <label>Tag<select name="tag">${opt("", "Any")}${tags().slice().sort((a, b) => a.name.localeCompare(b.name)).map(t => opt(t.id, t.name, p.get("tag"))).join("")}</select></label>
+        <label>Domain<select name="domain"${classificationDisabled}>${opt("", "Any")}${domains().map(d => opt(d.id, d.name, p.get("domain"))).join("")}</select></label>
+        <label>Tag<select name="tag"${classificationDisabled}>${opt("", "Any")}${tags().slice().sort((a, b) => a.name.localeCompare(b.name)).map(t => opt(t.id, t.name, p.get("tag"))).join("")}</select></label>
         <label>Sort<select name="sort">${[["stars", "Most stars"], ["recently_pushed", "Recently pushed"], ["newest", "Newest"], ["name", "Name"]].map(([v, l]) => opt(v, l, p.get("sort") || "stars")).join("")}</select></label>
         <label class="chk"><input type="checkbox" name="include_forks" value="true"${p.get("include_forks") === "true" ? " checked" : ""}> Forks</label>
         <label class="chk"><input type="checkbox" name="include_archived" value="true"${p.get("include_archived") === "true" ? " checked" : ""}> Archived</label>
         <button class="btn" type="submit">Apply</button>
       </form>
-      ${repoTable(res.items, "Nothing matches these filters.")}
+      ${res.unavailable ? '<p class="empty">Apply the available filters above to search live repositories.</p>' : repoTable(res.items, "Nothing matches these filters.")}
       <div class="pager">${off > 0 ? `<a class="btn ghost" href="#/repos?${pageParams(p, off - 25)}">Previous</a>` : ""}<span>${total ? `${num(off + 1)}–${num(Math.min(total, off + 25))} of ${num(total)}` : ""}</span>${off + 25 < total ? `<a class="btn ghost" href="#/repos?${pageParams(p, off + 25)}">Next</a>` : ""}</div>
     </div></section>`;
     document.getElementById("ff").addEventListener("submit", e => {
@@ -453,10 +456,10 @@
         <div class="acts"><a class="btn" href="${esc(r.html_url)}" rel="noopener">View on GitHub</a></div>
       </div>
       <div class="badges" style="margin-top:14px">${dom ? `<a class="b hot" href="${themeHref(dom.id)}">${esc(dom.name)}</a>` : ""}${(cls ? cls.tags : []).map(t => `<a class="b co" href="${themeHref(t.id)}">${esc((themeById(t.id) || { name: t.id }).name)}</a>`).join("")}${licensed(r) ? `<span class="b ok">${esc(r.license)}</span>` : '<span class="b no">No licence</span>'}${r.fork ? `<span class="b">Fork${r.fork_source ? " of " + esc(r.fork_source) : ""}</span>` : '<span class="b">Original, not a fork</span>'}${r.archived ? '<span class="b no">Archived</span>' : ""}${cls && cls.kind ? `<span class="b">${esc(cls.kind)}</span>` : ""}</div>
-      <div class="stats">${[[num(r.stars), "stars"], [num(r.forks), "forks"], [ctx ? ctx.reused_by.length : 0, "government forks"], [ago(r.pushed_at), "last push"], [date(r.created_at), "created"], [r.language || "–", "main language"]].map(s => `<div class="stat"><b style="${String(s[0]).length > 9 ? "font-size:18px" : ""}">${esc(s[0])}</b><small>${s[1]}</small></div>`).join("")}</div>
+      <div class="stats">${[[num(r.stars), "stars"], [num(r.forks), "forks"], [ctx ? ctx.reused_by.length : "Unavailable", "government forks"], [ago(r.pushed_at), "last push"], [date(r.created_at), "created"], [r.language || "–", "main language"]].map(s => `<div class="stat"><b style="${String(s[0]).length > 9 ? "font-size:18px" : ""}">${esc(s[0])}</b><small>${s[1]}</small></div>`).join("")}</div>
     </div></section>
     <section class="sec pad"><div class="in"><div class="two">
-      <div class="card"><h3>Stars and forks over time</h3><p class="cap">From weekly snapshots since the repository first appeared in the index.</p><svg class="fill" id="hist" viewBox="0 0 600 220" role="img" aria-label="Stars and forks over time"></svg></div>
+      <div class="card"><h3>Stars and forks over time</h3><p class="cap">From weekly snapshots since the repository first appeared in the index.</p>${ctx ? '<svg class="fill" id="hist" viewBox="0 0 600 220" role="img" aria-label="Stars and forks over time"></svg>' : '<p class="empty">History unavailable. Try again later.</p>'}</div>
       <div class="card"><h3>Why it is in these themes</h3><p class="cap">The decision model's probabilities, so you can check the classification.</p>
       ${cls ? `<div class="prob"><span style="text-align:left;color:var(--ink);font-family:var(--body)"><b>Domain:</b> ${domainLink}</span><span>${cls.domain_probability == null ? "" : cls.domain_probability.toFixed(2)}</span><div class="bar"><i style="width:${(cls.domain_probability || 0) * 100}%"></i></div>
         ${cls.tags.map(t => `<span style="text-align:left;color:var(--ink);font-family:var(--body)"><a href="${themeHref(t.id)}">${esc((themeById(t.id) || { name: t.id }).name)}</a></span><span>${t.probability.toFixed(2)}</span><div class="bar"><i style="width:${t.probability * 100}%"></i></div>`).join("")}</div>
@@ -465,11 +468,11 @@
       </div>
     </div></div></section>
     <section class="sec pad"><div class="in"><div class="dig">
-      <div class="card"><h3>Reused by</h3><p class="cap">Government accounts in the index that forked it.</p><ul class="rows">${ctx && ctx.reused_by.length ? ctx.reused_by.map(f => `<li><a href="${repoHref(f)}">${esc(f.owner)}</a><span>${ago(f.created_at)}</span><small>${esc(f.country)}</small></li>`).join("") : "<li><small>No government forks yet.</small></li>"}</ul></div>
-      <div class="card"><h3>Similar repositories</h3><p class="cap">Same theme, other accounts.</p><ul class="rows">${ctx && ctx.similar.length ? ctx.similar.map(x => `<li><a href="${repoHref(x)}"><code>${esc(x.full_name)}</code></a><span>${num(x.stars)} ★</span><small>${esc(x.country)}</small></li>`).join("") : "<li><small>None yet.</small></li>"}</ul></div>
+      <div class="card"><h3>Reused by</h3><p class="cap">Government accounts in the index that forked it.</p><ul class="rows">${ctx && ctx.reused_by.length ? ctx.reused_by.map(f => `<li><a href="${repoHref(f)}">${esc(f.owner)}</a><span>${ago(f.created_at)}</span><small>${esc(f.country)}</small></li>`).join("") : ctx ? "<li><small>No government forks yet.</small></li>" : "<li><small>Government forks unavailable. Try again later.</small></li>"}</ul></div>
+      <div class="card"><h3>Similar repositories</h3><p class="cap">Same theme, other accounts.</p><ul class="rows">${ctx && ctx.similar.length ? ctx.similar.map(x => `<li><a href="${repoHref(x)}"><code>${esc(x.full_name)}</code></a><span>${num(x.stars)} ★</span><small>${esc(x.country)}</small></li>`).join("") : ctx ? "<li><small>None yet.</small></li>" : "<li><small>Similar repositories unavailable. Try again later.</small></li>"}</ul></div>
       <div class="card"><h3>Details</h3><p class="cap">From the GitHub API, refreshed weekly.</p><ul class="rows"><li><span class="lbl">Open issues</span><span>${num(r.open_issues)}</span></li><li><span class="lbl">Size</span><span>${num(Math.round((r.size_kb || 0) / 1024))} MB</span></li><li><span class="lbl">Default branch</span><span>${esc(r.default_branch || "–")}</span></li><li><span class="lbl">Data</span><span><a href="${esc(API)}/v1/repos/${r.full_name.split("/").map(enc).join("/")}">JSON</a></span></li></ul></div>
     </div></div></section>`;
-    history(document.getElementById("hist"), ctx ? ctx.history : [], r.created_at);
+    if (ctx) history(document.getElementById("hist"), ctx.history, r.created_at);
   }
 
   function pageMethod() {

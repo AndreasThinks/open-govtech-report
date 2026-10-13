@@ -70,7 +70,7 @@ class Insights:
     def _ref_date(self, conn: sqlite3.Connection) -> datetime:
         """The date of the latest scrape, so a stale database gives stable, sensible numbers."""
         row = conn.execute(
-            "SELECT MAX(last_scraped) FROM repositories WHERE COALESCE(current, 1) = 1"
+            f"SELECT MAX(last_scraped) FROM repositories WHERE {self.catalogue.current_predicate()}"
         ).fetchone()
         return _parse(row[0]) or datetime.now(UTC)
 
@@ -129,7 +129,7 @@ class Insights:
                        SUM(r.license IS NOT NULL AND r.license NOT IN ({",".join("?" * len(UNLICENSED))})) AS licensed,
                        SUM(r.stars) AS stars
                 FROM m JOIN repositories r ON r.html_url = m.html_url
-                WHERE COALESCE(r.current, 1) = 1 AND r.fork = 0
+                WHERE {self.catalogue.current_predicate("r")} AND r.fork = 0
                 GROUP BY m.theme""",
             params + [year_ago, year_ago, year_ago, *UNLICENSED],
         ).fetchall()
@@ -174,13 +174,13 @@ class Insights:
                           COUNT(DISTINCT owner) AS accounts,
                           COUNT(DISTINCT country) AS countries,
                           MAX(last_scraped) AS last_scraped
-                   FROM repositories WHERE COALESCE(current, 1) = 1""",
+                   FROM repositories WHERE {self.catalogue.current_predicate()}""",
                 [year_ago, year_ago, *UNLICENSED, week_ago, month_ago, year_ago, year_ago],
             ).fetchone()
             per_month = dict(
                 conn.execute(
-                    """SELECT substr(created_at, 1, 7), COUNT(*) FROM repositories
-                       WHERE COALESCE(current, 1) = 1 AND fork = 0 AND created_at IS NOT NULL
+                    f"""SELECT substr(created_at, 1, 7), COUNT(*) FROM repositories
+                       WHERE {self.catalogue.current_predicate()} AND fork = 0 AND created_at IS NOT NULL
                        GROUP BY 1"""
                 ).fetchall()
             )
@@ -189,7 +189,7 @@ class Insights:
                            SUM(archived = 0 AND pushed_at >= ?) AS maintained,
                            SUM(license IS NOT NULL AND license NOT IN ({unl})) * 100.0 / COUNT(*) AS licensed_share,
                            COUNT(DISTINCT owner) AS accounts
-                    FROM repositories WHERE COALESCE(current, 1) = 1 AND fork = 0
+                    FROM repositories WHERE {self.catalogue.current_predicate()} AND fork = 0
                     GROUP BY country ORDER BY maintained DESC LIMIT 8""",
                 [year_ago, *UNLICENSED],
             ).fetchall()
@@ -240,9 +240,9 @@ class Insights:
         if cat.decision_model:
             with cat._connect() as conn:
                 classified = conn.execute(
-                    """SELECT COUNT(*) FROM decision_results d JOIN repositories r ON r.html_url = d.html_url
+                    f"""SELECT COUNT(*) FROM decision_results d JOIN repositories r ON r.html_url = d.html_url
                        WHERE d.taxonomy_version=? AND d.model=? AND d.error IS NULL
-                         AND COALESCE(r.current, 1) = 1 AND r.fork = 0""",
+                         AND {self.catalogue.current_predicate("r")} AND r.fork = 0""",
                     (self.taxonomy.version, cat.decision_model),
                 ).fetchone()[0]
         return {
@@ -289,7 +289,7 @@ class Insights:
             summary = self._summary(rows[0])
             base = f"""WITH m AS ({members})
                        SELECT {{cols}} FROM m JOIN repositories r ON r.html_url = m.html_url
-                       WHERE COALESCE(r.current, 1) = 1 AND r.fork = 0"""
+                       WHERE {self.catalogue.current_predicate("r")} AND r.fork = 0"""
             per_month = dict(
                 conn.execute(
                     base.format(cols="substr(r.created_at, 1, 7), COUNT(*)") + " GROUP BY 1", params
@@ -310,7 +310,7 @@ class Insights:
                 f"""WITH m AS ({members}), a AS ({all_members})
                     SELECT a.theme, COUNT(*) AS shared FROM m JOIN a ON a.html_url = m.html_url
                     JOIN repositories r ON r.html_url = m.html_url
-                    WHERE a.theme != ? AND COALESCE(r.current, 1) = 1 AND r.fork = 0
+                    WHERE a.theme != ? AND {self.catalogue.current_predicate("r")} AND r.fork = 0
                     GROUP BY a.theme ORDER BY shared DESC LIMIT 12""",
                 params + all_params + [theme],
             ).fetchall()
@@ -352,8 +352,8 @@ class Insights:
                 (repo["html_url"],),
             ).fetchall()
             reused_by = conn.execute(
-                """SELECT owner || '/' || name AS full_name, owner, country, created_at
-                   FROM repositories WHERE COALESCE(current, 1) = 1 AND fork = 1
+                f"""SELECT owner || '/' || name AS full_name, owner, country, created_at
+                   FROM repositories WHERE {self.catalogue.current_predicate()} AND fork = 1
                      AND LOWER(fork_source) = LOWER(?) ORDER BY created_at DESC LIMIT 20""",
                 (repo["full_name"],),
             ).fetchall()
