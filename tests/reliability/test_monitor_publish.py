@@ -48,12 +48,13 @@ def test_publication_commit_contains_every_artifact(tmp_db, sample_repo, tmp_pat
     directory = tmp_path / 'bundle'
     prepare_publication(tmp_db.db_path, directory, 'a' * 40)
     monkeypatch.setenv('HF_TOKEN', 'offline-test')
-    client = Mock()
+    from tests.reliability.test_index_operations import Hub
+    client = Hub(directory)
     monkeypatch.setattr('huggingface_hub.HfApi', Mock(return_value=client))
+    (directory / 'baseline.json').write_text('{"dataset_sha": "' + 'b' * 40 + '"}')
     publish.main(directory)
-    operations = client.create_commit.call_args.kwargs['operations']
+    operations = client.commit['operations']
     assert {op.path_in_repo for op in operations} == {f'data/{name}' for name in (*FILES, 'manifest.json')} | {'README.md'}
-    client.create_commit.assert_called_once()
 
 
 def test_monitor_hashes_non_lfs_artifacts(monkeypatch):

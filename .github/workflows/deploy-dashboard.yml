@@ -30,7 +30,7 @@ jobs:
           version: "0.11.7"
       - run: uv python install 3.11
       - run: uv lock --check
-      - run: uv sync --frozen --dev
+      - run: uv sync --frozen --dev --extra api
       - name: Test before deployment
         run: uv run --frozen pytest tests/ -q
 

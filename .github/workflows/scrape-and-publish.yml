@@ -12,15 +12,10 @@ on:
         type: boolean
         default: false
       run_tagging:
-        description: 'Run LLM tagging after scrape'
+        description: 'Retired: true fails explicitly; metadata refresh never runs paid tagging'
         required: false
         type: boolean
-        default: true
-      tag_limit:
-        description: 'Limit tagging to N repos (0 for all)'
-        required: false
-        type: number
-        default: 0
+        default: false
 
 concurrency:
   group: govtech-publication
@@ -32,6 +27,12 @@ jobs:
     timeout-minutes: 360
 
     steps:
+      - name: Reject retired tagging request
+        if: github.event.inputs.run_tagging == 'true'
+        run: |
+          echo 'run_tagging=true is retired. See docs/operations.md for classification migration.'
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -71,24 +72,6 @@ jobs:
           fi
           uv run --frozen govtech-scraper -v scrape $FORCE_FLAG
 
-      - name: Run tagging
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_tagging != 'false'
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          LIMIT_FLAG=""
-          LIMIT="${{ github.event.inputs.tag_limit }}"
-          if [ -n "$LIMIT" ] && [ "$LIMIT" != "0" ]; then
-            LIMIT_FLAG="--limit $LIMIT"
-          fi
-          uv run --frozen govtech-scraper -v tag $LIMIT_FLAG
-
-      - name: Group tags
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_tagging != 'false'
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: uv run --frozen govtech-scraper -v group
-
       - name: Show stats
         run: uv run --frozen govtech-scraper stats
 
@@ -104,12 +87,31 @@ jobs:
           retention-days: 90
 
       - name: Publish to HuggingFace
+        id: publish
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           uv run --frozen python scripts/publish_hf.py
 
+      - name: Update and verify separately hosted Index
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: uv run --frozen python scripts/update_index.py
+
+      - name: Retain publication receipt and Index result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: govtech-receipts-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            baseline.json
+            publication/receipt.json
+            publication/index-verification.json
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Deploy dashboard to HF Spaces
+        if: always() && steps.publish.outcome == 'success'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
