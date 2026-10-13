@@ -127,6 +127,10 @@ The tagger/ package only depends on the parent project through the `Repository` 
 ### Environment
 Requires `OPENROUTER_API_KEY` in .env for both LLM calls and embeddings.
 
+## Open GovTech Index site
+
+The replacement for the Streamlit dashboard lives in `src/govtech_scraper/site/` (static HTML/JS, no build step) and is served at `/` by the API app. See `docs/site.md`.
+
 ## Dashboard (HuggingFace Space)
 
 The `web/` directory contains a Streamlit dashboard for exploring the dataset, deployed as a HuggingFace Space.
