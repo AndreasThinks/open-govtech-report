@@ -107,16 +107,28 @@ The new rollout helper verifies public stats after each publication, but it is *
 independent monitor: it can modify the Space. A separate read-only readiness check for
 classification input-hash coverage and REST/MCP parity remains a follow-up.
 
-No decision-classification workflow is added in this bounded phase. The parent owns the
-sample evaluation, quality decision and budget. Before adding even a manual runner:
+No scheduled decision-classification workflow is added. The parent owns the sample evaluation,
+quality decision and live budget. The local `decide classify` runner is manual-only and writes
+durable budget/source/evidence tables; before publishing or automating it:
 
 - Pin the published dataset baseline SHA and store model/taxonomy/source provenance.
 - Retain a WAL-safe checkpoint artifact with `if: always()`, even after scoring failure or
   quota exhaustion. Validate checkpoints and reject resume against a different baseline.
+- Use the same SQLite database for pilot and resumed bulk classification so `openrouter_budget_*`
+  keeps the approved global ceiling, completed/uncertain claims and raw response receipts. Do not
+  resume against a new empty ledger.
+- Before the paid pilot, the parent/operator must verify live OpenRouter pricing for the exact
+  reviewed model and keep the persisted ceiling at or below the approved $50 global cap. Unknown
+  models and later ceiling increases fail closed.
+- Default evidence classification covers current non-fork repositories. Fork coverage requires
+  explicit `--include-forks` and must be described separately in coverage reporting.
 - Keep checkpoint work isolated from newer metadata/history. No untested checkpoint merges;
   reject stale input hashes when repository inputs change.
 - Default sample/test runs to no publication. Require explicit publication opt-in plus
   reviewed coverage and quality acceptance; `scored > 0` is insufficient.
+- Partial evidence classification may be published only with an explicit `--allow-partial`
+  operator gate and a public coverage banner showing assessed, labelled, unclassified and failed
+  rows. Do not describe it as a full-catalogue classification.
 - Add no schedule until evaluation and throughput/budget evidence are accepted by the parent.
 
 These are unfinished acceptance criteria, not a claim that checkpoint safety or quality

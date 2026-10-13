@@ -144,6 +144,36 @@ def prepare_publication(db_path, directory, source_commit):
     return manifest
 
 
+def prepare_classification_publication(db_path, directory, source_commit, *, allow_partial=False):
+    """Explicit operator gate for publishing evidence labels, independent of metadata refresh.
+
+    Record coverage from the immutable backup, not the still-running writer. This
+    does not certify classification accuracy or remove the remote parent-SHA guard.
+    """
+    from .api.queries import Catalogue
+    from .api.insights import Insights
+
+    def coverage(path):
+        catalogue = Catalogue(str(path))
+        if catalogue.confidence_mode != 'evidence':
+            raise ValueError('No evidence classifications available for publication')
+        result = Insights(catalogue)._coverage(catalogue.stats()['original_repos'])
+        if not result['assessed_repos']:
+            raise ValueError('No fresh assessed evidence classifications available')
+        partial = result['assessed_repos'] < result['current_total_repos'] or result['failed_repos'] > 0
+        if partial and not allow_partial:
+            raise ValueError('Evidence assessment is partial; require explicit allow_partial')
+        return {**result, 'partial': partial, 'human_certified': False,
+                'scope': 'Current original (non-fork) repositories'}
+
+    coverage(db_path)  # Reject absent/partial classification before creating outputs.
+    manifest = prepare_publication(db_path, directory, source_commit)
+    manifest['classification'] = coverage(Path(directory) / 'govtech.db')
+    (Path(directory) / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    validate_bundle(directory)
+    return manifest
+
+
 def validate_bundle(directory):
     import pyarrow.parquet as pq
     directory = Path(directory)

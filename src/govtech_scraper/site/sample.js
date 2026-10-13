@@ -91,7 +91,7 @@
     if (!r) return null;
     const t = themes.find(x => x.id === r._tag);
     return { ...r, open_issues: 12, size_kb: 4000, default_branch: "main", fork_source: null, llm_tags: [],
-      classification: { model: "sample", domain: r.domain, domain_name: DOMAINS[r.domain], domain_probability: .86, kind: r.kind, tags: [{ id: t.id, probability: .93 }] } };
+      classification: { model: "sample", confidence_mode: "probability", domain: r.domain, domain_name: DOMAINS[r.domain], domain_probability: .86, kind: r.kind, tags: [{ id: t.id, probability: .93 }] } };
   }
 
   function context(owner, name) {
@@ -126,7 +126,7 @@
       countries: [["United States", 3352, 63], ["United Kingdom", 1699, 68], ["France", 720, 91], ["Canada", 574, 72], ["Australia", 380, 70], ["Brazil", 336, 52]]
         .map(([country, maintained, licensed_share]) => ({ country, maintained, licensed_share, accounts: 0 })),
       newest: REPOS.slice().sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 6),
-      classification: { model: null, taxonomy_version: 1, classified_original_repos: 0, coverage: 0 },
+      classification: { model: null, taxonomy_version: 1, confidence_mode: null, classified_original_repos: 0, labelled_repos: 0, unclassified_repos: 0, failed_repos: 0, current_total_repos: 0, coverage: 0 },
     },
     themes: { model: "sample", taxonomy_version: 1, growth_definition: "", themes: domainThemes.concat(themes) },
     theme, repo, context, repos,

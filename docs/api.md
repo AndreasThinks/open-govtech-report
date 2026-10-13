@@ -62,3 +62,13 @@ The `domain`, `tag` and `kind` filters need decision-tagging results in the data
 everything else still works. If more than one decision run is stored, the API uses the run that
 covers the most repos for the current taxonomy version. Set `DECISION_MODEL` to choose a
 different one.
+
+Evidence-backed runs are exposed through the same REST and MCP surfaces as legacy decision runs,
+but `confidence_mode` is `evidence` and probabilities are `null`. Repository detail responses
+include per-tag `quote`, `rationale` and `source_field` provenance. Legacy numeric probability
+models continue to work.
+
+Evidence-mode aggregate counts include only current repository rows whose stored metadata
+fingerprint still matches the catalogue row. README freshness is tied to the recorded README blob
+SHA at classification time; a README-only change is detected when the classification source cache
+is refreshed, not by the read-only API.

@@ -200,6 +200,108 @@ def runs_command(ctx) -> None:
         db.close()
 
 
+@decide.command("classify")
+@click.option(
+    "--model",
+    default="anthropic/claude-haiku-5.5",
+    show_default=True,
+    help="OpenRouter model id. Must have a configured local price ceiling.",
+)
+@click.option("--inputs", "inputs_path", type=click.Path(exists=True), default=None)
+@click.option("--limit", type=int, default=None, help="Classify at most this many DB rows")
+@click.option("--run-id", required=True, help="Durable budget ledger run identifier")
+@click.option("--budget-usd", type=float, required=True, help="Total ledger ceiling for this run")
+@click.option("--rescore", is_flag=True, help="Call the model again even if inputs are unchanged")
+@click.option(
+    "--fetch-readmes",
+    is_flag=True,
+    help="Fetch bounded public GitHub README content for DB-selected repos",
+)
+@click.option(
+    "--include-forks",
+    is_flag=True,
+    help="Include forked repositories. Default is current non-fork repositories.",
+)
+@click.option("--batch-size", type=int, default=64, show_default=True)
+@click.option("--classify-concurrency", type=int, default=4, show_default=True)
+@click.option("--fetch-concurrency", type=int, default=8, show_default=True)
+@click.option(
+    "--prompt-version",
+    default="evidence-v1",
+    show_default=True,
+    help="Prompt/protocol version stored with each classification",
+)
+@click.pass_context
+def classify_command(
+    ctx,
+    model: str,
+    inputs_path: str | None,
+    limit: int | None,
+    run_id: str,
+    budget_usd: float,
+    rescore: bool,
+    fetch_readmes: bool,
+    include_forks: bool,
+    batch_size: int,
+    classify_concurrency: int,
+    fetch_concurrency: int,
+    prompt_version: str,
+) -> None:
+    """Evidence-backed OpenRouter classification with durable budget control."""
+    from .evidence import BudgetExhausted, run_openrouter_classification
+
+    load_dotenv()
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise click.UsageError("Set OPENROUTER_API_KEY only for this paid classification command")
+    if budget_usd <= 0:
+        raise click.UsageError("--budget-usd must be positive")
+    if inputs_path and fetch_readmes:
+        raise click.UsageError("--fetch-readmes is only for DB-selected repos, not --inputs JSONL")
+
+    db = Database(ctx.obj["db_path"])
+    try:
+        pbar = tqdm(desc=f"Classifying with {model}", unit="repo")
+        try:
+            summary = asyncio.run(
+                run_openrouter_classification(
+                    db,
+                    api_key=api_key,
+                    ceiling_usd=budget_usd,
+                    run_id=run_id,
+                    model=model,
+                    prompt_version=prompt_version,
+                    inputs_path=inputs_path,
+                    limit=limit,
+                    fetch_readmes=fetch_readmes,
+                    include_forks=include_forks,
+                    batch_size=batch_size,
+                    classify_concurrency=classify_concurrency,
+                    fetch_concurrency=fetch_concurrency,
+                    rescore=rescore,
+                    progress=pbar.update,
+                )
+            )
+        except BudgetExhausted as e:
+            raise click.ClickException(str(e)) from None
+        finally:
+            pbar.close()
+    finally:
+        db.close()
+
+    click.echo(
+        f"Classified: {summary.scored}  failed: {summary.failed}  "
+        f"unchanged: {summary.skipped_unchanged}  empty: {summary.skipped_empty}"
+    )
+    for error in summary.errors[:10]:
+        click.echo(f"  {error}", err=True)
+    if summary.stopped_early:
+        click.echo(f"Stopped early: {summary.stopped_early}. Progress is saved.", err=True)
+        sys.exit(2)
+    if summary.failed:
+        sys.exit(1)
+
+
 @decide.command("sample")
 @click.option(
     "--out", "out_path", default="decision-gold.csv", show_default=True, type=click.Path()

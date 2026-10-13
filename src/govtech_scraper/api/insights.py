@@ -77,6 +77,25 @@ class Insights:
     def _members_sql(self, theme: str | None = None) -> tuple[str, list]:
         """SQL selecting (theme, html_url) pairs from the active decision run."""
         model, version = self.catalogue.decision_model, self.taxonomy.version
+        if self.catalogue.confidence_mode == "evidence":
+            domain_sql = f"""SELECT d.domain AS theme, d.html_url FROM evidence_classifications d
+                             JOIN repositories r ON r.html_url = d.html_url
+                             WHERE d.taxonomy_version=? AND d.model=?
+                               AND d.status IN ('labelled', 'abstained')
+                               AND d.domain IS NOT NULL
+                               AND d.metadata_hash = {self.catalogue._metadata_hash_sql("r")}"""
+            tag_sql = f"""SELECT p.tag_id AS theme, p.html_url FROM evidence_classification_tags p
+                          JOIN evidence_classifications d ON d.html_url = p.html_url
+                           AND d.taxonomy_version = p.taxonomy_version AND d.model = p.model
+                          JOIN repositories r ON r.html_url = p.html_url
+                          WHERE p.taxonomy_version=? AND p.model=?
+                            AND d.status IN ('labelled', 'abstained')
+                            AND d.metadata_hash = {self.catalogue._metadata_hash_sql("r")}"""
+            if theme is None:
+                return f"{domain_sql} UNION ALL {tag_sql}", [version, model, version, model]
+            if theme in self._domains:
+                return f"{domain_sql} AND d.domain = ?", [version, model, theme]
+            return f"{tag_sql} AND p.tag_id = ?", [version, model, theme]
         domain_sql = """SELECT domain AS theme, html_url FROM decision_results
                         WHERE taxonomy_version=? AND model=? AND error IS NULL AND domain IS NOT NULL"""
         tag_sql = """SELECT label AS theme, html_url FROM decision_probabilities
@@ -237,18 +256,46 @@ class Insights:
     def _coverage(self, original: int) -> dict:
         cat = self.catalogue
         classified = 0
+        assessed = 0
+        failed = 0
         if cat.decision_model:
             with cat._connect() as conn:
-                classified = conn.execute(
-                    f"""SELECT COUNT(*) FROM decision_results d JOIN repositories r ON r.html_url = d.html_url
-                       WHERE d.taxonomy_version=? AND d.model=? AND d.error IS NULL
-                         AND {self.catalogue.current_predicate("r")} AND r.fork = 0""",
-                    (self.taxonomy.version, cat.decision_model),
-                ).fetchone()[0]
+                if cat.confidence_mode == "evidence":
+                    row = conn.execute(
+                        f"""SELECT
+                               SUM(d.status IN ('labelled', 'abstained')) AS assessed,
+                               SUM(d.status = 'labelled') AS labelled,
+                               SUM(d.status = 'failed') AS failed
+                            FROM evidence_classifications d
+                            JOIN repositories r ON r.html_url = d.html_url
+                            WHERE d.taxonomy_version=? AND d.model=?
+                              AND {self.catalogue.current_predicate("r")} AND r.fork = 0
+                              AND d.metadata_hash = {self.catalogue._metadata_hash_sql("r")}""",
+                        (self.taxonomy.version, cat.decision_model),
+                    ).fetchone()
+                    assessed = row["assessed"] or 0
+                    classified = row["labelled"] or 0
+                    failed = row["failed"] or 0
+                else:
+                    classified = conn.execute(
+                        f"""SELECT COUNT(*) FROM decision_results d JOIN repositories r ON r.html_url = d.html_url
+                           WHERE d.taxonomy_version=? AND d.model=? AND d.error IS NULL
+                             AND {self.catalogue.current_predicate("r")} AND r.fork = 0""",
+                        (self.taxonomy.version, cat.decision_model),
+                    ).fetchone()[0]
+                    assessed = classified
         return {
             "model": cat.decision_model,
             "taxonomy_version": self.taxonomy.version,
+            "confidence_mode": cat.confidence_mode,
             "classified_original_repos": classified,
+            "assessed_repos": assessed,
+            "labelled_repos": classified,
+            "unclassified_repos": max(0, original - classified),
+            "abstained_repos": max(0, assessed - classified),
+            "pending_repos": max(0, original - assessed - failed),
+            "failed_repos": failed,
+            "current_total_repos": original,
             "coverage": round(classified / original * 100, 1) if original else 0.0,
         }
 
@@ -268,6 +315,7 @@ class Insights:
         return {
             "model": cat.decision_model,
             "taxonomy_version": self.taxonomy.version,
+            "confidence_mode": cat.confidence_mode,
             "growth_definition": "Repositories created in the last 12 months as a percentage of "
             "those created before then. Original repositories only.",
             "themes": items,

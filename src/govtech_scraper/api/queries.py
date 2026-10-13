@@ -12,6 +12,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 
+from ..decision.evidence import source_from_repo
+from ..decision.store import row_to_repository
 from ..decision.taxonomy import Taxonomy, load_taxonomy
 
 MAX_LIMIT = 100
@@ -31,6 +33,7 @@ class Classification:
     domain_name: str | None
     domain_probability: float | None
     kind: str | None
+    confidence_mode: str = "probability"
     tags: list[dict] = field(default_factory=list)
 
 
@@ -77,15 +80,67 @@ class Catalogue:
                 row["name"] == "current" for row in conn.execute("PRAGMA table_info(repositories)")
             )
         self.decision_model = os.getenv("DECISION_MODEL") or self._default_decision_model()
+        self.confidence_mode = self._model_mode(self.decision_model)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
+        conn.create_function("evidence_metadata_hash", 20, self._evidence_metadata_hash)
         try:
             yield conn
         finally:
             conn.close()
+
+    @staticmethod
+    def _evidence_metadata_hash(
+        html_url,
+        owner,
+        name,
+        country,
+        description,
+        language,
+        topics,
+        license,
+        default_branch,
+        fork,
+        archived,
+        created_at,
+        updated_at,
+        pushed_at,
+        fork_source,
+        stars,
+        forks,
+        watchers,
+        open_issues,
+        size_kb,
+    ) -> str:
+        repo = row_to_repository(
+            {
+                "html_url": html_url,
+                "owner": owner,
+                "name": name,
+                "country": country,
+                "description": description,
+                "language": language,
+                "topics": topics,
+                "license": license,
+                "default_branch": default_branch,
+                "fork": fork,
+                "archived": archived,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "pushed_at": pushed_at,
+                "fork_source": fork_source,
+                "stars": stars,
+                "forks": forks,
+                "watchers": watchers,
+                "open_issues": open_issues,
+                "size_kb": size_kb,
+                "commit_count": None,
+            }
+        )
+        return source_from_repo(repo).metadata_hash
 
     def current_predicate(self, alias: str = "") -> str:
         """Legacy publications contain only current rows; never migrate an input database."""
@@ -103,6 +158,17 @@ class Catalogue:
     def _default_decision_model(self) -> str | None:
         """The decision run covering the most repos for the current taxonomy, if any."""
         with self._connect() as conn:
+            if self._has_table(conn, "evidence_classifications"):
+                row = conn.execute(
+                    f"""SELECT model FROM evidence_classifications e
+                       JOIN repositories r ON r.html_url = e.html_url
+                       WHERE {self.current_predicate("r")} AND taxonomy_version=?
+                         AND e.status IN ('labelled', 'abstained', 'failed')
+                       GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1""",
+                    (self.taxonomy.version,),
+                ).fetchone()
+                if row:
+                    return row[0]
             if not self._has_table(conn, "decision_results"):
                 return None
             row = conn.execute(
@@ -113,11 +179,59 @@ class Catalogue:
             ).fetchone()
         return row[0] if row else None
 
+    def _model_mode(self, model: str | None) -> str | None:
+        if not model:
+            return None
+        with self._connect() as conn:
+            if self._has_table(conn, "evidence_classifications"):
+                row = conn.execute(
+                    """SELECT 1 FROM evidence_classifications
+                       WHERE taxonomy_version=? AND model=? LIMIT 1""",
+                    (self.taxonomy.version, model),
+                ).fetchone()
+                if row:
+                    return "evidence"
+        return "probability"
+
     # ------------------------------------------------------------------ helpers
+
+    @staticmethod
+    def _metadata_hash_sql(alias: str) -> str:
+        cols = [
+            "html_url",
+            "owner",
+            "name",
+            "country",
+            "description",
+            "language",
+            "topics",
+            "license",
+            "default_branch",
+            "fork",
+            "archived",
+            "created_at",
+            "updated_at",
+            "pushed_at",
+            "fork_source",
+            "stars",
+            "forks",
+            "watchers",
+            "open_issues",
+            "size_kb",
+        ]
+        return "evidence_metadata_hash(" + ",".join(f"{alias}.{c}" for c in cols) + ")"
 
     def _decision_join(self) -> tuple[str, list]:
         if not self.decision_model:
             return "", []
+        if self.confidence_mode == "evidence":
+            return (
+                f"""LEFT JOIN evidence_classifications d ON d.html_url = r.html_url
+                     AND d.taxonomy_version = ? AND d.model = ?
+                     AND d.status IN ('labelled', 'abstained')
+                     AND d.metadata_hash = {self._metadata_hash_sql("r")}""",
+                [self.taxonomy.version, self.decision_model],
+            )
         return (
             """LEFT JOIN decision_results d ON d.html_url = r.html_url
                  AND d.taxonomy_version = ? AND d.model = ? AND d.error IS NULL""",
@@ -203,12 +317,20 @@ class Catalogue:
                 where.append("d.kind = ?")
                 params.append(kind)
             if tag:
-                where.append(
-                    """EXISTS (SELECT 1 FROM decision_probabilities p
-                       WHERE p.html_url = r.html_url AND p.taxonomy_version = d.taxonomy_version
-                         AND p.model = d.model AND p.facet = 'tag' AND p.label = ? AND p.probability >= ?)"""
-                )
-                params += [tag, TAG_THRESHOLD]
+                if self.confidence_mode == "evidence":
+                    where.append(
+                        """EXISTS (SELECT 1 FROM evidence_classification_tags p
+                           WHERE p.html_url = r.html_url AND p.taxonomy_version = d.taxonomy_version
+                             AND p.model = d.model AND p.tag_id = ?)"""
+                    )
+                    params.append(tag)
+                else:
+                    where.append(
+                        """EXISTS (SELECT 1 FROM decision_probabilities p
+                           WHERE p.html_url = r.html_url AND p.taxonomy_version = d.taxonomy_version
+                             AND p.model = d.model AND p.facet = 'tag' AND p.label = ? AND p.probability >= ?)"""
+                    )
+                    params += [tag, TAG_THRESHOLD]
 
         sql_from = f"FROM repositories r {join} WHERE {' AND '.join(where)}"
         with self._connect() as conn:
@@ -258,6 +380,42 @@ class Catalogue:
         return asdict(detail)
 
     def _classification(self, conn: sqlite3.Connection, html_url: str) -> Classification | None:
+        if self.confidence_mode == "evidence":
+            result = conn.execute(
+                f"""SELECT d.domain, d.kind FROM evidence_classifications d
+                   JOIN repositories r ON r.html_url = d.html_url
+                   WHERE d.html_url=? AND d.taxonomy_version=? AND d.model=?
+                     AND d.status IN ('labelled', 'abstained')
+                     AND d.metadata_hash = {self._metadata_hash_sql("r")}""",
+                (html_url, self.taxonomy.version, self.decision_model),
+            ).fetchone()
+            if result is None:
+                return None
+            tags = conn.execute(
+                """SELECT tag_id, probability, quote, rationale, source_field
+                   FROM evidence_classification_tags
+                   WHERE html_url=? AND taxonomy_version=? AND model=?
+                   ORDER BY tag_id""",
+                (html_url, self.taxonomy.version, self.decision_model),
+            ).fetchall()
+            return Classification(
+                model=self.decision_model,
+                domain=result["domain"],
+                domain_name=self._domain_names.get(result["domain"]),
+                domain_probability=None,
+                kind=result["kind"],
+                confidence_mode="evidence",
+                tags=[
+                    {
+                        "id": row["tag_id"],
+                        "probability": row["probability"],
+                        "quote": row["quote"],
+                        "rationale": row["rationale"],
+                        "source_field": row["source_field"],
+                    }
+                    for row in tags
+                ],
+            )
         result = conn.execute(
             """SELECT domain, kind FROM decision_results
                WHERE html_url=? AND taxonomy_version=? AND model=? AND error IS NULL""",
@@ -280,6 +438,7 @@ class Catalogue:
             domain_name=self._domain_names.get(result["domain"]),
             domain_probability=domain_p,
             kind=result["kind"],
+            confidence_mode="probability",
             tags=[
                 {"id": label, "probability": round(p, 3)}
                 for f, label, p in probs
@@ -305,24 +464,51 @@ class Catalogue:
         if self.decision_model:
             key = (self.taxonomy.version, self.decision_model)
             with self._connect() as conn:
-                domain_counts = dict(
-                    conn.execute(
-                        f"""SELECT domain, COUNT(*) FROM decision_results d JOIN repositories r ON r.html_url = d.html_url
-                       WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=? AND error IS NULL GROUP BY domain""",
-                        key,
+                if self.confidence_mode == "evidence":
+                    domain_counts = dict(
+                        conn.execute(
+                            f"""SELECT domain, COUNT(*) FROM evidence_classifications d
+                               JOIN repositories r ON r.html_url = d.html_url
+                               WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=?
+                                 AND status IN ('labelled', 'abstained') AND domain IS NOT NULL
+                                 AND d.metadata_hash = {self._metadata_hash_sql("r")}
+                               GROUP BY domain""",
+                            key,
+                        )
                     )
-                )
-                tag_counts = dict(
-                    conn.execute(
-                        f"""SELECT label, COUNT(*) FROM decision_probabilities p JOIN repositories r ON r.html_url = p.html_url
-                       WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=? AND facet='tag' AND probability >= ?
-                       GROUP BY label""",
-                        (*key, TAG_THRESHOLD),
+                    tag_counts = dict(
+                        conn.execute(
+                            f"""SELECT tag_id, COUNT(*) FROM evidence_classification_tags p
+                               JOIN evidence_classifications d ON d.html_url = p.html_url
+                                AND d.taxonomy_version = p.taxonomy_version AND d.model = p.model
+                               JOIN repositories r ON r.html_url = p.html_url
+                               WHERE {self.current_predicate("r")} AND p.taxonomy_version=? AND p.model=?
+                                 AND d.status IN ('labelled', 'abstained')
+                                 AND d.metadata_hash = {self._metadata_hash_sql("r")}
+                               GROUP BY tag_id""",
+                            key,
+                        )
                     )
-                )
+                else:
+                    domain_counts = dict(
+                        conn.execute(
+                            f"""SELECT domain, COUNT(*) FROM decision_results d JOIN repositories r ON r.html_url = d.html_url
+                           WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=? AND error IS NULL GROUP BY domain""",
+                            key,
+                        )
+                    )
+                    tag_counts = dict(
+                        conn.execute(
+                            f"""SELECT label, COUNT(*) FROM decision_probabilities p JOIN repositories r ON r.html_url = p.html_url
+                           WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=? AND facet='tag' AND probability >= ?
+                           GROUP BY label""",
+                            (*key, TAG_THRESHOLD),
+                        )
+                    )
         return {
             "version": self.taxonomy.version,
             "classification_model": self.decision_model,
+            "confidence_mode": self.confidence_mode,
             "domains": [
                 {
                     "id": d.id,
@@ -355,11 +541,21 @@ class Catalogue:
             ).fetchall()
             classified = 0
             if self.decision_model:
-                classified = conn.execute(
-                    f"""SELECT COUNT(*) FROM decision_results d JOIN repositories r ON r.html_url = d.html_url
-                       WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=? AND error IS NULL""",
-                    (self.taxonomy.version, self.decision_model),
-                ).fetchone()[0]
+                if self.confidence_mode == "evidence":
+                    classified = conn.execute(
+                        f"""SELECT COUNT(*) FROM evidence_classifications d
+                           JOIN repositories r ON r.html_url = d.html_url
+                           WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=?
+                             AND status='labelled'
+                             AND d.metadata_hash = {self._metadata_hash_sql("r")}""",
+                        (self.taxonomy.version, self.decision_model),
+                    ).fetchone()[0]
+                else:
+                    classified = conn.execute(
+                        f"""SELECT COUNT(*) FROM decision_results d JOIN repositories r ON r.html_url = d.html_url
+                           WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=? AND error IS NULL""",
+                        (self.taxonomy.version, self.decision_model),
+                    ).fetchone()[0]
         return {
             **dict(base),
             "classified_repos": classified,
