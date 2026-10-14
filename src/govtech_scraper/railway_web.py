@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import tempfile
 import time
 import urllib.request
@@ -17,6 +18,14 @@ from .publication import connect_readonly, database_metadata
 
 DATASET = 'https://huggingface.co/datasets/AndreasThinks/government-github-repos'
 CHUNK = 1024 * 1024
+MAX_SNAPSHOT_BYTES = 8 * 1024**3
+DISK_RESERVE_BYTES = 256 * 1024**2
+
+
+def _validate_max_bytes(value):
+    if type(value) is not int or not 0 < value <= MAX_SNAPSHOT_BYTES:
+        raise ValueError('Snapshot maximum must be a positive integer at most 8 GiB')
+    return value
 
 
 @dataclass(frozen=True)
@@ -66,12 +75,14 @@ def _timestamp(value):
         raise ValueError('Invalid timestamp')
 
 
-def bootstrap(url: str, target: Path, *, opener=None) -> VerifiedSnapshot:
+def bootstrap(url: str, target: Path, *, opener=None,
+              max_bytes: int = MAX_SNAPSHOT_BYTES) -> VerifiedSnapshot:
     """Stream and verify before replacement. Target must be offline and web-owned.
 
     No fallback to an unverified local file; failure stops startup while retaining
     the previous bytes. Scrape age is reported, never used as an availability gate.
     """
+    max_bytes = _validate_max_bytes(max_bytes)
     revision = parse_source(url)
     target = Path(target)
     if target.is_symlink() or any(Path(str(target) + s).exists() for s in ('-wal', '-shm')):
@@ -100,7 +111,11 @@ def bootstrap(url: str, target: Path, *, opener=None) -> VerifiedSnapshot:
             _timestamp(manifest['scrape_timestamp'])
     except (KeyError, TypeError, AttributeError, ValueError):
         raise ValueError('Malformed publication manifest') from None
+    if size > max_bytes:
+        raise ValueError('Snapshot exceeds configured maximum')
     target.parent.mkdir(parents=True, exist_ok=True)
+    if shutil.disk_usage(target.parent).free < size + DISK_RESERVE_BYTES:
+        raise ValueError('Insufficient free space for snapshot plus 256 MiB reserve')
     temp = None
     try:
         with tempfile.NamedTemporaryFile(dir=target.parent, suffix='.partial', delete=False) as out:
@@ -166,8 +181,13 @@ def main():
     port = int(os.environ.get('PORT', '8080'))
     if not 1 <= port <= 65535:
         raise ValueError('PORT must be between 1 and 65535')
+    configured_max = os.environ.get('GOVTECH_WEB_MAX_DB_BYTES', str(MAX_SNAPSHOT_BYTES))
+    if not re.fullmatch(r'[0-9]+', configured_max):
+        raise ValueError('GOVTECH_WEB_MAX_DB_BYTES must be an integer byte count')
+    max_bytes = _validate_max_bytes(int(configured_max))
     snapshot = bootstrap(os.environ.get('GOVTECH_DB_URL', ''),
-                         Path(os.environ.get('GOVTECH_WEB_DB', 'data/govtech.db')))
+                         Path(os.environ.get('GOVTECH_WEB_DB', 'data/govtech.db')),
+                         max_bytes=max_bytes)
     app = create_verified_app(snapshot, source_commit=os.environ.get('RAILWAY_GIT_COMMIT_SHA'))
     uvicorn.run(app, host='0.0.0.0', port=port)
 

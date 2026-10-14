@@ -16,6 +16,11 @@ The worker is a separate workstream; this change supplies no worker implementati
   values are reported as null, not inferred from the dataset's source commit.
 - `GOVTECH_WEB_DB`: local web-owned offline target, default `data/govtech.db`;
   the image sets `/app/data/govtech.db`. Never point this at the private master.
+- `GOVTECH_WEB_MAX_DB_BYTES`: optional lower snapshot size limit in bytes. Defaults
+  to the hard cap of 8 GiB (`8 * 1024**3 = 8589934592` bytes). Use a positive
+  decimal integer no larger than that cap; booleans, fractions, signs, whitespace,
+  zero and larger limits are rejected. Python callers can pass `max_bytes` to
+  `bootstrap()` as an integer (not a boolean); the same hard cap applies.
 
 The brief identifies dataset SHA `136b796d21fee72d8149180222f18c745ca9c865`.
 This implementation has not downloaded or independently verified that live revision.
@@ -31,6 +36,16 @@ coverage must equal the manifest. Operator objects named `openrouter_*` or
 conflicting revision headers are rejected. HTTPS redirects are restricted to HF
 and its `hf.co` storage hosts. Environment proxy configuration is ignored; no
 Authorization header or HF credential lookup is used.
+
+An advertised DB size above the configured maximum is rejected before a temporary
+file is created or the DB response is opened. Before transfer, the target directory's
+filesystem must have at least the advertised size plus 256 MiB (`268435456` bytes)
+free. The previous snapshot remains in place during download, so provision room
+for both snapshots plus this reserve. Exactly the configured size and exactly the
+required free-space headroom are accepted. The free-space check is a startup
+check, not a reservation against concurrent disk use. Transfer stops on the first
+chunk exceeding the advertised size, without writing that chunk, and cleans up
+the partial file while retaining the previous target.
 
 Only a verified file replaces the target atomically. Failure removes the temporary
 file, preserves the previous snapshot and stops startup. It does not silently serve
@@ -83,3 +98,5 @@ The commands assume checkout-local `.venv` dependencies are already installed.
 The build fallback uses installed setuptools/wheel because isolated offline build
 requirements were not cached. See `evidence/RAILWAY_WEB_HANDOFF.md` for actual
 sandbox results and required host validation.
+See `evidence/RAILWAY_WEB_BOUNDS_HANDOFF.md` for the size-bound regression and
+offline verification results.
