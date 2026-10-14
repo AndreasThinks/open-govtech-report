@@ -11,6 +11,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 
 from ..decision.evidence import source_from_repo
 from ..decision.store import row_to_repository
@@ -94,6 +95,7 @@ class Catalogue:
             conn.close()
 
     @staticmethod
+    @lru_cache(maxsize=100_000)
     def _evidence_metadata_hash(
         html_url,
         owner,

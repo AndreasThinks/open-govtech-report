@@ -18,6 +18,25 @@ async def test_price_caps_are_in_provider_routing_object():
     assert 'max_price' not in seen
 
 
+def test_metadata_hash_cache_is_safe_for_changed_inputs(sample_repo):
+    from govtech_scraper.decision.evidence import source_from_repo
+    function = Catalogue._evidence_metadata_hash
+    assert hasattr(function, 'cache_info'), 'Repeated full-catalogue fingerprints need bounded memoization'
+    function.cache_clear()
+    names = ('html_url', 'owner', 'name', 'country', 'description', 'language', 'topics',
+             'license', 'default_branch', 'fork', 'archived', 'created_at', 'updated_at',
+             'pushed_at', 'fork_source', 'stars', 'forks', 'watchers', 'open_issues', 'size_kb')
+    import json
+    args = [getattr(sample_repo, name) for name in names]
+    args[6] = json.dumps(args[6])
+    expected = source_from_repo(sample_repo).metadata_hash
+    assert function(*args) == expected
+    assert function(*args) == expected
+    assert function.cache_info().hits == 1
+    args[4] = 'A new repository purpose'
+    assert function(*args) != expected
+
+
 def test_abstention_is_unclassified_not_pending(tmp_db,sample_repos):
     tmp_db.save_repositories(sample_repos[:2]);taxonomy=load_taxonomy();store=EvidenceStore(tmp_db)
     for index,repo in enumerate(sample_repos[:2]):
