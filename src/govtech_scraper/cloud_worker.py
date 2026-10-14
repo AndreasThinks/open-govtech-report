@@ -28,7 +28,8 @@ from .decision.period_budget import RecurringAuthorization, PeriodBudget, approv
 from .decision.source_worker import AioHttpGraphQLTransport
 from .decision.store import row_to_repository
 from .decision.taxonomy import load_taxonomy
-from .operations import DATASET, publish_bundle, update_index, valid_sha, verify_remote, artifact_metadata
+from .railway_rollout import update_public_index as update_index
+from .operations import DATASET, publish_bundle, valid_sha, verify_remote, artifact_metadata
 from .publication import prepare_classification_publication, prepare_publication, check_freshness, FILES
 from .railway_web import bootstrap, DATASET as PUBLIC_URL
 
@@ -168,10 +169,11 @@ def verify_volume(directory, environ=os.environ, mountinfo=Path('/proc/self/moun
 
 class Worker:
     def __init__(self, state, public, *, sources=None, prices=None, client=None,
-                 clock=time.monotonic, volume_check=verify_volume):
+                 clock=time.monotonic, volume_check=verify_volume, client_factory=None):
         self.state, self.public = state, public
         self.sources, self.prices, self.client = sources, prices, client
         self.clock, self.volume_check = clock, volume_check
+        self.client_factory = client_factory
 
     def merge(self, db):
         with tempfile.TemporaryDirectory(prefix='govtech-public-') as folder:
@@ -205,6 +207,13 @@ class Worker:
             checkpoint_allowed = False
             initial_spend = db.conn.execute('SELECT COALESCE(SUM(COALESCE(actual_usd,reserved_usd)),0) FROM openrouter_budget_ledger').fetchone()[0]
             try:
+                # A durable publication receipt needs only rollout verification on retry.
+                # Return before metadata acquisition, provider work or paid-mode gates.
+                if rollout and self.state.get(db, 'pending_rollout'):
+                    checkpoint_allowed = True
+                    self.publish(db, None, rollout=True)
+                    status['phase'] = 'rollout-completed'
+                    return status
                 if mode == 'classify':
                     if not inference_enabled or not authorization_id:
                         raise ValueError('Classify requires explicit inference enable and authorization ID')
@@ -216,6 +225,8 @@ class Worker:
                     authorization = RecurringAuthorization(**json.loads(row[0]))
                     if self.state.get(db, 'inference_disabled', True):
                         raise ValueError('Restored state inference-disabled pending operator recovery')
+                    if self.client is None and self.client_factory is not None:
+                        self.client = self.client_factory()
                 parent = self.merge(db)
                 planner = IncrementalPlanner(db, model=MODEL, prompt_version=DEFAULT_PROMPT_VERSION, taxonomy=load_taxonomy())
                 repos = [row_to_repository(row) for row in db.conn.execute(
@@ -405,8 +416,9 @@ def execute(args):
         return
     worker = Worker(state, PublicHub(api, download),
         sources=TargetedSources(os.environ.get('GOVTECH_GITHUB_TOKEN', '')),
-        prices=PriceLookup(), client=(OpenRouterClient(api_key=os.environ.get('OPENROUTER_API_KEY', ''), model=MODEL)
-                                     if args.mode == 'classify' else None))
+        prices=PriceLookup(), client_factory=(lambda: OpenRouterClient(
+            api_key=os.environ.get('OPENROUTER_API_KEY', ''), model=MODEL))
+            if args.mode == 'classify' else None)
     status = asyncio.run(worker.run(mode=args.mode, publish=args.publish, rollout=args.rollout,
         inference_enabled=os.environ.get('GOVTECH_INFERENCE_ENABLED') == 'true',
         authorization_id=args.authorization_id, limit=args.limit, source_limit=args.source_limit,

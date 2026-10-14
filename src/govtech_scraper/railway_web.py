@@ -161,7 +161,7 @@ def create_verified_app(snapshot: VerifiedSnapshot, *, source_commit: str | None
 
     app = create_app(Catalogue(str(snapshot.path)))
     health = {
-        'healthy': True, 'source_commit': source_commit,
+        'healthy': True, 'source_commit': os.environ.get('RAILWAY_GIT_COMMIT_SHA') or source_commit,
         'dataset_sha': snapshot.dataset_sha, 'db_sha256': snapshot.db_sha256,
         'publication_timestamp': snapshot.publication_timestamp,
         'scrape_timestamp': snapshot.scrape_timestamp, 'coverage': snapshot.coverage,

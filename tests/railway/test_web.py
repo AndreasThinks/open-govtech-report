@@ -331,3 +331,16 @@ def test_readiness_precedes_static_mount_without_database_reads(bundle, tmp_path
     assert health['dataset_sha'] == SHA
     assert health['scrape_timestamp'] == '2020-01-01T00:00:00+00:00'
     assert health['coverage'] == manifest['coverage']
+
+
+def test_readiness_prefers_actual_railway_source(bundle, tmp_path, monkeypatch):
+    data, manifest = bundle[1]()
+    snapshot = bootstrap(URL, tmp_path / 'ready.db', opener=transport(data, manifest))
+    monkeypatch.setenv('RAILWAY_GIT_COMMIT_SHA', 'f' * 40)
+    app = create_verified_app(snapshot, source_commit='e' * 40)
+    route = next(route for route in app.routes if getattr(route, 'path', None) == '/healthz')
+    assert route.endpoint()['source_commit'] == 'f' * 40
+    monkeypatch.delenv('RAILWAY_GIT_COMMIT_SHA')
+    app = create_verified_app(snapshot, source_commit='e' * 40)
+    route = next(route for route in app.routes if getattr(route, 'path', None) == '/healthz')
+    assert route.endpoint()['source_commit'] == 'e' * 40
