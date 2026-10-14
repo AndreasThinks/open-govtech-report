@@ -143,6 +143,70 @@ def test_metadata_merge_is_idempotent_and_preserves_private_state(tmp_db, tmp_pa
     assert tmp_db.conn.execute('SELECT stars FROM repositories').fetchone()[0] == 123
 
 
+def test_history_merge_lookup_constrains_url_and_timestamp(tmp_db, tmp_path, sample_repo):
+    # Model a scrape-wide timestamp bucket, without production data or timings.
+    tmp_db.conn.executemany('''INSERT INTO repository_snapshots
+        (html_url, owner, name, country, scrape_timestamp)
+        VALUES (?, 'synthetic', 'repo', 'Test', '2026-01-01')''',
+        ((f'https://github.com/synthetic/repo-{i}',) for i in range(20000)))
+    tmp_db.conn.commit()
+    tmp_db.conn.execute('PRAGMA automatic_index=OFF')
+    public = Database(str(tmp_path / 'public.db'))
+    try:
+        public.save_repositories([sample_repo])
+        public.conn.execute("UPDATE repository_snapshots SET scrape_timestamp='2026-01-01'")
+        public.conn.commit()
+        statements = []
+        tmp_db.conn.set_trace_callback(statements.append)
+        try:
+            merge_public_metadata(tmp_db, public.db_path)
+        finally:
+            tmp_db.conn.set_trace_callback(None)
+        query, = [sql for sql in statements
+                  if sql.startswith('INSERT OR IGNORE INTO repository_snapshots')]
+        details = [row[3] for row in tmp_db.conn.execute('EXPLAIN QUERY PLAN ' + query)]
+        lookups = [detail for detail in details if 'repository_snapshots' in detail]
+        assert len(lookups) == 1, details
+        assert 'SEARCH repository_snapshots USING INDEX ' in lookups[0], details
+        assert '(html_url=? AND scrape_timestamp=?)' in lookups[0], details
+    finally:
+        public.close()
+
+
+def test_history_merge_exact_value_union_preserves_duplicates(tmp_db, tmp_path, sample_repo):
+    from collections import Counter
+
+    tmp_db.save_repositories([sample_repo])
+    columns = [row[1] for row in tmp_db.conn.execute('PRAGMA table_info(repository_snapshots)')
+               if row[1] != 'id']
+    names = ','.join(columns)
+    insert = f'INSERT INTO repository_snapshots ({names}) VALUES ({",".join("?" for _ in columns)})'
+    base = tuple(tmp_db.conn.execute(f'SELECT {names} FROM repository_snapshots').fetchone())
+    tmp_db.conn.execute(insert, base)  # Existing duplicates must survive.
+    tmp_db.conn.commit()
+    public = Database(str(tmp_path / 'public.db'))
+    try:
+        variants = []
+        for i, column in enumerate(columns):
+            variant = list(base)
+            variant[i] = base[i] + 1 if isinstance(base[i], int) else str(base[i]) + '-different'
+            variants.append(tuple(variant))
+            if column in {'stars', 'forks', 'watchers', 'open_issues', 'commit_count'}:
+                variant[i] = None
+                variants.append(tuple(variant))
+        # Public IDs overlap private IDs but represent different values. Repeated
+        # public rows and NULL values must deduplicate by every non-ID column.
+        public.conn.executemany(insert, variants + [base] + variants)
+        public.conn.commit()
+        expected = Counter([base, base] + list(set(variants) - {base}))
+        for _ in range(2):
+            merge_public_metadata(tmp_db, public.db_path)
+            actual = Counter(tuple(row) for row in tmp_db.conn.execute(f'SELECT {names} FROM repository_snapshots'))
+            assert actual == expected
+    finally:
+        public.close()
+
+
 def test_rebound_freshness_api_and_publication(tmp_db, tmp_path, sample_repo):
     from govtech_scraper.api.queries import Catalogue
     from govtech_scraper.api.insights import Insights

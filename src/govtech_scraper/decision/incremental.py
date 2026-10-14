@@ -199,6 +199,11 @@ def merge_public_metadata(db: Database, verified_public_path: str | Path) -> Non
             for table in ('repository_snapshots',):
                 if table not in tables:
                     continue
+                # Scrape timestamps span many repositories. Pin the narrow lookup
+                # so SQLite cannot choose the timestamp-only index; all values
+                # below still participate in NULL-safe history deduplication.
+                db.conn.execute('''CREATE INDEX IF NOT EXISTS idx_snapshots_url_timestamp
+                    ON repository_snapshots(html_url, scrape_timestamp)''')
                 cols = [r[1] for r in db.conn.execute(f'PRAGMA table_info({table})')
                         if not (table == 'repository_snapshots' and r[1] == 'id')]
                 names = ','.join(cols)
@@ -206,7 +211,8 @@ def merge_public_metadata(db: Database, verified_public_path: str | Path) -> Non
                 for row in public.execute(f'SELECT {names} FROM {table}'):
                     db.conn.execute(f'''INSERT OR IGNORE INTO {table} ({names})
                         SELECT {','.join('?' for _ in cols)} WHERE NOT EXISTS
-                        (SELECT 1 FROM {table} WHERE {match})''', (*row, *row))
+                        (SELECT 1 FROM {table} INDEXED BY idx_snapshots_url_timestamp
+                         WHERE {match})''', (*row, *row))
             if 'evidence_classifications' in tables:
                 for row in public.execute('SELECT * FROM evidence_classifications'):
                     for item in json.loads(row['abstentions_json']).get('publication_review', []):
