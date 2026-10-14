@@ -756,6 +756,7 @@ class OpenRouterBudget:
         request_hash: str,
         estimated_input_tokens: int,
         max_output_tokens: int,
+        source_url: str | None = None,
     ) -> BudgetClaim:
         reserved = self._reservation(model, estimated_input_tokens, max_output_tokens)
         now = datetime.now(UTC).isoformat()
@@ -797,6 +798,10 @@ class OpenRouterBudget:
                     now,
                 ),
             )
+            if source_url is not None:
+                self._check_source_binding(request_hash, source_url)
+                self.conn.execute("INSERT OR IGNORE INTO openrouter_pending_bindings VALUES (?, ?, ?)",
+                                  (request_hash, source_url, now))
             self._claim_created(cursor.lastrowid, now)
             self.conn.commit()
             return BudgetClaim(cursor.lastrowid, reserved)
@@ -934,7 +939,9 @@ class OpenRouterBudget:
         request_hash: str,
         estimated_input_tokens: int,
         max_output_tokens: int,
+        source_url: str | None = None,
     ) -> BudgetClaim | PendingRequest:
+        self._check_source_binding(request_hash, source_url)
         row = self.conn.execute(
             """SELECT id, status, reserved_usd, error FROM openrouter_budget_ledger
                WHERE request_hash=? AND status IN ('reserved', 'uncertain')""",
@@ -953,7 +960,16 @@ class OpenRouterBudget:
             request_hash=request_hash,
             estimated_input_tokens=estimated_input_tokens,
             max_output_tokens=max_output_tokens,
+            source_url=source_url,
         )
+
+    def _check_source_binding(self, request_hash, source_url):
+        if source_url is None:
+            return
+        row = self.conn.execute("SELECT source_url FROM openrouter_pending_bindings WHERE request_hash=?",
+                                (request_hash,)).fetchone()
+        if row and row[0] != source_url:
+            raise ValueError("Conflicting request source binding")
 
     def pending_reconciliation_summary(self) -> dict[str, float | int]:
         row = self.conn.execute(
@@ -1377,6 +1393,7 @@ class EvidenceClassifier:
             request_hash=request_hash,
             estimated_input_tokens=estimated_tokens,
             max_output_tokens=self.max_output_tokens,
+            source_url=source.html_url,
         )
         if isinstance(claim, PendingRequest):
             raise claim
