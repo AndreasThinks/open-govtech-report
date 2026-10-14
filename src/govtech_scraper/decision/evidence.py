@@ -390,7 +390,9 @@ def taxonomy_digest(taxonomy: Taxonomy) -> str:
 
 
 def ensure_evidence_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(SCHEMA)
+    from .incremental import SCHEMA as INCREMENTAL_SCHEMA
+
+    conn.executescript(SCHEMA + INCREMENTAL_SCHEMA)
     columns = {row[1] for row in conn.execute("PRAGMA table_info(openrouter_response_receipts)")}
     for column, declaration in [
         ("source_url", "TEXT"),
@@ -442,6 +444,14 @@ class EvidenceStore:
         ensure_evidence_schema(self.conn)
 
     def save_source(self, source: EvidenceSource) -> None:
+        from .incremental import archive_source, _cached
+
+        old = self.conn.execute('SELECT * FROM evidence_sources WHERE html_url=?',
+                                (source.html_url,)).fetchone()
+        previous = _cached(old) if old is not None else None
+        if previous is not None:
+            archive_source(self.conn, previous)
+        archive_source(self.conn, source)
         now = datetime.now(UTC).isoformat()
         self.conn.execute(
             """INSERT INTO evidence_sources
@@ -770,19 +780,7 @@ class OpenRouterBudget:
                 raise BudgetExhausted(
                     f"OpenRouter active claim already exists for request hash {request_hash}"
                 )
-            spent = self.conn.execute(
-                """SELECT COALESCE(SUM(CASE
-                       WHEN status='completed' AND actual_usd IS NOT NULL THEN actual_usd
-                       ELSE reserved_usd END), 0)
-                   FROM openrouter_budget_ledger
-                   WHERE status IN ('reserved', 'completed', 'uncertain', 'accounting_breach')"""
-            ).fetchone()[0]
-            if spent + reserved > self.ceiling_usd:
-                self.conn.rollback()
-                raise BudgetExhausted(
-                    f"OpenRouter budget exhausted: ${spent + reserved:.4f} would exceed "
-                    f"${self.ceiling_usd:.2f}"
-                )
+            self._check_capacity(reserved, now)
             cursor = self.conn.execute(
                 """INSERT INTO openrouter_budget_ledger
                    (run_id, model, request_hash, status, reserved_usd, actual_usd,
@@ -799,12 +797,42 @@ class OpenRouterBudget:
                     now,
                 ),
             )
+            self._claim_created(cursor.lastrowid, now)
             self.conn.commit()
             return BudgetClaim(cursor.lastrowid, reserved)
         except Exception:
             if self.conn.in_transaction:
                 self.conn.rollback()
             raise
+
+    def _has_authority_assignments(self) -> bool:
+        return self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                                 "AND name='openrouter_claim_authorizations'").fetchone() is not None
+
+    def _check_capacity(self, reserved: float, now: str) -> None:
+        scope = ""
+        if self._has_authority_assignments():
+            scope = """ AND NOT EXISTS (SELECT 1 FROM openrouter_claim_authorizations a
+                WHERE a.claim_id=openrouter_budget_ledger.id
+                AND a.authorization_id != 'legacy-one-off')"""
+        spent = self.conn.execute(
+            """SELECT COALESCE(SUM(CASE
+                   WHEN status='completed' AND actual_usd IS NOT NULL THEN actual_usd
+                   ELSE reserved_usd END), 0)
+               FROM openrouter_budget_ledger
+               WHERE status IN ('reserved', 'completed', 'uncertain', 'accounting_breach')""" + scope
+        ).fetchone()[0]
+        if spent + reserved > self.ceiling_usd:
+            raise BudgetExhausted(
+                f"OpenRouter budget exhausted: ${spent + reserved:.4f} would exceed "
+                f"${self.ceiling_usd:.2f}"
+            )
+
+    def _claim_created(self, claim_id: int, now: str) -> None:
+        """Extension hook executed within the atomic reservation transaction."""
+        if self._has_authority_assignments():
+            self.conn.execute("INSERT INTO openrouter_claim_authorizations VALUES (?, 'legacy-one-off', ?)",
+                              (claim_id, datetime.fromisoformat(now).astimezone(UTC).strftime('%Y-%m')))
 
     def complete(self, claim_id: int, usage: dict) -> None:
         cost = _usage_cost(usage)
