@@ -1,0 +1,16 @@
+
+==================================== ERRORS ====================================
+________________ ERROR collecting tests/railway/test_worker.py _________________
+ImportError while importing test module '/home/avery/.hermes/cache/scratch/govtech-railway-worker/tests/railway/test_worker.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/home/avery/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/railway/test_worker.py:11: in <module>
+    from govtech_scraper.cloud_state import PrivateState, HubTransport, validate_master
+E   ModuleNotFoundError: No module named 'govtech_scraper.cloud_state'
+=========================== short test summary info ============================
+ERROR tests/railway/test_worker.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.98s
