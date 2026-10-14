@@ -355,7 +355,7 @@ class Insights:
             ).fetchall()
             all_members, all_params = self._members_sql()
             related = conn.execute(
-                f"""WITH m AS ({members}), a AS ({all_members})
+                f"""WITH m AS MATERIALIZED ({members}), a AS MATERIALIZED ({all_members})
                     SELECT a.theme, COUNT(*) AS shared FROM m JOIN a ON a.html_url = m.html_url
                     JOIN repositories r ON r.html_url = m.html_url
                     WHERE a.theme != ? AND {self.catalogue.current_predicate("r")} AND r.fork = 0
