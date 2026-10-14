@@ -1,5 +1,7 @@
 from dataclasses import replace
 
+import pytest
+
 from govtech_scraper.decision.evidence import (DEFAULT_MODEL, DEFAULT_PROMPT_VERSION,
     EvidenceStore, OpenRouterBudget, source_from_repo, taxonomy_digest)
 from govtech_scraper.decision.taxonomy import load_taxonomy
@@ -57,6 +59,69 @@ def test_unbound_unknown_claim_quarantines(tmp_db, sample_repo):
     b = OpenRouterBudget(tmp_db, ceiling_usd=50, run_id='old')
     b.reserve(model=DEFAULT_MODEL, request_hash='unknown', estimated_input_tokens=1, max_output_tokens=1)
     assert planner(tmp_db).plan(sample_repo).action == PlanAction.QUARANTINE
+
+
+def test_quarantine_receipt_lookup_uses_request_hash_index(tmp_db, sample_repo):
+    p = planner(tmp_db)
+    # Disable transient indexes so this checks the durable schema's lookup path.
+    tmp_db.conn.execute('PRAGMA automatic_index=OFF')
+    statements = []
+    tmp_db.conn.set_trace_callback(statements.append)
+    try:
+        p._quarantined(sample_repo.html_url)
+    finally:
+        tmp_db.conn.set_trace_callback(None)
+    query, = statements
+    details = [row[3] for row in tmp_db.conn.execute('EXPLAIN QUERY PLAN ' + query)]
+    receipt_steps = [detail for detail in details
+                     if detail.startswith(('SCAN r ', 'SEARCH r '))]
+    assert len(receipt_steps) == 1, details
+    assert receipt_steps[0].startswith('SEARCH r USING INDEX '), details
+    assert '(request_hash=?)' in receipt_steps[0], details
+
+
+@pytest.mark.parametrize('status', ['reserved', 'uncertain', 'accounting_breach', 'completed'])
+@pytest.mark.parametrize(
+    'receipt_identity,receipt_source,binding_source,blocked',
+    [
+        (None, None, None, {'target', 'other'}),
+        (None, None, 'target', {'target'}),
+        ('matching', 'target', None, {'target'}),
+        ('matching', None, None, {'target', 'other'}),
+        ('matching', None, 'target', {'target'}),
+        ('matching', 'target', 'other', {'target'}),
+        ('matching', 'other', 'target', {'other'}),
+        ('wrong_claim', 'other', None, {'target', 'other'}),
+        ('wrong_hash', 'other', None, {'target', 'other'}),
+        ('wrong_claim', 'other', 'target', {'target'}),
+        ('wrong_hash', 'other', 'target', {'target'}),
+    ],
+)
+def test_quarantine_receipt_identity_and_source_semantics(
+    tmp_db, sample_repo, status, receipt_identity, receipt_source, binding_source, blocked,
+):
+    p = planner(tmp_db)
+    urls = {'target': sample_repo.html_url, 'other': 'https://github.com/example/other'}
+    tmp_db.conn.execute('''INSERT INTO openrouter_budget_ledger
+        (id, run_id, model, request_hash, status, reserved_usd,
+         estimated_input_tokens, max_output_tokens, reserved_at)
+        VALUES (1, 'offline', ?, 'pending', ?, 0.01, 1, 1, '2026-01-01')''',
+        (DEFAULT_MODEL, status))
+    if receipt_identity:
+        tmp_db.conn.execute('''INSERT INTO openrouter_response_receipts
+            (request_hash, claim_id, model, source_url, response_json, usage_json, received_at)
+            VALUES (?, ?, ?, ?, '{}', '{}', '2026-01-01')''',
+            ('different' if receipt_identity == 'wrong_hash' else 'pending',
+             2 if receipt_identity == 'wrong_claim' else 1,
+             DEFAULT_MODEL, urls.get(receipt_source)))
+    if binding_source:
+        tmp_db.conn.execute('INSERT INTO openrouter_pending_bindings VALUES (?, ?, ?)',
+                            ('pending', urls[binding_source], '2026-01-01'))
+    tmp_db.conn.commit()
+    for name, url in urls.items():
+        action = p.plan(replace(sample_repo, html_url=url)).action
+        expected = PlanAction.QUARANTINE if status != 'completed' and name in blocked else PlanAction.ACQUIRE
+        assert action == expected
 
 
 def test_metadata_merge_is_idempotent_and_preserves_private_state(tmp_db, tmp_path, sample_repo):

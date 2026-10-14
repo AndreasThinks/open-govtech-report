@@ -92,7 +92,7 @@ class IncrementalPlanner:
         # An unbound historical POST cannot safely be associated with a source;
         # stop the incremental queue until an operator supplies its exact binding.
         return self.conn.execute('''SELECT 1 FROM openrouter_budget_ledger l
-            LEFT JOIN openrouter_response_receipts r ON r.claim_id=l.id
+            LEFT JOIN openrouter_response_receipts r ON r.request_hash=l.request_hash AND r.claim_id=l.id
             LEFT JOIN openrouter_pending_bindings b ON b.request_hash=l.request_hash
             WHERE l.status IN ('reserved','uncertain','accounting_breach')
             AND (COALESCE(r.source_url,b.source_url) IS NULL
