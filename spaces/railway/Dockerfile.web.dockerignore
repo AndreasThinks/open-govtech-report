@@ -1,0 +1,7 @@
+# Allowlist: never send local credentials, databases, caches or virtualenvs.
+**
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!src/**
