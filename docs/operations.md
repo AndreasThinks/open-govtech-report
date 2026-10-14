@@ -3,6 +3,10 @@
 The weekly `scrape-and-publish.yml` workflow is metadata-only. It does not receive
 OpenRouter, Jev or decision-service credentials, or invoke tagging/grouping. Existing
 legacy tags, classification tables and repository history remain in the SQLite backup.
+Public bundles exclude `openrouter_*` tables and `worker_status`, including their deleted
+SQLite pages. Retain the private inference database and immutable checkpoint separately:
+they are the authoritative global spending ledger, receipts and quarantine state. Never
+resume paid classification against a downloaded public bundle or a fresh ledger.
 `run_tagging` is temporarily retained only as a migration guard: `true` fails the job
 before restore/scrape; its default is now `false`. `tag_limit` has been removed. Legacy
 paid tagging has no scheduled or dispatch path. The CLI remains available for separately
@@ -107,17 +111,114 @@ The new rollout helper verifies public stats after each publication, but it is *
 independent monitor: it can modify the Space. A separate read-only readiness check for
 classification input-hash coverage and REST/MCP parity remains a follow-up.
 
-No decision-classification workflow is added in this bounded phase. The parent owns the
-sample evaluation, quality decision and budget. Before adding even a manual runner:
+No scheduled decision-classification workflow is added. The parent owns the sample evaluation,
+quality decision and live budget. The local `decide classify` runner is manual-only and writes
+durable budget/source/evidence tables; before publishing or automating it:
 
 - Pin the published dataset baseline SHA and store model/taxonomy/source provenance.
 - Retain a WAL-safe checkpoint artifact with `if: always()`, even after scoring failure or
   quota exhaustion. Validate checkpoints and reject resume against a different baseline.
+- Use the same SQLite database for pilot and resumed bulk classification so `openrouter_budget_*`
+  keeps the approved global ceiling, completed/uncertain claims and raw response receipts. Do not
+  resume against a new empty ledger.
+- Before the paid pilot, the parent/operator must verify live OpenRouter pricing for the exact
+  reviewed model and keep the persisted ceiling at or below the approved $50 global cap. Unknown
+  models and later ceiling increases fail closed.
+- Default evidence classification covers current non-fork repositories. Fork coverage requires
+  explicit `--include-forks` and must be described separately in coverage reporting.
 - Keep checkpoint work isolated from newer metadata/history. No untested checkpoint merges;
   reject stale input hashes when repository inputs change.
 - Default sample/test runs to no publication. Require explicit publication opt-in plus
   reviewed coverage and quality acceptance; `scored > 0` is insufficient.
+- Partial evidence classification may be published only with an explicit `--allow-partial`
+  operator gate and a public coverage banner showing assessed, labelled, unclassified and failed
+  rows. Do not describe it as a full-catalogue classification.
 - Add no schedule until evaluation and throughput/budget evidence are accepted by the parent.
 
 These are unfinished acceptance criteria, not a claim that checkpoint safety or quality
 certification has been implemented. See `evidence/OPERATIONS-HANDOFF.md` for executed checks.
+
+## Evidence recovery worker operations
+
+The recovery worker commands below are manual-only. They must run against the same
+`classification.db` and OpenRouter ledger that holds the approved global cap, completed
+receipts and held uncertain reservations. Do not copy rows into a fresh database to resume.
+Use environment variables for credentials; never pass tokens in command arguments.
+
+Cache public README sources without inference:
+
+```bash
+GITHUB_TOKEN=... UV_CACHE_DIR=/tmp/uv-cache uv run --frozen govtech-scraper \
+  --db /home/avery/.hermes/reports/govtech-build-20261013/classification.db \
+  decide cache-readmes \
+  --limit 200 \
+  --batch-size 40 \
+  --max-requests 10000 \
+  --status-path evidence/source-worker-status.json
+```
+
+Exit semantics: `0` means completed; `2` means blocked by GitHub auth/permission; `3`
+means partial, with unresolved batches left for resume. HTTP 502/503/504, 429 and timeouts
+are retried with bounded backoff. Repeated failures split 40-repo batches down toward 20 and
+10 and leave unresolved repos waiting; they are not marked as missing README. Private bodies
+are skipped and never stored.
+
+Bind the one reviewed historical unknown request to its known source URL without inventing
+a generation ID:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run --frozen govtech-scraper \
+  --db /home/avery/.hermes/reports/govtech-build-20261013/classification.db \
+  decide bind-pending-source \
+  --request-hash 77c2c7f585f5e9f30b8ba8e609b6a7b6bd40981ade625a15a4ac9f7f8a3c7ba9 \
+  --source-url https://github.com/npci/ainxt-cli
+```
+
+If a pending receipt has an exact generation ID, reconcile its cost by authenticated GET only:
+
+```bash
+OPENROUTER_API_KEY=... UV_CACHE_DIR=/tmp/uv-cache uv run --frozen govtech-scraper \
+  --db /home/avery/.hermes/reports/govtech-build-20261013/classification.db \
+  decide reconcile-generation \
+  --request-hash <exact-request-hash>
+```
+
+Exit semantics: `0` means reconciled or already reconciled; `3` means the reservation is still
+held pending operator review. The reconciler validates generation ID syntax, exact returned ID
+match, finite nonnegative documented cost (`data.total_cost` or usage cost), and
+`cost <= reservation`. It never sends a replacement POST.
+
+Resume classification only after reviewing pending summaries and live pricing for the exact
+model. The reviewed Luna model entry is `openai/gpt-6-luna` at `$0.10/M` prompt and
+`$0.50/M` completion in the local reservation table. Keep concurrency modest:
+
+```bash
+OPENROUTER_API_KEY=... UV_CACHE_DIR=/tmp/uv-cache uv run --frozen govtech-scraper \
+  --db /home/avery/.hermes/reports/govtech-build-20261013/classification.db \
+  decide classify \
+  --model openai/gpt-6-luna \
+  --run-id luna-resume-001 \
+  --budget-usd 50 \
+  --limit 200 \
+  --batch-size 32 \
+  --classify-concurrency 4 \
+  --fetch-concurrency 8 \
+  --prompt-version evidence-v2-field-abstention
+```
+
+Exit semantics: `0` means no failed records and no global stop; `1` means one or more records
+failed validation after billed responses were preserved; `2` means a global stop such as budget
+exhaustion, pricing error, credit/auth failure or accounting breach. Pending reconciliation is
+reported separately and is not counted as labelled or assessed.
+
+Inspect durable worker status without trusting stale heartbeats as live processes:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run --frozen govtech-scraper \
+  --db /home/avery/.hermes/reports/govtech-build-20261013/classification.db \
+  decide worker-status --worker classifier
+```
+
+Exit semantics: `0` for completed or non-terminal readable status, `2` for blocked/failed,
+`3` for partial. A delayed heartbeat is historical telemetry only; process liveness must come
+from the current process table or supervisor.

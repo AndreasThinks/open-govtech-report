@@ -13,7 +13,8 @@ INSTRUCTIONS = """Query a catalogue of public GitHub repositories owned by gover
 in the government.github.com registry (plus accepted community submissions). It is not a census
 of all government code. Repositories are classified against the UN COFOG functions of government
 (domain ids "01" to "10", plus "00" for cross-government capabilities) and a fixed tag list;
-call get_taxonomy for the ids. Classifications are model probabilities, not ground truth."""
+call get_taxonomy for the ids. Evidence-mode classifications expose literal evidence and have
+null probabilities; legacy probability runs remain model scores, not ground truth."""
 
 
 def build_mcp(catalogue: Catalogue, insights: Insights | None = None) -> MCPServer:

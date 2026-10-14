@@ -103,3 +103,82 @@ Metadata refresh no longer invokes the legacy paid tagger or grouping, including
 classification publication workflow is enabled by this change. Sample quality, budget,
 checkpoint/resume safety and publication acceptance remain separate approval decisions.
 See [operations.md](operations.md) for the required follow-up gates.
+
+## Evidence-backed OpenRouter classification
+
+`govtech-scraper decide classify` is the conservative evidence mode intended for the reviewed
+pilot. It preserves the fixed v1 taxonomy and writes separate `evidence_*` tables; legacy
+`decision_results` / `decision_probabilities`, repository metadata, snapshots, accounts and
+LLM tags are not rewritten. Evidence mode stores `probability = NULL` and
+`confidence_mode = evidence`.
+
+The classifier requires every non-null domain/kind/tag to use a literal quote of at most 160
+characters from the supplied metadata or README, plus a rationale. It accepts 0-5 unique tags.
+Invalid IDs, normalized quotes, missing/negative/non-finite usage cost, response truncation and
+malformed JSON are stored as failures or stop the run; they are never converted into labels.
+README text is treated as untrusted data.
+
+Budgeting is global within the same SQLite database, across all run IDs. The first run persists
+the approved ceiling; later runs may not raise it, and pilot plus bulk must use the same DB/ledger
+rather than a fresh empty ledger. The checked-in local price table is intentionally fail-closed and
+currently only allows the reviewed Haiku 5.5 model. Before any paid operator run, verify the live
+OpenRouter model catalogue/pricing, keep the approved global ceiling at or below $50, and do not
+run if the published pricing has changed. Reported actual cost greater than the local reservation
+is treated as a fatal accounting breach requiring operator reconciliation.
+
+Dry run with fixture JSONL and fake transports is covered by tests. A real paid pilot should
+use only the required credentials in a short-lived shell:
+
+```bash
+export OPENROUTER_API_KEY=...          # only for this command
+uv run govtech-scraper --db pilot.db decide classify \
+  --inputs evidence/pilot-inputs.jsonl \
+  --run-id haiku-pilot-001 \
+  --budget-usd 50 \
+  --limit 20 \
+  --classify-concurrency 4
+unset OPENROUTER_API_KEY
+```
+
+Resume uses the same database/ledger, `--run-id`, model and budget. Completed unchanged input
+hashes are skipped; billed raw responses are durably receipted before final result persistence, so
+a crash after billing can resume without repurchasing the same request. Reserved or uncertain
+duplicate request hashes block repurchase until operator reconciliation:
+
+```bash
+export OPENROUTER_API_KEY=...
+uv run govtech-scraper --db pilot.db decide classify \
+  --inputs evidence/pilot-inputs.jsonl \
+  --run-id haiku-pilot-001 \
+  --budget-usd 50
+unset OPENROUTER_API_KEY
+```
+
+For DB-selected rows, add `--fetch-readmes` to fetch bounded public GitHub README content via
+the GitHub API. The default selector is current non-fork repositories because public theme counts
+cover originals; use `--include-forks` only when fork coverage is intentionally in scope. README
+fetches are batched, cached in `evidence_sources`, limited to 3000 characters, reused when repo
+metadata and `pushed_at` are unchanged, and paced at roughly three GitHub requests per second with
+bounded concurrency. 404, empty or invalid README falls back to metadata-only classification with
+explicit provenance; authentication/rate-limit failures abort instead of silently classifying a
+bulk run as metadata-only.
+
+```bash
+export OPENROUTER_API_KEY=...
+uv run govtech-scraper --db pilot.db decide classify \
+  --run-id haiku-bulk-001 \
+  --budget-usd 50 \
+  --fetch-readmes \
+  --batch-size 64 \
+  --classify-concurrency 4 \
+  --fetch-concurrency 8
+unset OPENROUTER_API_KEY
+```
+
+Publication remains a parent/operator action. Partial classification may be published only
+through the existing publication pipeline with an explicit `--allow-partial` review gate and a
+coverage banner; do not call it a full-catalogue classification. Merge classifications onto a
+fresh published database by importing the reviewed SQLite snapshot, preserving metadata/history
+and rejecting mismatched source/model/taxonomy hashes before running the existing
+`prepare_publication.py`, `publish_hf.py` and `update_index.py` sequence documented in
+`docs/operations.md`.

@@ -73,6 +73,10 @@
     } else if (state.sampleThemes) {
       banner.innerHTML = "Repository search and details are live. Theme views, including their repository lists, are examples until the classification run is published. <a href=\"#/method\">Why?</a>";
       banner.hidden = false;
+    } else if (state.overview.classification && state.overview.classification.confidence_mode === "evidence" && state.overview.classification.coverage < 100) {
+      const c = state.overview.classification;
+      banner.innerHTML = `Evidence-backed classification is partially published: ${num(c.labelled_repos)} labelled, ${num(c.unclassified_repos)} unclassified, ${num(c.failed_repos)} failed.`;
+      banner.hidden = false;
     }
   }
   const data = {
@@ -460,10 +464,14 @@
     </div></section>
     <section class="sec pad"><div class="in"><div class="two">
       <div class="card"><h3>Stars and forks over time</h3><p class="cap">From weekly snapshots since the repository first appeared in the index.</p>${ctx ? '<svg class="fill" id="hist" viewBox="0 0 600 220" role="img" aria-label="Stars and forks over time"></svg>' : '<p class="empty">History unavailable. Try again later.</p>'}</div>
-      <div class="card"><h3>Why it is in these themes</h3><p class="cap">The decision model's probabilities, so you can check the classification.</p>
-      ${cls ? `<div class="prob"><span style="text-align:left;color:var(--ink);font-family:var(--body)"><b>Domain:</b> ${domainLink}</span><span>${cls.domain_probability == null ? "" : cls.domain_probability.toFixed(2)}</span><div class="bar"><i style="width:${(cls.domain_probability || 0) * 100}%"></i></div>
-        ${cls.tags.map(t => `<span style="text-align:left;color:var(--ink);font-family:var(--body)"><a href="${themeHref(t.id)}">${esc((themeById(t.id) || { name: t.id }).name)}</a></span><span>${t.probability.toFixed(2)}</span><div class="bar"><i style="width:${t.probability * 100}%"></i></div>`).join("")}</div>
-        <p class="cap" style="margin-top:12px">Model <code>${esc(cls.model)}</code>. Tags apply at 0.5 or above.</p>` : `<p class="empty">This repository has not been through the classification run yet.</p>`}
+      <div class="card"><h3>Why it is in these themes</h3><p class="cap">${cls && cls.confidence_mode === "evidence" ? "Evidence-backed labels with literal source quotes; probabilities are not calibrated." : "The decision model's probabilities, so you can check the classification."}</p>
+      ${cls ? (cls.confidence_mode === "evidence" ? `<p><b>Domain:</b> ${domainLink}${cls.kind ? ` · <b>Kind:</b> ${esc(cls.kind)}` : ""}</p>
+        ${(cls.tags || []).length ? `<div class="evidence">${cls.tags.map(t => `<p><a href="${themeHref(t.id)}">${esc((themeById(t.id) || { name: t.id }).name)}</a><br><q>${esc(t.quote)}</q><br><span class="cap">${esc(t.rationale)} (${esc(t.source_field)})</span></p>`).join("")}</div>` : `<p class="empty">No taxonomy tags were assigned.</p>`}
+        <p class="cap">Missing tags are unknown, not verified negatives. A labelled record has at least one domain, kind or tag, not necessarily a complete classification.</p>
+        ${cls.abstentions ? `<p class="cap"><b>Field abstentions:</b> ${esc(JSON.stringify(cls.abstentions))}</p>` : ""}
+        <p class="cap" style="margin-top:12px">Model <code>${esc(cls.model)}</code>. AI-assisted labels are not human-certified; literal quotes do not prove semantic accuracy.</p>` : `<div class="prob"><span style="text-align:left;color:var(--ink);font-family:var(--body)"><b>Domain:</b> ${domainLink}</span><span>${cls.domain_probability == null ? "" : cls.domain_probability.toFixed(2)}</span><div class="bar"><i style="width:${(cls.domain_probability || 0) * 100}%"></i></div>
+        ${cls.tags.map(t => `<span style="text-align:left;color:var(--ink);font-family:var(--body)"><a href="${themeHref(t.id)}">${esc((themeById(t.id) || { name: t.id }).name)}</a></span><span>${t.probability == null ? "" : t.probability.toFixed(2)}</span><div class="bar"><i style="width:${(t.probability || 0) * 100}%"></i></div>`).join("")}</div>
+        <p class="cap" style="margin-top:12px">Model <code>${esc(cls.model)}</code>. Tags apply at 0.5 or above.</p>`) : `<p class="empty">This repository has not been through the classification run yet.</p>`}
       ${r.topics && r.topics.length ? `<h3 style="margin-top:18px">GitHub topics</h3><div class="chips">${r.topics.map(t => `<a href="#/repos?q=${enc(t)}">${esc(t)}</a>`).join("")}</div>` : ""}
       </div>
     </div></div></section>
@@ -487,13 +495,13 @@
       <p><b>Original</b> repositories are those that are not forks. <b>Maintained</b> means original, not archived, and pushed to in the 12 months before the latest scrape. Themes and growth use original repositories only, so a government forking a popular project does not inflate a theme.</p>
       <h2>Themes</h2>
       <p>The taxonomy is fixed and reviewed. Its top level is the ten divisions of the UN Classification of the Functions of Government (COFOG), plus a domain for cross-government capabilities such as identity, payments and design systems. Each domain has tags, each with a one-line definition. The full list is at <a href="${esc(API)}/v1/taxonomy">/v1/taxonomy</a>.</p>
-      <p>A small decision model reads each repository's name, description, topics and language and returns a probability for each option. It never writes text, so no new tags appear and nothing needs merging. A repository gets the most likely domain and every tag scoring 0.5 or more. Every probability is stored, so the threshold can change later without rescoring.</p>
-      <p>Current run: ${c.model ? `<code>${esc(c.model)}</code>, ${num(c.classified_original_repos)} original repositories classified (${c.coverage}% coverage), taxonomy v${c.taxonomy_version}.` : "not published yet, so theme figures on this site are examples."}</p>
+      <p>Evidence-backed runs read bounded repository metadata and README text, then store only fixed taxonomy IDs supported by literal source quotes. Legacy probability runs can still be served from older databases.</p>
+      <p>Current run: ${c.model ? `<code>${esc(c.model)}</code>, ${num(c.labelled_repos ?? c.classified_original_repos)} labelled of ${num(c.current_total_repos ?? c.classified_original_repos)} original repositories (${c.coverage}% coverage), taxonomy v${c.taxonomy_version}.` : "not published yet, so theme figures on this site are examples."}</p>
       <h2>Growth and emerging themes</h2>
       <p>Growth is the number of repositories created in the last 12 months as a share of those created before then. It uses creation dates, so it works from the first scrape, but it cannot see repositories deleted or made private during the year. As weekly snapshots build up, growth will move to snapshot-to-snapshot change.</p>
       <p>A theme is <b>emerging</b> when it has at least five repositories, is smaller than three quarters of themes (currently ${num(rule.maxRepos)} repositories or fewer), and grew at least twice as fast as the index overall (currently ${pct(rule.minGrowth)}).</p>
       <h2>Known limits</h2>
-      <p>Classification reads metadata only. Repositories with no description or topics are hard to place, and accuracy has to be checked against a hand-labelled sample before the themes are relied on. Registry labels mix countries with international bodies and sub-national governments.</p>
+      <p>Evidence classification uses bounded metadata and README text, which may be missing or truncated. Labelled means at least one domain, kind or tag was assigned, not a complete tag set. Missing tags are unknown, not verified negatives. Labels are AI-assisted, not human-certified; literal quote validation does not establish semantic accuracy. Registry labels mix countries with international bodies and sub-national governments.</p>
     </div></section>`;
   }
 

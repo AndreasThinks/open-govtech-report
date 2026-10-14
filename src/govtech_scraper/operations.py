@@ -167,6 +167,12 @@ def update_index(receipt, api, *, fetch=read_stats, attempts=30, sleep=time.slee
 
 
 def dataset_card(manifest):
+    classification = manifest.get('classification')
+    evidence_note = ''
+    if classification:
+        evidence_note = (f"\nEvidence model: {classification['model']}. "
+            f"Labelled originals: {classification['labelled_repos']:,} / "
+            f"{classification['current_total_repos']:,}.\n")
     return f'''---
 license: agpl-3.0
 configs:
@@ -187,5 +193,11 @@ Publication: {manifest['publication_timestamp']}
 Source commit: {manifest['source_commit']}
 
 CSV, Parquet, SQLite history, tag groups and memberships are published together.
-Batch tags use metadata only. commit_count NULL and fork_source NULL mean unknown.
+CSV/Parquet contain repository metadata; evidence labels and source quotes are in SQLite
+and the Index REST/MCP interfaces. Legacy tags are separate from evidence classifications.
+Classification is AI-assisted, not human-certified or a calibrated probability. Coverage
+is partial: records can be abstained, failed or pending. Literal quotes do not certify
+semantic accuracy. See data/manifest.json for recorded classification coverage.
+{evidence_note}
+commit_count NULL and fork_source NULL mean unknown.
 '''
