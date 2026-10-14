@@ -68,6 +68,31 @@ def test_public_bundle_excludes_private_operator_state(tmp_db, sample_repo, tmp_
     assert tmp_db.conn.execute('SELECT private_value FROM openrouter_future_operator_state').fetchone()[0] == 'PRIVATE_OPERATOR_MARKER_DO_NOT_PUBLISH'
 
 
+def test_publication_review_withholds_tags_without_changing_private_results(tmp_db, sample_repo, tmp_path):
+    tmp_db.save_repositories([sample_repo])
+    _label(tmp_db, sample_repo)
+    tmp_db.conn.execute('INSERT INTO evidence_classification_tags VALUES (?,?,?,?,?,?,?,NULL)',
+        (sample_repo.html_url, 1, 'anthropic/claude-haiku-5.5', 'notifications',
+         sample_repo.description, 'Fixture support rationale', 'description'))
+    tmp_db.conn.execute('UPDATE evidence_classifications SET domain=NULL, kind=NULL')
+    tmp_db.conn.commit()
+    item = {'html_url': sample_repo.html_url, 'taxonomy_version': 1,
+            'model': 'anthropic/claude-haiku-5.5', 'tag_id': 'notifications',
+            'reason': 'Publication review: support caveat, retained as unknown'}
+    directory = tmp_path / 'reviewed'
+    manifest = _prepare()(tmp_db.db_path, directory, 'a'*40, allow_partial=True,
+                          review_exclusions=[item])
+    with sqlite3.connect(directory / 'govtech.db') as conn:
+        assert conn.execute('SELECT COUNT(*) FROM evidence_classification_tags').fetchone()[0] == 0
+        row = conn.execute('SELECT status, abstentions_json FROM evidence_classifications').fetchone()
+        assert row[0] == 'abstained'
+        assert json.loads(row[1])['publication_review'][0]['tag_id'] == 'notifications'
+    assert tmp_db.conn.execute('SELECT COUNT(*) FROM evidence_classification_tags').fetchone()[0] == 1
+    assert manifest['classification']['labelled_repos'] == 0
+    assert manifest['classification']['review_exclusions'] == [item]
+    publication.validate_bundle(directory)
+
+
 def test_no_classification_cannot_publish_as_classified(tmp_db,sample_repo,tmp_path):
     prepare=_prepare()
     tmp_db.save_repositories([sample_repo])

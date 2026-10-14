@@ -72,6 +72,35 @@ def test_evidence_filters_counts_and_coverage_are_live_not_sample(tmp_db, sample
     assert overview["classification"]["failed_repos"] == 0
 
 
+def test_default_model_prefers_fresh_results_over_stale_and_failed(tmp_db, sample_repos):
+    from dataclasses import replace
+    tmp_db.save_repositories(sample_repos[:2])
+    for repo in sample_repos[:2]:
+        _save_evidence(tmp_db, repo)
+    tmp_db.conn.execute("UPDATE evidence_classifications SET model='stale'")
+    tmp_db.conn.execute("UPDATE evidence_classifications SET status='failed' WHERE html_url=?",
+                        (sample_repos[1].html_url,))
+    changed = replace(sample_repos[0], description='Changed purpose')
+    tmp_db.conn.execute('UPDATE repositories SET description=? WHERE html_url=?',
+                        (changed.description, changed.html_url))
+    tmp_db.conn.commit()
+    _save_evidence(tmp_db, changed)
+    catalogue = Catalogue(tmp_db.db_path)
+    assert catalogue.decision_model == 'anthropic/claude-haiku-5.5'
+    assert catalogue.get_repo(changed.owner, changed.name)['classification'] is not None
+
+
+def test_evidence_detail_exposes_field_abstentions(tmp_db, sample_repos):
+    import json
+    tmp_db.save_repositories(sample_repos)
+    _save_evidence(tmp_db, sample_repos[0])
+    reasons = {'kind': 'Source does not establish software kind', 'tags': ['Uncertain additional tags']}
+    tmp_db.conn.execute('UPDATE evidence_classifications SET abstentions_json=?', (json.dumps(reasons),))
+    tmp_db.conn.commit()
+    detail = Catalogue(tmp_db.db_path).get_repo('uk-gov', 'notify')
+    assert detail['classification']['abstentions'] == reasons
+
+
 def test_evidence_metadata_change_makes_classification_stale(tmp_db, sample_repos):
     tmp_db.save_repositories(sample_repos)
     _save_evidence(tmp_db, sample_repos[0])

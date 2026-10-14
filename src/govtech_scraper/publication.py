@@ -154,7 +154,8 @@ def prepare_publication(db_path, directory, source_commit):
     return manifest
 
 
-def prepare_classification_publication(db_path, directory, source_commit, *, allow_partial=False):
+def prepare_classification_publication(db_path, directory, source_commit, *, allow_partial=False,
+                                       review_exclusions=None):
     """Explicit operator gate for publishing evidence labels, independent of metadata refresh.
 
     Record coverage from the immutable backup, not the still-running writer. This
@@ -178,7 +179,39 @@ def prepare_classification_publication(db_path, directory, source_commit, *, all
 
     coverage(db_path)  # Reject absent/partial classification before creating outputs.
     manifest = prepare_publication(db_path, directory, source_commit)
-    manifest['classification'] = coverage(Path(directory) / 'govtech.db')
+    snapshot = Path(directory) / 'govtech.db'
+    exclusions = list(review_exclusions or [])
+    if exclusions:
+        (Path(directory) / 'manifest.json').unlink()
+        with closing(sqlite3.connect(snapshot)) as conn:
+            for item in exclusions:
+                key = (item['html_url'], item['taxonomy_version'], item['model'])
+                found = conn.execute('SELECT 1 FROM evidence_classification_tags WHERE '
+                    'html_url=? AND taxonomy_version=? AND model=? AND tag_id=?',
+                    (*key, item['tag_id'])).fetchone()
+                if not found or not item.get('reason'):
+                    raise ValueError('Review exclusion must identify an existing exact tag and reason')
+                conn.execute('DELETE FROM evidence_classification_tags WHERE '
+                    'html_url=? AND taxonomy_version=? AND model=? AND tag_id=?',
+                    (*key, item['tag_id']))
+                raw = conn.execute('SELECT abstentions_json FROM evidence_classifications WHERE '
+                    'html_url=? AND taxonomy_version=? AND model=?', key).fetchone()[0]
+                abstentions = json.loads(raw)
+                abstentions.setdefault('publication_review', []).append(
+                    {'tag_id': item['tag_id'], 'reason': item['reason']})
+                conn.execute('UPDATE evidence_classifications SET abstentions_json=? WHERE '
+                    'html_url=? AND taxonomy_version=? AND model=?', (json.dumps(abstentions), *key))
+                conn.execute("UPDATE evidence_classifications SET status='abstained' WHERE "
+                    'html_url=? AND taxonomy_version=? AND model=? AND domain IS NULL AND kind IS NULL '
+                    'AND NOT EXISTS (SELECT 1 FROM evidence_classification_tags t WHERE '
+                    't.html_url=evidence_classifications.html_url AND '
+                    't.taxonomy_version=evidence_classifications.taxonomy_version AND '
+                    't.model=evidence_classifications.model)', key)
+            conn.commit()
+        manifest['files']['govtech.db'] = {'sha256': _sha(snapshot), 'bytes': snapshot.stat().st_size}
+    manifest['classification'] = coverage(snapshot)
+    if exclusions:
+        manifest['classification']['review_exclusions'] = exclusions
     (Path(directory) / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     validate_bundle(directory)
     return manifest

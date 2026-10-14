@@ -151,6 +151,19 @@ class Desktop(unittest.TestCase):
         expect(self.page.locator("#hist polyline").first).to_be_visible()
         self.layout()
 
+    def test_evidence_uncertainty_is_explicit(self):
+        cls = self.fixtures['repo']['classification']
+        cls.update(confidence_mode='evidence', tags=[],
+                   abstentions={'tags': ['Insufficient source support']})
+        self.go('/repo/i-dot-ai/consult')
+        expect(self.page.locator('#app')).to_contain_text('Insufficient source support')
+        expect(self.page.locator('#app')).to_contain_text('not verified negatives')
+        expect(self.page.locator('.prob')).to_have_count(0)
+        self.layout()
+        self.go('/method')
+        expect(self.page.locator('#app')).to_contain_text('at least one domain, kind or tag')
+        expect(self.page.locator('#app')).not_to_contain_text('Classification reads metadata only')
+
     def test_healthy_empty_context(self):
         self.fixtures["context"] = {"history": [], "reused_by": [], "similar": []}
         self.go("/repo/i-dot-ai/consult")

@@ -35,6 +35,7 @@ class Classification:
     kind: str | None
     confidence_mode: str = "probability"
     tags: list[dict] = field(default_factory=list)
+    abstentions: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -164,7 +165,11 @@ class Catalogue:
                        JOIN repositories r ON r.html_url = e.html_url
                        WHERE {self.current_predicate("r")} AND taxonomy_version=?
                          AND e.status IN ('labelled', 'abstained', 'failed')
-                       GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1""",
+                       GROUP BY model ORDER BY SUM(CASE
+                         WHEN e.status IN ('labelled', 'abstained')
+                           AND e.metadata_hash = {self._metadata_hash_sql("r")}
+                           AND COALESCE(r.fork, 0) = 0 THEN 1 ELSE 0 END) DESC,
+                         COUNT(*) DESC, model LIMIT 1""",
                     (self.taxonomy.version,),
                 ).fetchone()
                 if row:
@@ -382,7 +387,7 @@ class Catalogue:
     def _classification(self, conn: sqlite3.Connection, html_url: str) -> Classification | None:
         if self.confidence_mode == "evidence":
             result = conn.execute(
-                f"""SELECT d.domain, d.kind FROM evidence_classifications d
+                f"""SELECT d.domain, d.kind, d.abstentions_json FROM evidence_classifications d
                    JOIN repositories r ON r.html_url = d.html_url
                    WHERE d.html_url=? AND d.taxonomy_version=? AND d.model=?
                      AND d.status IN ('labelled', 'abstained')
@@ -405,6 +410,7 @@ class Catalogue:
                 domain_probability=None,
                 kind=result["kind"],
                 confidence_mode="evidence",
+                abstentions=json.loads(result['abstentions_json']),
                 tags=[
                     {
                         "id": row["tag_id"],
