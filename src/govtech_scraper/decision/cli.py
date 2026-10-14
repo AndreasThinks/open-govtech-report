@@ -1,6 +1,7 @@
 """`govtech-scraper decide ...`: the decision-model tagging experiment."""
 
 import asyncio
+import json
 import os
 import sys
 
@@ -291,7 +292,8 @@ def classify_command(
 
     click.echo(
         f"Classified: {summary.scored}  failed: {summary.failed}  "
-        f"unchanged: {summary.skipped_unchanged}  empty: {summary.skipped_empty}"
+        f"pending: {summary.pending}  unchanged: {summary.skipped_unchanged}  "
+        f"empty: {summary.skipped_empty}"
     )
     for error in summary.errors[:10]:
         click.echo(f"  {error}", err=True)
@@ -300,6 +302,132 @@ def classify_command(
         sys.exit(2)
     if summary.failed:
         sys.exit(1)
+
+
+@decide.command("cache-readmes")
+@click.option("--limit", type=int, default=None, help="Cache at most this many currently uncached repos")
+@click.option("--status-path", type=click.Path(), default=None, help="Write durable JSON worker status here")
+@click.option("--batch-size", type=int, default=40, show_default=True)
+@click.option("--max-requests", type=int, default=10_000, show_default=True)
+@click.pass_context
+def cache_readmes_command(
+    ctx, limit: int | None, status_path: str | None, batch_size: int, max_requests: int
+) -> None:
+    """Cache public README sources with bounded retry/split/resume behavior."""
+    from .source_worker import AuthBlocked, GraphQLSourceWorker
+
+    def token_provider() -> str:
+        token = os.getenv("GITHUB_TOKEN")
+        if token:
+            return token
+        import subprocess
+
+        return subprocess.check_output(["gh", "auth", "token"], text=True).strip()
+
+    db = Database(ctx.obj["db_path"])
+    try:
+        worker = GraphQLSourceWorker(
+            db,
+            token_provider=token_provider,
+            status_path=status_path,
+            initial_batch_size=batch_size,
+            max_total_requests=max_requests,
+        )
+        try:
+            result = asyncio.run(worker.run(limit=limit))
+        except AuthBlocked as exc:
+            click.echo(str(exc), err=True)
+            sys.exit(2)
+    finally:
+        db.close()
+    click.echo(json.dumps(result.__dict__, sort_keys=True))
+    if result.phase == "blocked":
+        sys.exit(2)
+    if result.phase == "partial":
+        sys.exit(3)
+
+
+@decide.command("reconcile-generation")
+@click.option("--request-hash", required=True, help="Exact request hash to reconcile")
+@click.option("--api-key-env", default="OPENROUTER_API_KEY", show_default=True)
+@click.pass_context
+def reconcile_generation_command(ctx, request_hash: str, api_key_env: str) -> None:
+    """Resolve one pending OpenRouter receipt by exact generation id, without a POST retry."""
+    from .reconcile import GenerationLookupError, GenerationReconciler, ReconcileResult
+
+    api_key = os.getenv(api_key_env)
+    if not api_key:
+        raise click.UsageError(f"Set {api_key_env} for authenticated generation lookup")
+    db = Database(ctx.obj["db_path"])
+    try:
+        try:
+            result = asyncio.run(
+                GenerationReconciler(db, api_key=api_key).reconcile(request_hash=request_hash)
+            )
+        except GenerationLookupError as exc:
+            raise click.ClickException(str(exc)) from None
+    finally:
+        db.close()
+    click.echo(result.value)
+    if result == ReconcileResult.HELD:
+        sys.exit(3)
+
+
+@decide.command("bind-pending-source")
+@click.option("--request-hash", required=True, help="Exact historical request hash")
+@click.option("--source-url", required=True, help="Operator-reviewed source URL")
+@click.pass_context
+def bind_pending_source_command(ctx, request_hash: str, source_url: str) -> None:
+    """Bind a known source URL to a pending receipt/claim without guessing a generation id."""
+    from .evidence import ensure_evidence_schema
+
+    db = Database(ctx.obj["db_path"])
+    try:
+        ensure_evidence_schema(db.conn)
+        db.conn.execute(
+            """UPDATE openrouter_response_receipts SET source_url=?
+               WHERE request_hash=? AND generation_id IS NULL""",
+            (source_url, request_hash),
+        )
+        changed = db.conn.execute("SELECT changes()").fetchone()[0]
+        if not changed:
+            db.conn.execute(
+                """INSERT INTO openrouter_pending_bindings
+                   (request_hash, source_url, bound_at)
+                   VALUES (?, ?, datetime('now'))
+                   ON CONFLICT(request_hash) DO UPDATE SET
+                       source_url=excluded.source_url,
+                       bound_at=excluded.bound_at""",
+                (request_hash, source_url),
+            )
+            changed = db.conn.execute("SELECT changes()").fetchone()[0]
+        db.conn.commit()
+    finally:
+        db.close()
+    click.echo(f"updated={changed}")
+    if not changed:
+        sys.exit(3)
+
+
+@decide.command("worker-status")
+@click.option("--worker", default="classifier", show_default=True)
+@click.pass_context
+def worker_status_command(ctx, worker: str) -> None:
+    """Print the last durable worker status; terminal blocked/failed exits non-zero."""
+    from .evidence import WorkerStatusStore
+
+    db = Database(ctx.obj["db_path"])
+    try:
+        payload = WorkerStatusStore(db, worker_name=worker).read()
+    finally:
+        db.close()
+    if payload is None:
+        raise click.ClickException(f"No status found for {worker}")
+    click.echo(json.dumps(payload, sort_keys=True, indent=2))
+    if payload["phase"] in {"blocked", "failed"}:
+        sys.exit(2)
+    if payload["phase"] == "partial":
+        sys.exit(3)
 
 
 @decide.command("sample")

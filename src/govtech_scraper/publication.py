@@ -126,6 +126,16 @@ def prepare_publication(db_path, directory, source_commit):
     validate_database(db_path)
     with closing(connect_readonly(db_path)) as source, closing(sqlite3.connect(snapshot)) as dest:
         source.backup(dest)
+        # Keep the authoritative paid-run ledger private. Public snapshots retain
+        # evidence provenance, never operator billing/receipt/quarantine state.
+        dest.execute('PRAGMA secure_delete=ON')
+        tables = [row[0] for row in dest.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        for table in tables:
+            if table.startswith('openrouter_') or table == 'worker_status':
+                identifier = table.replace('"', '""')
+                dest.execute(f'DROP TABLE "{identifier}"')
+        dest.commit()
+        dest.execute('VACUUM')  # Remove deleted operator payloads from free pages.
     counts, scraped, coverage = database_metadata(snapshot)
     export_to_csv(str(snapshot), str(directory / FILES[1]))
     export_to_parquet(str(snapshot), str(directory / FILES[2]))

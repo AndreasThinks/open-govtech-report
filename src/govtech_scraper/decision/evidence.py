@@ -15,6 +15,7 @@ import math
 import os
 import sqlite3
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -145,9 +146,33 @@ CREATE TABLE IF NOT EXISTS openrouter_response_receipts (
     request_hash TEXT PRIMARY KEY,
     claim_id INTEGER NOT NULL,
     model TEXT NOT NULL,
+    source_url TEXT,
+    input_hash TEXT,
+    generation_id TEXT,
+    http_status INTEGER,
     response_json TEXT NOT NULL,
     usage_json TEXT NOT NULL,
     received_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS worker_status (
+    worker_name TEXT PRIMARY KEY,
+    run_id TEXT,
+    phase TEXT NOT NULL,
+    model TEXT,
+    pending_reconciliation INTEGER NOT NULL DEFAULT 0,
+    last_committed_counts_json TEXT NOT NULL DEFAULT '{}',
+    final_error TEXT,
+    pid INTEGER,
+    heartbeat_at TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS openrouter_pending_bindings (
+    request_hash TEXT PRIMARY KEY,
+    source_url TEXT NOT NULL,
+    bound_at TEXT NOT NULL
 );
 """
 
@@ -160,13 +185,62 @@ class BudgetExhausted(RuntimeError):
     """Raised before an external call when the durable local budget is exhausted."""
 
 
-class BilledResponseError(RuntimeError):
+class PricingError(BudgetExhausted):
+    """Raised when a request cannot be conservatively priced before sending."""
+
+
+class AccountingBreach(BudgetExhausted):
+    """Raised when durable accounting is inconsistent or an actual cost breaches reserve."""
+
+
+class UnreconciledBilling(BudgetExhausted):
+    """Raised for one request whose billing is pending; other requests may continue."""
+
+
+class PendingRequest(UnreconciledBilling):
+    """An existing reserved/uncertain request that must not be posted again."""
+
+    def __init__(
+        self,
+        *,
+        claim_id: int,
+        request_hash: str,
+        status: str,
+        reserved_usd: float,
+        error: str | None = None,
+    ):
+        super().__init__(
+            f"OpenRouter request {request_hash} is {status}; reservation remains held"
+        )
+        self.claim_id = claim_id
+        self.request_hash = request_hash
+        self.status = status
+        self.reserved_usd = reserved_usd
+        self.error = error
+
+
+class ProviderResponseError(RuntimeError):
+    """Raised when OpenRouter returned a response that is not a valid label payload."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str,
+        usage: dict | None = None,
+        response: dict | None = None,
+    ):
+        super().__init__(message)
+        self.kind = kind
+        self.usage = usage or {}
+        self.response = response or {}
+
+
+class BilledResponseError(ProviderResponseError):
     """Raised when OpenRouter returned a billable response that cannot become a label."""
 
     def __init__(self, message: str, *, usage: dict, response: dict):
-        super().__init__(message)
-        self.usage = usage
-        self.response = response
+        super().__init__(message, kind="invalid_payload", usage=usage, response=response)
 
 
 @dataclass(frozen=True)
@@ -261,12 +335,28 @@ class ResponseReceipt:
     claim_id: int
     response: dict
     usage: dict
+    source_url: str | None = None
+    input_hash: str | None = None
+    generation_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ClassificationResult:
+    body: dict
+    usage: dict
+    response: dict
+
+    def __iter__(self):
+        # Backwards-compatible two-value unpacking for older callers/tests.
+        yield self.body
+        yield self.usage
 
 
 @dataclass
 class EvidenceRunSummary:
     scored: int = 0
     failed: int = 0
+    pending: int = 0
     skipped_unchanged: int = 0
     skipped_empty: int = 0
     stopped_early: str | None = None
@@ -297,6 +387,22 @@ def taxonomy_digest(taxonomy: Taxonomy) -> str:
             "kinds": [{"id": k.id, "definition": k.definition} for k in taxonomy.kinds],
         }
     )
+
+
+def ensure_evidence_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(SCHEMA)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(openrouter_response_receipts)")}
+    for column, declaration in [
+        ("source_url", "TEXT"),
+        ("input_hash", "TEXT"),
+        ("generation_id", "TEXT"),
+        ("http_status", "INTEGER"),
+    ]:
+        if column not in columns:
+            conn.execute(
+                f"ALTER TABLE openrouter_response_receipts ADD COLUMN {column} {declaration}"
+            )
+    conn.commit()
 
 
 def source_from_repo(
@@ -333,8 +439,7 @@ class EvidenceStore:
     def __init__(self, db: Database):
         self.db = db
         self.conn = db.conn
-        self.conn.executescript(SCHEMA)
-        self.conn.commit()
+        ensure_evidence_schema(self.conn)
 
     def save_source(self, source: EvidenceSource) -> None:
         now = datetime.now(UTC).isoformat()
@@ -553,6 +658,43 @@ def _usage_cost(usage: dict | None) -> float | None:
     return cost
 
 
+SENSITIVE_RECEIPT_KEYS = {
+    "authorization",
+    "proxy-authorization",
+    "x-api-key",
+    "api-key",
+    "cookie",
+    "set-cookie",
+}
+
+
+def _sanitize_receipt_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        clean = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if key_text.lower() in SENSITIVE_RECEIPT_KEYS:
+                continue
+            clean[key_text] = _sanitize_receipt_payload(item)
+        return clean
+    if isinstance(value, list):
+        return [_sanitize_receipt_payload(item) for item in value]
+    return value
+
+
+def _generation_id(response: dict) -> str | None:
+    value = response.get("id") or response.get("generation_id")
+    return value if isinstance(value, str) and value else None
+
+
+def _http_status(response: dict) -> int | None:
+    for key in ("http_status", "_http_status", "status"):
+        value = response.get(key)
+        if isinstance(value, int):
+            return value
+    return None
+
+
 class OpenRouterBudget:
     def __init__(self, db: Database, *, ceiling_usd: float, run_id: str):
         self.db = db
@@ -561,8 +703,7 @@ class OpenRouterBudget:
         if not math.isfinite(self.ceiling_usd) or self.ceiling_usd <= 0:
             raise BudgetExhausted("OpenRouter ceiling must be a finite positive amount")
         self.run_id = run_id
-        self.conn.executescript(SCHEMA)
-        self.conn.commit()
+        ensure_evidence_schema(self.conn)
         self._persist_ceiling()
 
     def _persist_ceiling(self) -> None:
@@ -616,7 +757,7 @@ class OpenRouterBudget:
             ).fetchone()
             if breach:
                 self.conn.rollback()
-                raise BudgetExhausted("OpenRouter accounting breach requires operator reconciliation")
+                raise AccountingBreach("OpenRouter accounting breach requires operator reconciliation")
             duplicate = self.conn.execute(
                 """SELECT status FROM openrouter_budget_ledger
                    WHERE request_hash=? AND status IN
@@ -669,12 +810,12 @@ class OpenRouterBudget:
         cost = _usage_cost(usage)
         if cost is None:
             self.mark_uncertain(claim_id, "OpenRouter usage/cost missing")
-            raise BudgetExhausted("OpenRouter response omitted verified usage/cost")
+            raise UnreconciledBilling("OpenRouter response omitted verified usage/cost")
         row = self.conn.execute(
             "SELECT reserved_usd FROM openrouter_budget_ledger WHERE id=?", (claim_id,)
         ).fetchone()
         if row is None:
-            raise BudgetExhausted(f"OpenRouter budget claim {claim_id} not found")
+            raise AccountingBreach(f"OpenRouter budget claim {claim_id} not found")
         reserved = float(row["reserved_usd"])
         if cost > reserved + 1e-12:
             self.conn.execute(
@@ -691,7 +832,7 @@ class OpenRouterBudget:
                 ),
             )
             self.conn.commit()
-            raise BudgetExhausted("OpenRouter actual cost exceeded reserved amount")
+            raise AccountingBreach("OpenRouter actual cost exceeded reserved amount")
         self.conn.execute(
             """UPDATE openrouter_budget_ledger
                SET status='completed', actual_usd=?, usage_json=?, completed_at=?
@@ -701,17 +842,31 @@ class OpenRouterBudget:
         self.conn.commit()
 
     def save_response_receipt(
-        self, *, claim_id: int, request_hash: str, model: str, response: dict, usage: dict
+        self,
+        *,
+        claim_id: int,
+        request_hash: str,
+        model: str,
+        response: dict,
+        usage: dict,
+        source_url: str | None = None,
+        input_hash: str | None = None,
     ) -> None:
+        clean_response = _sanitize_receipt_payload(response)
         self.conn.execute(
             """INSERT OR REPLACE INTO openrouter_response_receipts
-               (request_hash, claim_id, model, response_json, usage_json, received_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (request_hash, claim_id, model, source_url, input_hash, generation_id,
+                http_status, response_json, usage_json, received_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 request_hash,
                 claim_id,
                 model,
-                json.dumps(response, sort_keys=True, ensure_ascii=False),
+                source_url,
+                input_hash,
+                _generation_id(clean_response),
+                _http_status(clean_response),
+                json.dumps(clean_response, sort_keys=True, ensure_ascii=False),
                 json.dumps(usage, sort_keys=True),
                 datetime.now(UTC).isoformat(),
             ),
@@ -730,6 +885,9 @@ class OpenRouterBudget:
             claim_id=int(row["claim_id"]),
             response=json.loads(row["response_json"]),
             usage=json.loads(row["usage_json"]),
+            source_url=row["source_url"],
+            input_hash=row["input_hash"],
+            generation_id=row["generation_id"],
         )
 
     def mark_uncertain(self, claim_id: int, error: str) -> None:
@@ -741,18 +899,57 @@ class OpenRouterBudget:
         )
         self.conn.commit()
 
+    def reserve_or_pending(
+        self,
+        *,
+        model: str,
+        request_hash: str,
+        estimated_input_tokens: int,
+        max_output_tokens: int,
+    ) -> BudgetClaim | PendingRequest:
+        row = self.conn.execute(
+            """SELECT id, status, reserved_usd, error FROM openrouter_budget_ledger
+               WHERE request_hash=? AND status IN ('reserved', 'uncertain')""",
+            (request_hash,),
+        ).fetchone()
+        if row is not None:
+            return PendingRequest(
+                claim_id=int(row["id"]),
+                request_hash=request_hash,
+                status=row["status"],
+                reserved_usd=float(row["reserved_usd"]),
+                error=row["error"],
+            )
+        return self.reserve(
+            model=model,
+            request_hash=request_hash,
+            estimated_input_tokens=estimated_input_tokens,
+            max_output_tokens=max_output_tokens,
+        )
+
+    def pending_reconciliation_summary(self) -> dict[str, float | int]:
+        row = self.conn.execute(
+            """SELECT COUNT(*) AS pending_count, COALESCE(SUM(reserved_usd), 0) AS held_usd
+               FROM openrouter_budget_ledger
+               WHERE status IN ('reserved', 'uncertain')"""
+        ).fetchone()
+        return {
+            "pending_count": int(row["pending_count"]),
+            "held_usd": float(row["held_usd"] or 0),
+        }
+
     def _reservation(self, model: str, estimated_input_tokens: int, max_output_tokens: int) -> float:
         prices = MODEL_PRICES_USD_PER_TOKEN.get(model)
         if not prices:
-            raise BudgetExhausted(f"No validated OpenRouter price configured for {model}")
+            raise PricingError(f"No validated OpenRouter price configured for {model}")
         prompt_tokens = max(0, int(estimated_input_tokens))
         if prompt_tokens >= PROMPT_TIER_LIMIT_TOKENS:
-            raise BudgetExhausted("estimated prompt token upper bound reaches the 100k premium tier")
+            raise PricingError("estimated prompt token upper bound reaches the 100k premium tier")
         output_tokens = max(0, int(max_output_tokens))
         prompt_rate = prices["input"] + prices["cache_write"]
         base = prompt_tokens * prompt_rate + output_tokens * prices["output"]
         if not math.isfinite(base) or base < 0:
-            raise BudgetExhausted("OpenRouter reservation cost is not finite")
+            raise PricingError("OpenRouter reservation cost is not finite")
         return base
 
 
@@ -766,14 +963,15 @@ class AioHttpTransport:
     async def post_json(self, url: str, *, headers: dict, payload: dict, timeout: float) -> dict:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
             async with session.post(url, headers=headers, json=payload) as response:
-                if response.status in (401, 402, 403):
-                    raise BudgetExhausted(
-                        f"OpenRouter refused the request (HTTP {response.status}); no fallback enabled"
-                    )
+                text = await response.text()
+                try:
+                    data = json.loads(text) if text else {}
+                except json.JSONDecodeError:
+                    data = {"raw_text": text[:2000]}
+                data["_http_status"] = response.status
                 if response.status >= 400:
-                    text = await response.text()
-                    raise RuntimeError(f"OpenRouter HTTP {response.status}: {text[:200]}")
-                return await response.json()
+                    data.setdefault("error", {"message": f"OpenRouter HTTP {response.status}"})
+                return data
 
 
 class OpenRouterClient:
@@ -789,7 +987,7 @@ class OpenRouterClient:
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY is required for paid classification")
         if model not in MODEL_PRICES_USD_PER_TOKEN:
-            raise BudgetExhausted(f"No validated OpenRouter price configured for {model}")
+            raise PricingError(f"No validated OpenRouter price configured for {model}")
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
@@ -808,7 +1006,6 @@ class OpenRouterClient:
             "model": self.model,
             "messages": messages,
             "max_tokens": max_output_tokens,
-            "usage": {"include": True},
             "reasoning": {"enabled": False},
             "provider": {"require_parameters": True, "allow_fallbacks": False,
                          "max_price": {"prompt": 0.1, "completion": 0.5}},
@@ -831,11 +1028,36 @@ class OpenRouterClient:
             timeout=self.timeout,
         )
         self.last_response = data
+        status = _http_status(data)
+        if status in (401, 402, 403):
+            raise ProviderResponseError(
+                f"OpenRouter refused the request (HTTP {status}); no fallback enabled",
+                kind="auth_or_credit_failure",
+                usage=data.get("usage") or {},
+                response=data,
+            )
+        if status is not None and status >= 400:
+            raise ProviderResponseError(
+                f"OpenRouter HTTP {status}",
+                kind="http_error",
+                usage=data.get("usage") or {},
+                response=data,
+            )
+        if data.get("error"):
+            raise ProviderResponseError(
+                "OpenRouter returned an error response",
+                kind="provider_error",
+                usage=data.get("usage") or {},
+                response=data,
+            )
         usage = data.get("usage") or {}
         if _usage_cost(usage) is None:
-            raise BudgetExhausted("OpenRouter response omitted cost accounting")
-        if data.get("error"):
-            raise BilledResponseError("OpenRouter returned an error response", usage=usage, response=data)
+            raise ProviderResponseError(
+                "OpenRouter response missing verified usage/cost",
+                kind="missing_usage_cost",
+                usage=usage,
+                response=data,
+            )
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
             raise BilledResponseError("OpenRouter response omitted choices", usage=usage, response=data)
@@ -853,7 +1075,7 @@ class OpenRouterClient:
             raise BilledResponseError(
                 f"OpenRouter response was not valid JSON: {e}", usage=usage, response=data
             ) from e
-        return body, usage
+        return ClassificationResult(body=body, usage=usage, response=data)
 
 
 def response_schema(taxonomy: Taxonomy) -> dict:
@@ -1086,9 +1308,9 @@ class EvidenceClassifier:
         self.max_output_tokens = max_output_tokens
         self._schema = response_schema(taxonomy)
 
-    async def classify_source(self, source: EvidenceSource) -> tuple[dict, dict, str]:
+    def request_hash_for_source(self, source: EvidenceSource) -> str:
         messages = build_prompt(source, self.taxonomy)
-        request_hash = _sha_json(
+        return _sha_json(
             {
                 "model": self.model,
                 "messages": messages,
@@ -1096,35 +1318,60 @@ class EvidenceClassifier:
                 "max_output_tokens": self.max_output_tokens,
             }
         )
+
+    async def classify_source(self, source: EvidenceSource) -> tuple[dict, dict, str]:
+        messages = build_prompt(source, self.taxonomy)
+        request_hash = self.request_hash_for_source(source)
+        input_hash = source.input_hash(self.model, self.prompt_version, self.taxonomy)
         receipt = self.budget.load_response_receipt(request_hash)
         if receipt is not None:
+            if _usage_cost(receipt.usage) is None:
+                raise UnreconciledBilling(
+                    f"OpenRouter request {request_hash} has a receipt but no settled billing"
+                )
+            try:
+                self.budget.complete(receipt.claim_id, receipt.usage)
+            except UnreconciledBilling:
+                raise
+            except AccountingBreach:
+                raise
+            except Exception:
+                # The claim may already be completed; replay still uses the saved receipt.
+                pass
             return (
                 validate_available_output(_response_body(receipt.response), source, self.taxonomy),
                 receipt.usage,
                 request_hash,
             )
         estimated_tokens = estimate_prompt_tokens_upper_bound(messages, self._schema)
-        claim = self.budget.reserve(
+        claim = self.budget.reserve_or_pending(
             model=self.model,
             request_hash=request_hash,
             estimated_input_tokens=estimated_tokens,
             max_output_tokens=self.max_output_tokens,
         )
+        if isinstance(claim, PendingRequest):
+            raise claim
         try:
-            raw, usage = await self.client.classify(
+            result = await self.client.classify(
                 messages,
                 response_schema=self._schema,
                 max_output_tokens=self.max_output_tokens,
             )
-            response = getattr(self.client, "last_response", None) or {"content": raw}
-        except BilledResponseError as e:
+            raw, usage, response = _coerce_classification_result(result, self.client)
+        except ProviderResponseError as e:
             self.budget.save_response_receipt(
                 claim_id=claim.id,
                 request_hash=request_hash,
                 model=self.model,
                 response=e.response,
                 usage=e.usage,
+                source_url=source.html_url,
+                input_hash=input_hash,
             )
+            if _usage_cost(e.usage) is None:
+                self.budget.mark_uncertain(claim.id, str(e))
+                raise UnreconciledBilling(str(e)) from e
             self.budget.complete(claim.id, e.usage)
             raise ValidationError(str(e)) from e
         except Exception as e:
@@ -1136,9 +1383,22 @@ class EvidenceClassifier:
             model=self.model,
             response=response,
             usage=usage,
+            source_url=source.html_url,
+            input_hash=input_hash,
         )
         self.budget.complete(claim.id, usage)
         return validate_available_output(raw, source, self.taxonomy), usage, request_hash
+
+
+def _coerce_classification_result(result: Any, client: Any) -> tuple[dict, dict, dict]:
+    if isinstance(result, ClassificationResult):
+        return result.body, result.usage, result.response
+    if isinstance(result, tuple) and len(result) == 3:
+        raw, usage, response = result
+        return raw, usage, response
+    raw, usage = result
+    response = getattr(client, "last_response", None) or {"content": raw, "usage": usage}
+    return raw, usage, response
 
 
 def _response_body(response: dict) -> Any:
@@ -1165,6 +1425,169 @@ def estimate_prompt_tokens_upper_bound(messages: list[dict], response_schema: di
 
 def estimate_tokens(messages: list[dict]) -> int:
     return estimate_prompt_tokens_upper_bound(messages, {})
+
+
+class WorkerStatusStore:
+    """Durable, conservative worker status and exclusive local run lock."""
+
+    TERMINAL = {"partial", "blocked", "completed", "failed"}
+
+    def __init__(self, db: Database, *, worker_name: str, status_path: str | Path | None = None):
+        self.db = db
+        self.conn = db.conn
+        self.worker_name = worker_name
+        self.status_path = Path(status_path) if status_path else None
+        ensure_evidence_schema(self.conn)
+        self._locked = False
+
+    @contextmanager
+    def run(self, *, phase: str, model: str | None = None, run_id: str | None = None):
+        self.acquire(phase=phase, model=model, run_id=run_id)
+        try:
+            yield self
+        except Exception as exc:
+            self.write_terminal(phase="failed", final_error=str(exc))
+            raise
+        else:
+            self.write_terminal(phase="completed")
+        finally:
+            self._locked = False
+
+    def acquire(self, *, phase: str, model: str | None = None, run_id: str | None = None) -> None:
+        now = datetime.now(UTC).isoformat()
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            row = self.conn.execute(
+                "SELECT phase FROM worker_status WHERE worker_name=?", (self.worker_name,)
+            ).fetchone()
+            if row and row["phase"] not in self.TERMINAL:
+                self.conn.rollback()
+                raise RuntimeError(f"worker {self.worker_name} already running")
+            self.conn.execute(
+                """INSERT INTO worker_status
+                   (worker_name, run_id, phase, model, pending_reconciliation,
+                    last_committed_counts_json, final_error, pid, heartbeat_at,
+                    started_at, finished_at)
+                   VALUES (?, ?, ?, ?, 0, '{}', NULL, ?, ?, ?, NULL)
+                   ON CONFLICT(worker_name) DO UPDATE SET
+                       run_id=excluded.run_id, phase=excluded.phase, model=excluded.model,
+                       pending_reconciliation=0, last_committed_counts_json='{}',
+                       final_error=NULL, pid=excluded.pid, heartbeat_at=excluded.heartbeat_at,
+                       started_at=excluded.started_at, finished_at=NULL""",
+                (self.worker_name, run_id, phase, model, os.getpid(), now, now),
+            )
+            self.conn.commit()
+            self._locked = True
+            self._write_file(self.read())
+        except Exception:
+            if self.conn.in_transaction:
+                self.conn.rollback()
+            raise
+
+    def update(
+        self,
+        *,
+        phase: str | None = None,
+        labelled: int | None = None,
+        failed: int | None = None,
+        pending_reconciliation: int | None = None,
+        counts: dict[str, int] | None = None,
+        final_error: str | None = None,
+    ) -> None:
+        current = self.read() or {}
+        merged_counts = dict(current.get("last_committed_counts") or {})
+        if counts:
+            merged_counts.update(counts)
+        if labelled is not None:
+            merged_counts["labelled"] = labelled
+        if failed is not None:
+            merged_counts["failed"] = failed
+        now = datetime.now(UTC).isoformat()
+        self.conn.execute(
+            """UPDATE worker_status
+               SET phase=COALESCE(?, phase),
+                   pending_reconciliation=COALESCE(?, pending_reconciliation),
+                   last_committed_counts_json=?,
+                   final_error=COALESCE(?, final_error),
+                   heartbeat_at=?
+               WHERE worker_name=?""",
+            (
+                phase,
+                pending_reconciliation,
+                json.dumps(merged_counts, sort_keys=True),
+                final_error,
+                now,
+                self.worker_name,
+            ),
+        )
+        self.conn.commit()
+        self._write_file(self.read())
+
+    def write_terminal(
+        self,
+        *,
+        phase: str,
+        final_error: str | None = None,
+        counts: dict[str, int] | None = None,
+    ) -> None:
+        now = datetime.now(UTC).isoformat()
+        current = self.read() or {}
+        merged_counts = dict(current.get("last_committed_counts") or {})
+        if counts:
+            merged_counts.update(counts)
+        self.conn.execute(
+            """INSERT INTO worker_status
+               (worker_name, phase, pending_reconciliation, last_committed_counts_json,
+                final_error, pid, heartbeat_at, started_at, finished_at)
+               VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(worker_name) DO UPDATE SET
+                   phase=excluded.phase,
+                   last_committed_counts_json=excluded.last_committed_counts_json,
+                   final_error=excluded.final_error,
+                   pid=NULL,
+                   heartbeat_at=excluded.heartbeat_at,
+                   finished_at=excluded.finished_at""",
+            (
+                self.worker_name,
+                phase,
+                json.dumps(merged_counts, sort_keys=True),
+                final_error,
+                os.getpid(),
+                now,
+                current.get("started_at") or now,
+                now,
+            ),
+        )
+        self.conn.commit()
+        self._write_file(self.read())
+
+    def read(self) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM worker_status WHERE worker_name=?", (self.worker_name,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "worker_name": row["worker_name"],
+            "run_id": row["run_id"],
+            "phase": row["phase"],
+            "model": row["model"],
+            "pending_reconciliation": int(row["pending_reconciliation"]),
+            "last_committed_counts": json.loads(row["last_committed_counts_json"] or "{}"),
+            "final_error": row["final_error"],
+            "pid": row["pid"],
+            "heartbeat_at": row["heartbeat_at"],
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+        }
+
+    def _write_file(self, payload: dict | None) -> None:
+        if self.status_path is None or payload is None:
+            return
+        self.status_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.status_path.with_suffix(self.status_path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, sort_keys=True, indent=2), encoding="utf-8")
+        tmp.replace(self.status_path)
 
 
 async def classify_inputs(
@@ -1231,6 +1654,10 @@ async def classify_inputs(
             )
             async with lock:
                 summary.scored += 1
+        except (PendingRequest, UnreconciledBilling) as e:
+            async with lock:
+                summary.pending += 1
+                summary.errors.append(f"{source.html_url}: {e}")
         except BudgetExhausted as e:
             async with lock:
                 if summary.stopped_early is None:
@@ -1524,6 +1951,7 @@ async def run_openrouter_classification(
     def merge(summary: EvidenceRunSummary) -> None:
         total.scored += summary.scored
         total.failed += summary.failed
+        total.pending += summary.pending
         total.skipped_unchanged += summary.skipped_unchanged
         total.skipped_empty += summary.skipped_empty
         total.errors.extend(summary.errors)

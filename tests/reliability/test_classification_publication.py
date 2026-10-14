@@ -48,6 +48,26 @@ def test_partial_evidence_publication_records_snapshot_coverage(tmp_db,sample_re
         assert conn.execute('SELECT COUNT(*) FROM evidence_classifications').fetchone()[0]==1
 
 
+def test_public_bundle_excludes_private_operator_state(tmp_db, sample_repo, tmp_path):
+    tmp_db.save_repositories([sample_repo])
+    _label(tmp_db, sample_repo)
+    private_tables = ('openrouter_budget_ledger', 'openrouter_response_receipts',
+                      'openrouter_future_operator_state', 'worker_status')
+    for name in private_tables:
+        tmp_db.conn.execute(f'CREATE TABLE IF NOT EXISTS "{name}" (private_value TEXT)')
+    tmp_db.conn.execute('INSERT INTO openrouter_future_operator_state VALUES (?)',
+                        ('PRIVATE_OPERATOR_MARKER_DO_NOT_PUBLISH',))
+    tmp_db.conn.commit()
+    directory = tmp_path / 'public'
+    _prepare()(tmp_db.db_path, directory, 'a'*40, allow_partial=True)
+    with sqlite3.connect(directory / 'govtech.db') as conn:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert not tables.intersection(private_tables)
+        assert conn.execute('SELECT COUNT(*) FROM evidence_classifications').fetchone()[0] == 1
+    assert b'PRIVATE_OPERATOR_MARKER_DO_NOT_PUBLISH' not in (directory / 'govtech.db').read_bytes()
+    assert tmp_db.conn.execute('SELECT private_value FROM openrouter_future_operator_state').fetchone()[0] == 'PRIVATE_OPERATOR_MARKER_DO_NOT_PUBLISH'
+
+
 def test_no_classification_cannot_publish_as_classified(tmp_db,sample_repo,tmp_path):
     prepare=_prepare()
     tmp_db.save_repositories([sample_repo])
