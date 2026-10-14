@@ -32,14 +32,23 @@ class Transport:
         self.writes = []
         self.ambiguous = False
         self.drop = False
+        self.requests = []
+        self.scope = {'projectId': 'project', 'environmentId': 'environment'}
 
     def __call__(self, request, timeout):
-        assert request.full_url == rr.GRAPHQL_URL
-        assert request.get_header('Authorization') == 'Bearer test-secret'
+        self.requests.append(request)
+        assert request.full_url == 'https://backboard.railway.com/graphql/v2'
+        assert dict(request.header_items()) == {
+            'Project-access-token': 'test-secret', 'Content-type': 'application/json'}
+        assert 'test-secret' not in request.data.decode()
         payload = json.loads(request.data)
         query = payload['query']
         args = payload['variables']
-        if 'mutation' in query:
+        if 'projectToken' in query:
+            assert query == 'query { projectToken { projectId environmentId } }'
+            assert args == {}
+            data = {'projectToken': self.scope}
+        elif 'mutation' in query:
             change = args['input']
             assert change['replace'] is False
             assert (change['projectId'], change['environmentId'], change['serviceId']) == ('project', 'environment', 'web')
@@ -84,6 +93,9 @@ def test_default_and_combined(setup):
     assert transport.variables['OTHER'] == 'keep'
     assert [w['skipDeploys'] for w in transport.writes] == [True, False, True]
     assert 'test-secret' not in json.dumps(result)
+    assert 'test-secret' not in json.dumps(transport.variables)
+    assert 'test-secret' not in json.dumps(transport.writes)
+    assert 'test-secret' not in repr(client.config)
     rr.update_public_index(receipt, hub, environ=env(), railway=client, fetch=fetch, attempts=1)
     assert len(transport.writes) == 3
     assert hub.restarts == 1
@@ -177,7 +189,8 @@ def test_public_transport_no_auth_or_redirects():
         seen.append(request)
         return io.BytesIO(b'{}')
     rr.read_public(WEB+'/healthz', transport=opener)
-    assert not seen[0].has_header('Authorization')
+    assert dict(seen[0].header_items()) == {'Cache-control': 'no-cache'}
+    assert 'test-secret' not in repr(vars(seen[0]))
     with pytest.raises(ValueError):
         rr.read_public('https://evil.test/v1/stats', transport=opener)
     assert len(seen) == 1
@@ -365,3 +378,68 @@ def test_worker_cli_defers_provider_creation(monkeypatch, capsys):
         authorization_id=None, limit=1, source_limit=1, concurrency=1, deadline=1000, checkpoint_margin=100)
     cloud_worker.execute(args)
     assert 'rollout-completed' in capsys.readouterr().out
+
+
+def test_project_token_header_and_scope_before_target():
+    transport = Transport()
+    client = rr.RailwayClient(rr.RolloutConfig.from_env(env()), transport=transport)
+    client.inspect()
+    client.write({'OTHER': 'keep'}, skip_deploys=True)
+    queries = [json.loads(request.data)['query'] for request in transport.requests]
+    assert 'projectToken' in queries[0]
+    assert 'serviceInstance' in queries[1]
+    assert 'projectToken' in queries[2]
+    assert 'mutation' in queries[3]
+
+
+@pytest.mark.parametrize('scope', [
+    {'projectId': 'wrong', 'environmentId': 'environment'},
+    {'projectId': 'project', 'environmentId': 'wrong'},
+    None, {}, [], 'test-secret',
+    {'projectId': 'project'},
+    {'projectId': 'project', 'environmentId': None},
+    {'projectId': ['project'], 'environmentId': 'environment'},
+])
+@pytest.mark.parametrize('operation', ['inspect', 'write'])
+def test_invalid_project_token_scope_blocks_target(scope, operation):
+    transport = Transport()
+    transport.scope = scope
+    client = rr.RailwayClient(rr.RolloutConfig.from_env(env()), transport=transport)
+    with pytest.raises(RuntimeError, match='scope') as error:
+        if operation == 'inspect':
+            client.inspect()
+        else:
+            client.write({'OTHER': 'changed'}, skip_deploys=False)
+    assert 'test-secret' not in str(error.value)
+    assert len(transport.requests) == 1
+    assert 'projectToken' in json.loads(transport.requests[0].data)['query']
+    assert not transport.writes
+
+
+@pytest.mark.parametrize('response', [
+    b'not json', b'null', b'[]', b'{}', b'{"data": null}',
+    b'{"data": {}}',
+    b'{"errors": [{"message": "test-secret"}], "data": {}}',
+])
+def test_invalid_scope_response_sanitized(response):
+    requests = []
+    def transport(request, timeout):
+        requests.append(request)
+        return io.BytesIO(response)
+    client = rr.RailwayClient(rr.RolloutConfig.from_env(env()), transport=transport)
+    with pytest.raises(RuntimeError) as error:
+        client.write({'OTHER': 'changed'}, skip_deploys=False)
+    assert 'test-secret' not in str(error.value)
+    assert len(requests) == 1
+    assert 'projectToken' in json.loads(requests[0].data)['query']
+
+
+def test_scope_mismatch_precedes_combined_side_effects(setup):
+    hub, receipt, transport, client, fetch, seen = setup
+    transport.scope['environmentId'] = 'wrong'
+    with pytest.raises(RuntimeError, match='scope'):
+        rr.update_public_index(receipt, hub, environ=env(), railway=client,
+                               fetch=fetch, attempts=1)
+    assert not transport.writes
+    assert hub.restarts == 0
+    assert seen == []

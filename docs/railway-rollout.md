@@ -17,21 +17,28 @@ fail closed. Enabled mode requires all of:
 | `GOVTECH_RAILWAY_ENVIRONMENT_ID` | Exact environment ID |
 | `GOVTECH_RAILWAY_WEB_SERVICE_ID` | Public web service ID, never the worker |
 | `GOVTECH_RAILWAY_WEB_URL` | Reviewed public HTTPS origin, without trailing slash |
-| `GOVTECH_RAILWAY_API_TOKEN` | Explicit least-privilege project-scoped API token |
+| `GOVTECH_RAILWAY_API_TOKEN` | Explicit project token scoped to the reviewed environment |
 
 The workflow only references repository variables and the API token secret; it does
 not populate them. The token belongs to the publication caller, never the web
 service or its variables/receipts. No CLI, credential files, or automatic token
-lookup is used. Project scope is an operator provisioning requirement; the adapter
-does not infer scope from token contents.
+lookup is used. Before every target read or mutation, the adapter queries
+`projectToken { projectId environmentId }` and requires both IDs to match the explicit
+configuration. Missing, malformed or mismatched scope fails closed before the target
+request; the initial check also precedes any fallback-service restart.
 
 Origins are limited to `https://www.govtechindex.cloud`, the native Index HF host,
 and one-label `https://<name>.up.railway.app` hosts. Use the reviewed Railway service
 origin for `WEB_URL`; deployment metadata and readiness bind it to the expected code
 and dataset. Userinfo, ports, paths, query strings, fragments, encoded aliases and
-redirects are rejected. Public HTTP requests have no Authorization header, use a
+redirects are rejected. Public HTTP requests have no authentication headers, use a
 separate transport, and ignore proxy configuration. Only the fixed
-`https://backboard.railway.com/graphql/v2` GraphQL endpoint receives the bearer token.
+`https://backboard.railway.com/graphql/v2` GraphQL endpoint receives the token, using
+`Project-Access-Token: <token>` with `Content-Type: application/json`. There is no
+Bearer fallback. This follows Railway's documented
+[project-token authentication](https://docs.railway.com/guides/public-api#using-a-project-token);
+account, workspace and OAuth tokens use a different authentication scheme and are
+not supported by this adapter.
 
 ## Sequence and recovery
 
@@ -39,7 +46,8 @@ The caller must hold the existing shared publication lock across the combined
 operation. Coordinate GitHub publication and worker publication with the existing
 operations procedure; this module is not a distributed lock service.
 
-1. Validate explicit configuration and inspect the public service. Require repository
+1. Validate explicit configuration, verify token project/environment scope, and inspect
+   the public service. Require repository
    `AndreasThinks/open-govtech-report`, no image override, web Dockerfile
    `spaces/railway/Dockerfile.web`, no worker command or cron schedule, no volume
    mounts, no private-worker or credential variables. Source SHA comes from actual

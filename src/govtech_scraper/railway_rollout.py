@@ -92,9 +92,18 @@ class RailwayClient:
         self.transport = transport or _open
 
     def call(self, query, variables):
+        scope = self._request('query { projectToken { projectId environmentId } }', {}).get(
+            'projectToken')
+        if (not isinstance(scope, dict)
+                or scope.get('projectId') != self.config.project_id
+                or scope.get('environmentId') != self.config.environment_id):
+            raise RuntimeError('Railway project token scope mismatch or invalid response')
+        return self._request(query, variables)
+
+    def _request(self, query, variables):
         request = urllib.request.Request(GRAPHQL_URL,
             data=json.dumps(dict(query=query, variables=variables)).encode(),
-            headers={'Authorization': 'Bearer ' + self.config.token,
+            headers={'Project-Access-Token': self.config.token,
                      'Content-Type': 'application/json'})
         try:
             with self.transport(request, timeout=20) as response:
