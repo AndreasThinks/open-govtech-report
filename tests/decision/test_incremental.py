@@ -228,7 +228,7 @@ def test_rebound_freshness_api_and_publication(tmp_db, tmp_path, sample_repo):
     assert Catalogue(tmp_db.db_path).get_repo(changed.owner, changed.name)['classification'] is None
 
 
-async def test_incremental_executor_never_reposts_failed_unchanged_input(tmp_db, sample_repo):
+async def test_incremental_executor_never_reposts_recent_failed_unchanged_input(tmp_db, sample_repo):
     from govtech_scraper.decision.incremental import classify_incremental
     from govtech_scraper.decision.evidence import EvidenceClassifier
     seed(tmp_db, sample_repo)
@@ -360,3 +360,19 @@ def test_acquisition_can_replace_corrupt_legacy_cache_without_inventing_provenan
     EvidenceStore(tmp_db).save_source(source)
     tmp_db.conn.commit()
     assert planner(tmp_db).plan(changed, source).action == PlanAction.QUARANTINE
+
+
+def test_failed_unchanged_input_is_retried_weekly(tmp_db, sample_repo):
+    from datetime import UTC, datetime, timedelta
+    source = seed(tmp_db, sample_repo)
+    p = planner(tmp_db)
+    assert p.plan(sample_repo, source).action == PlanAction.REUSE
+    week_ago = (datetime.now(UTC) - timedelta(days=7)).isoformat()
+    tmp_db.conn.execute('UPDATE evidence_classifications SET classified_at=?', (week_ago,))
+    tmp_db.conn.commit()
+    plan = p.plan(sample_repo, source)
+    assert plan.action == PlanAction.CLASSIFY and 'retry' in plan.reason
+    # Only failures are retried; an old abstention of unchanged evidence is kept.
+    tmp_db.conn.execute("UPDATE evidence_classifications SET status='abstained'")
+    tmp_db.conn.commit()
+    assert p.plan(sample_repo, source).action == PlanAction.REUSE

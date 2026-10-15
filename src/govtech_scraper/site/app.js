@@ -682,7 +682,7 @@
         ${c.model ? `<p>Current run: <code>${esc(c.model)}</code>, ${num(c.labelled_repos ?? c.classified_original_repos)} labelled of ${num(covered)} original repositories (${c.coverage}% coverage), taxonomy v${esc(c.taxonomy_version)}.</p>
         <div class="cov" role="img" aria-label="Classification coverage of original repositories">
           <div class="track"><i style="width:${w(c.labelled_repos)}%;background:var(--cobalt)"></i><i style="width:${w(c.abstained_repos)}%;background:var(--faint)"></i><i style="width:${w(c.pending_repos)}%;background:var(--line)"></i><i style="width:${w(c.failed_repos)}%;background:var(--hot)"></i></div>
-          <div class="key"><span style="--c:var(--cobalt)">Labelled ${num(c.labelled_repos)}</span><span style="--c:var(--faint)">Abstained ${num(c.abstained_repos)}</span><span style="--c:var(--line)">Waiting ${num(c.pending_repos)}</span><span style="--c:var(--hot)">Failed ${num(c.failed_repos)}</span></div>
+          <div class="key"><span style="--c:var(--cobalt)">Labelled ${num(c.labelled_repos)}</span><span style="--c:var(--faint)">Abstained ${num(c.abstained_repos)}</span><span style="--c:var(--line)">Waiting ${num(c.pending_repos)}</span><span style="--c:var(--hot)">Failed ${num(c.failed_repos)}, retried weekly</span></div>
         </div>` : "<p>No classification run is published yet, so theme figures on this site are examples.</p>"}
 
         <h2 id="growth">Growth and emerging themes</h2>
