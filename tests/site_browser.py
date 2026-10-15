@@ -135,6 +135,47 @@ class Desktop(unittest.TestCase):
                 expect(self.page.locator("#app")).to_contain_text("321")
                 expect(self.page.locator("#app")).not_to_contain_text("Classification filters are unavailable")
 
+    def test_submit_forge_account_and_server(self):
+        self.missing = True  # not in the index yet
+        self.page.route("https://codeberg.org/**", lambda r: r.fulfill(status=200, json={"login": "betagouv"}))
+        self.go("/submit")
+        self.page.fill("#suburl", "https://codeberg.org/betagouv")
+        expect(self.page.locator("#subdetect")).to_contain_text("Found")
+        expect(self.page.locator("#subdetect")).to_contain_text("Forgejo or Gitea")
+        expect(self.page.locator("#subtwin")).to_be_visible()
+        self.page.fill('input[name="country"]', "fr")
+        self.page.fill('input[name="description"]', "beta.gouv.fr, the French state incubator")
+        self.page.fill('input[name="same_as_github"]', "betagouv")
+        self.page.fill('textarea[name="evidence"]', "https://beta.gouv.fr")
+        self.page.locator('#sub button[type="submit"]').click()
+        yaml = self.page.locator("#subyaml").input_value()
+        for line in ["host: codeberg.org", "platform: forgejo", 'owner: "betagouv"',
+                     "same_as_github: betagouv", 'country: "FR"', "  - https://beta.gouv.fr"]:
+            self.assertIn(line, yaml)
+        href = self.page.locator("#subgo").get_attribute("href")
+        self.assertIn("filename=fr-codeberg-betagouv.yaml", href)
+        self.layout()
+        # A curated government server is already read in full.
+        self.page.fill("#suburl", "https://code.overheid.nl/MinBZK")
+        expect(self.page.locator("#subdetect")).to_contain_text("already reads in full")
+        # An unknown server with no group is a server suggestion, which opens an issue.
+        self.page.fill("#suburl", "https://git.example.gov")
+        expect(self.page.locator("#subplat")).to_be_visible()
+        expect(self.page.locator("#subdetect")).to_contain_text("whole server")
+        self.page.locator('#sub button[type="submit"]').click()
+        self.assertIn("/issues/new?", self.page.locator("#subgo").get_attribute("href"))
+
+    def test_forge_repo_page(self):
+        repo = self.fixtures["repo"]
+        repo.update(full_name="gitlab.com/commonground/sub/api",
+                    html_url="https://gitlab.com/commonground/sub/api")
+        self.mode = "unclassified"
+        self.go("/repo/gitlab.com/commonground/sub/api")
+        expect(self.page.locator("#app h1")).to_have_text("gitlab.com/commonground/sub/api")
+        expect(self.page.locator("#app a.btn").first).to_have_text("View on gitlab.com")
+        expect(self.page.locator('#app a[href="#/account/gitlab.com/commonground/sub"]').first).to_be_visible()
+        self.layout()
+
     def test_sample_theme_snippets_labelled_and_links_safe(self):
         self.mode = "unclassified"
         self.go("/theme/00")

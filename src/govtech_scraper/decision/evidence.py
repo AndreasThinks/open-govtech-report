@@ -24,7 +24,7 @@ from typing import Any, Protocol
 import aiohttp
 
 from ..auth import GitHubAuth
-from ..db import Database
+from ..db import CLASSIFIABLE, Database
 from ..models import Repository
 from .store import row_to_repository
 from .taxonomy import Taxonomy, load_taxonomy
@@ -1875,7 +1875,7 @@ async def sources_from_db(
             f"SELECT * FROM repositories WHERE html_url IN ({placeholders})", urls
         ).fetchall()
     else:
-        sql = "SELECT * FROM repositories WHERE COALESCE(current, 1) = 1"
+        sql = f"SELECT * FROM repositories WHERE COALESCE(current, 1) = 1 AND {CLASSIFIABLE}"
         params: list[Any] = []
         if not include_forks:
             sql += " AND COALESCE(fork, 0) = 0"

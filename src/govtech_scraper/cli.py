@@ -114,13 +114,18 @@ def scrape(ctx: click.Context, force: bool, limit: int | None) -> None:
 @click.option("--host", "hosts", multiple=True, help="Only these hosts (repeatable)")
 @click.option("--limit", type=int, default=None, help="Max repos per host (for testing)")
 @click.option("--no-details", is_flag=True, help="Skip the per-repo language and licence calls")
+@click.option("--no-submissions", is_flag=True,
+              help="Only the curated forge_hosts.yaml list, not accepted submissions")
+@click.option("--allow-host-failures", is_flag=True,
+              help="Exit 0 when some hosts fail, as long as one succeeds (for the weekly job)")
 @click.pass_context
 def forges(ctx: click.Context, hosts: tuple[str, ...], limit: int | None,
-           no_details: bool) -> None:
-    """Fetch repos from government GitLab servers outside GitHub."""
+           no_details: bool, no_submissions: bool, allow_host_failures: bool) -> None:
+    """Fetch repos from government GitLab and Forgejo servers outside GitHub."""
     from .forges import load_forge_hosts, scrape_forges
+    from .submissions import SUBMISSIONS_DIR
 
-    targets = load_forge_hosts()
+    targets = load_forge_hosts(submissions_dir=None if no_submissions else SUBMISSIONS_DIR)
     if hosts:
         wanted = {h.lower() for h in hosts}
         targets = [f for f in targets if f.host in wanted]
@@ -136,11 +141,14 @@ def forges(ctx: click.Context, hosts: tuple[str, ...], limit: int | None,
         results = asyncio.run(_run())
         for r in results:
             extra = f" ({r.error_type})" if r.error_type else ""
+            missing = f", not found: {', '.join(r.missing_owners)}" if r.missing_owners else ""
             click.echo(f"{r.host}: {r.status}{extra}, {len(r.repos)} repos, "
                        f"{r.skipped_personal} personal skipped, "
+                       f"{r.skipped_copies} copies of indexed repos skipped, "
                        f"{r.details_reused} details reused, "
-                       f"{r.detail_failures} detail lookups failed")
-        if any(r.status == "failed" for r in results):
+                       f"{r.detail_failures} detail lookups failed{missing}")
+        failed = [r for r in results if r.status == "failed"]
+        if failed and not (allow_host_failures and len(failed) < len(results)):
             sys.exit(1)
     finally:
         db.close()

@@ -13,7 +13,7 @@ from typing import Any, Callable, Protocol
 
 import aiohttp
 
-from ..db import Database
+from ..db import CLASSIFIABLE, Database
 from .evidence import EvidenceStore, build_graphql_readme_query, decode_graphql_readmes, source_from_repo, fetch_readme_source
 from .store import row_to_repository
 
@@ -158,7 +158,7 @@ class GraphQLSourceWorker:
     def _uncached_repos(self, limit: int | None) -> list[Any]:
         sql = (
             "SELECT * FROM repositories WHERE COALESCE(current,1)=1 AND COALESCE(fork,0)=0 "
-            "ORDER BY stars DESC"
+            f"AND {CLASSIFIABLE} ORDER BY stars DESC"
         )
         rows = self.db.conn.execute(sql).fetchall()
         repos = []

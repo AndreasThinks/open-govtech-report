@@ -1,7 +1,6 @@
 """Government account discovery from github/government.github.com."""
 
 import logging
-import sys
 from pathlib import Path
 from typing import Optional
 
@@ -69,56 +68,25 @@ async def fetch_government_accounts(
 
 
 def _load_community_submissions(seen_usernames: set[str]) -> list[GovernmentAccount]:
-    """Load validated community submissions from submissions/pending/.
+    """Accepted GitHub submissions from submissions/pending/, with registry country labels.
 
-    Skips entries already in the upstream registry.
-    Skips and warns on invalid files rather than crashing.
+    Skips entries already in the upstream registry, and invalid files with a warning.
+    Submissions on other forges are read by the `forges` command instead.
     """
-    if not SUBMISSIONS_DIR.exists():
-        return []
+    from .submissions import load_submissions
 
-    submission_files = sorted(SUBMISSIONS_DIR.glob("*.yaml"))
-    if not submission_files:
-        return []
-
-    # Inline validator import — avoids circular deps and works from any cwd
-    scripts_dir = _REPO_ROOT / "scripts"
-    if str(scripts_dir) not in sys.path:
-        sys.path.insert(0, str(scripts_dir))
-
-    try:
-        from validate_submission import validate_file
-    except ImportError:
-        logger.warning("Could not import validate_submission — skipping community submissions")
-        return []
+    def warn(path, errors):
+        logger.warning(f"Skipping invalid submission {path.name}: {'; '.join(errors)}")
 
     added: list[GovernmentAccount] = []
-    for path in submission_files:
-        if path.name == ".gitkeep":
+    for sub in load_submissions(SUBMISSIONS_DIR, on_invalid=warn):
+        if not sub.is_github:
             continue
-
-        errors = validate_file(path)
-        if errors:
-            logger.warning(f"Skipping invalid submission {path.name}: {'; '.join(errors)}")
+        if sub.owner.lower() in seen_usernames:
+            logger.debug(f"Submission {sub.file}: '{sub.owner}' already in upstream registry, skipping")
             continue
-
-        with open(path) as f:
-            data = yaml.safe_load(f)
-
-        username = str(data["org"]).strip()
-        country  = str(data["country"]).strip()
-        acct_type = str(data.get("account_type", "org")).strip()
-
-        if username.lower() in seen_usernames:
-            logger.debug(f"Submission {path.name}: '{username}' already in upstream registry, skipping")
-            continue
-
-        added.append(GovernmentAccount(
-            username=username,
-            country=country,
-            account_type=acct_type,
-        ))
-        seen_usernames.add(username.lower())
-        logger.debug(f"Loaded community submission: {username} ({country}) from {path.name}")
-
+        added.append(GovernmentAccount(username=sub.owner, country=sub.country,
+                                       account_type=sub.account_type))
+        seen_usernames.add(sub.owner.lower())
+        logger.debug(f"Loaded community submission: {sub.owner} ({sub.country}) from {sub.file}")
     return added

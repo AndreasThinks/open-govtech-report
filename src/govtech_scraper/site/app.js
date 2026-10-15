@@ -38,11 +38,15 @@
     if (d < 60) return Math.floor(d / 7) + " weeks ago"; if (d < 730) return Math.floor(d / 30) + " months ago";
     return Math.floor(d / 365) + " years ago";
   }
-  const repoHref = r => `#/repo/${r.full_name.split("/").map(enc).join("/")}`;
+  // Repos from other forges have a host-qualified owner: "gitlab.com/group/sub/name".
+  const encPath = s => s.split("/").map(enc).join("/");
+  const repoHref = r => `#/repo/${encPath(r.full_name)}`;
   const themeHref = id => `#/theme/${enc(id)}`;
   const countryHref = slug => `#/country/${enc(slug)}`;
-  const accountHref = owner => `#/account/${enc(owner)}`;
-  const ownerOf = r => r.full_name.split("/")[0];
+  const accountHref = owner => `#/account/${encPath(owner)}`;
+  const ownerOf = r => r.full_name.split("/").slice(0, -1).join("/");
+  const hostOf = url => { try { return new URL(url).host; } catch (e) { return "github.com"; } };
+  const hostName = url => { const h = hostOf(url); return h === "github.com" ? "GitHub" : h; };
   // Site pages, as opposed to API, feed and badge paths that the browser should load itself.
   const SERVER_PATH = /^\/(v1|docs|redoc|openapi|mcp|feeds|badge|api|healthz|sitemap|robots)\b|\.[a-z0-9]+$/i;
   function nav(href) {
@@ -118,16 +122,16 @@
     },
     repo: async (o, n) => {
       if (!state.live) return SAMPLE.repo(o, n);
-      try { return await get(`/v1/repos/${enc(o)}/${enc(n)}`); } catch (e) { if (e.status === 404) return null; throw e; }
+      try { return await get(`/v1/repos/${encPath(o)}/${enc(n)}`); } catch (e) { if (e.status === 404) return null; throw e; }
     },
     context: async (o, n) => {
       if (!state.live) return SAMPLE.context(o, n);
-      try { return await get(`/v1/repos/${enc(o)}/${enc(n)}/context`); } catch (e) { return null; }
+      try { return await get(`/v1/repos/${encPath(o)}/${enc(n)}/context`); } catch (e) { return null; }
     },
     countries: async () => state.countries ||= state.live ? await get("/v1/countries") : SAMPLE.countries,
     places: async () => state.places ||= state.live ? await get("/v1/places") : needsLive(),
     country: slug => state.live ? get(`/v1/countries/${enc(slug)}`).catch(e => e.status === 404 ? null : Promise.reject(e)) : needsLive(),
-    account: owner => state.live ? get(`/v1/accounts/${enc(owner)}`).catch(e => e.status === 404 ? null : Promise.reject(e)) : needsLive(),
+    account: owner => state.live ? get(`/v1/accounts/${encPath(owner)}`).catch(e => e.status === 404 ? null : Promise.reject(e)) : needsLive(),
     week: () => state.live ? get("/v1/week") : needsLive(),
     reuse: () => state.live ? get("/v1/reuse") : needsLive(),
     practice: () => state.live ? get("/v1/practice") : needsLive(),
@@ -608,7 +612,7 @@
       <div class="crumb"><a href="#/">Overview</a> / ${dom ? `<a href="${themeHref(dom.id)}">${esc(dom.name)}</a>` : `<a href="#/repos">Repositories</a>`} / Repository</div>
       <div class="row">
         <div><h1 style="font-family:var(--mono);font-weight:600;font-size:clamp(22px,3.4vw,36px);letter-spacing:-.01em;overflow-wrap:anywhere">${esc(r.full_name)}</h1><p>${esc((r.description || "No description").trim().replace(/([^.!?])$/, "$1."))} Published by <a href="${accountHref(ownerOf(r))}">${esc(ownerOf(r))}</a>, <a href="${placeHref(r.country)}">${esc(r.country)}</a>.</p></div>
-        <div class="acts"><a class="btn" href="${esc(r.html_url)}" rel="noopener">View on GitHub</a></div>
+        <div class="acts"><a class="btn" href="${esc(r.html_url)}" rel="noopener">View on ${esc(hostName(r.html_url))}</a></div>
       </div>
       <div class="badges" style="margin-top:14px">${dom ? `<a class="b hot" href="${themeHref(dom.id)}">${esc(dom.name)}</a>` : ""}${(cls ? cls.tags : []).map(t => `<a class="b co" href="${themeHref(t.id)}">${esc((themeById(t.id) || { name: t.id }).name)}</a>`).join("")}${licensed(r) ? `<span class="b ok">${esc(r.license)}</span>` : '<span class="b no">No licence</span>'}${r.fork ? `<span class="b">Fork${r.fork_source ? " of " + esc(r.fork_source) : ""}</span>` : '<span class="b">Original, not a fork</span>'}${r.archived ? '<span class="b no">Archived</span>' : ""}${cls && cls.kind ? `<span class="b">${esc(cls.kind)}</span>` : ""}</div>
       <div class="stats">${[[num(r.stars), "stars"], [num(r.forks), "forks"], [ctx ? ctx.reused_by.length : "Unavailable", "government forks"], [ago(r.pushed_at), "last push"], [date(r.created_at), "created"], [r.language || "–", "main language"]].map(s => `<div class="stat"><b style="${String(s[0]).length > 9 ? "font-size:18px" : ""}">${esc(s[0])}</b><small>${s[1]}</small></div>`).join("")}</div>
@@ -622,19 +626,19 @@
         ${cls.abstentions ? `<p class="cap"><b>Field abstentions:</b> ${esc(JSON.stringify(cls.abstentions))}</p>` : ""}
         <p class="cap" style="margin-top:12px">Model <code>${esc(cls.model)}</code>. AI-assisted labels are not human-certified; literal quotes do not prove semantic accuracy.</p>` : `<div class="prob"><span style="text-align:left;color:var(--ink);font-family:var(--body)"><b>Domain:</b> ${domainLink}</span><span>${cls.domain_probability == null ? "" : cls.domain_probability.toFixed(2)}</span><div class="bar"><i style="width:${(cls.domain_probability || 0) * 100}%"></i></div>
         ${cls.tags.map(t => `<span style="text-align:left;color:var(--ink);font-family:var(--body)"><a href="${themeHref(t.id)}">${esc((themeById(t.id) || { name: t.id }).name)}</a></span><span>${t.probability == null ? "" : t.probability.toFixed(2)}</span><div class="bar"><i style="width:${(t.probability || 0) * 100}%"></i></div>`).join("")}</div>
-        <p class="cap" style="margin-top:12px">Model <code>${esc(cls.model)}</code>. Tags apply at 0.5 or above.</p>`) : `<p class="empty">This repository has not been through the classification run yet.</p>`}
-      ${r.topics && r.topics.length ? `<h3 style="margin-top:18px">GitHub topics</h3><div class="chips">${r.topics.map(t => `<a href="#/repos?q=${enc(t)}">${esc(t)}</a>`).join("")}</div>` : ""}
+        <p class="cap" style="margin-top:12px">Model <code>${esc(cls.model)}</code>. Tags apply at 0.5 or above.</p>`) : (hostOf(r.html_url) === "github.com" ? `<p class="empty">This repository has not been through the classification run yet.</p>` : `<p class="empty">Repositories from code platforms other than GitHub are counted and searchable, but not sorted into themes yet.</p>`)}
+      ${r.topics && r.topics.length ? `<h3 style="margin-top:18px">Topics</h3><div class="chips">${r.topics.map(t => `<a href="#/repos?q=${enc(t)}">${esc(t)}</a>`).join("")}</div>` : ""}
       </div>
     </div></div></section>
     <section class="sec pad"><div class="in"><div class="dig">
       <div class="card"><h3>Reused by</h3><p class="cap">Government accounts in the index that forked it.</p><ul class="rows">${ctx && ctx.reused_by.length ? ctx.reused_by.map(f => `<li><a href="${repoHref(f)}">${esc(f.owner)}</a><span>${ago(f.created_at)}</span><small>${esc(f.country)}</small></li>`).join("") : ctx ? "<li><small>No government forks yet.</small></li>" : "<li><small>Government forks unavailable. Try again later.</small></li>"}</ul></div>
       <div class="card"><h3>Similar repositories</h3><p class="cap">Same theme, other accounts.</p><ul class="rows">${ctx && ctx.similar.length ? ctx.similar.map(x => `<li><a href="${repoHref(x)}"><code>${esc(x.full_name)}</code></a><span>${num(x.stars)} ★</span><small>${esc(x.country)}</small></li>`).join("") : ctx ? "<li><small>None yet.</small></li>" : "<li><small>Similar repositories unavailable. Try again later.</small></li>"}</ul></div>
-      <div class="card"><h3>Details</h3><p class="cap">From the GitHub API, refreshed weekly.</p><ul class="rows"><li><span class="lbl">Open issues</span><span>${num(r.open_issues)}</span></li><li><span class="lbl">Size</span><span>${num(Math.round((r.size_kb || 0) / 1024))} MB</span></li><li><span class="lbl">Default branch</span><span>${esc(r.default_branch || "–")}</span></li><li><span class="lbl">Data</span><span><a href="${esc(API)}/v1/repos/${r.full_name.split("/").map(enc).join("/")}">JSON</a></span></li></ul></div>
+      <div class="card"><h3>Details</h3><p class="cap">From the ${esc(hostName(r.html_url))} API, refreshed weekly.</p><ul class="rows"><li><span class="lbl">Open issues</span><span>${num(r.open_issues)}</span></li><li><span class="lbl">Size</span><span>${num(Math.round((r.size_kb || 0) / 1024))} MB</span></li><li><span class="lbl">Default branch</span><span>${esc(r.default_branch || "–")}</span></li><li><span class="lbl">Data</span><span><a href="${esc(API)}/v1/repos/${encPath(r.full_name)}">JSON</a></span></li></ul></div>
     </div></div></section>
     <section class="sec pad"><div class="in"><div class="two">
-      <div class="card"><h3>From the README</h3>${r.readme_excerpt ? `<p class="readme">${esc(r.readme_excerpt)}</p><a class="more" href="${esc(r.html_url)}#readme" rel="noopener">Read it on GitHub →</a>` : '<p class="empty">No README text in this publication.</p>'}</div>
+      <div class="card"><h3>From the README</h3>${r.readme_excerpt ? `<p class="readme">${esc(r.readme_excerpt)}</p><a class="more" href="${esc(r.html_url)}#readme" rel="noopener">Read it on ${esc(hostName(r.html_url))} →</a>` : '<p class="empty">No README text in this publication.</p>'}</div>
       <div class="card"><h3>Show it is listed</h3><p class="cap">Add this badge to the repository's README. It links back to this page.</p>
-        <p><img src="${esc(API)}/badge/${r.full_name.split("/").map(enc).join("/")}.svg" alt="Open GovTech Index badge" height="20"></p>
+        <p><img src="${esc(API)}/badge/${encPath(r.full_name)}.svg" alt="Open GovTech Index badge" height="20"></p>
         <textarea id="badgemd" class="snippet" readonly rows="3">[![Open GovTech Index](${esc((API || location.origin) + "/badge/" + r.full_name + ".svg")})](${esc((API || location.origin) + "/repo/" + r.full_name)})</textarea>
         ${copyButton("badgemd", "Copy Markdown")}</div>
     </div></div></section>`;
@@ -644,8 +648,8 @@
   // ------------------------------------------------------------------ about (was "method")
   function pipelineFigure() {
     const steps = [
-      ["Find sources", "Start from a list of government accounts and servers.", "government.github.com YAML · forge_hosts.yaml"],
-      ["Fetch", "Ask each platform for its public repositories. Code itself is not copied.", "GitHub REST API · GitLab v4 API, 2 requests a second per server"],
+      ["Find sources", "Start from lists of government accounts and servers, plus reviewed submissions.", "government.github.com YAML · forge_hosts.yaml · submissions/pending"],
+      ["Fetch", "Ask each platform for its public repositories, and skip copies of ones already found. Code itself is not copied.", "GitHub REST API · GitLab v4 and Forgejo v1 APIs, 2 requests a second per server"],
       ["Store", "Keep one row per repository in one database, with a snapshot each week.", "SQLite · repositories, repository_snapshots, cache (ETag)"],
       ["Count", "Work out originals, maintained and licensed repositories for the numbers.", "fork, archived and pushed_at filters"],
       ["Classify", "An AI model picks themes from a fixed list and must quote its evidence. Only new or changed repositories are read again.", "decision model · taxonomy v1 · quote validation · content-hash cache"],
@@ -676,7 +680,7 @@
       <article class="prose">
         <h2 id="why">Why it exists</h2>
         <p class="lede">Governments publish a remarkable amount of open code, but almost nobody can see it as a whole.</p>
-        <p>There are ${num(t.repos)} public repositories across the ${num(t.accounts)} government accounts the index tracks. They are spread across hundreds of GitHub organisations, written in dozens of languages and named in ways that only make sense inside the team that built them. A digital team in Oslo building a benefits calculator has no easy way to learn that teams in Ottawa and Leeds have already built one.</p>
+        <p>There are ${num(t.repos)} public repositories across the ${num(t.accounts)} government accounts the index tracks. They are spread across hundreds of GitHub organisations and government code servers, written in dozens of languages and named in ways that only make sense inside the team that built them. A digital team in Oslo building a benefits calculator has no easy way to learn that teams in Ottawa and Leeds have already built one.</p>
         <p class="pull">The result is that the same problems get solved again and again, in parallel, with public money.</p>
         <p>The index exists to make that work findable. It sorts every repository into the functions of government it serves, shows which themes are growing and where, and points to the teams worth learning from. It is meant for people who build and buy public services: developers, architects, service owners, and the people who fund them.</p>
         <p>It is deliberately cheap to run. Nothing on the page you are reading calls an AI model, the API is free, and the full dataset is open for anyone to reuse.</p>
@@ -699,8 +703,15 @@
         : `<p>Running the index costs money: hosting, the weekly scrape and the classification of new repositories. It is currently funded by its author.</p>${askBox}`}
 
         <h2 id="coverage">Coverage</h2>
-        <p>The index covers public repositories owned by accounts in the <a href="https://github.com/github/government.github.com">government.github.com registry</a>, plus community submissions that have been reviewed. It also reads public repositories from six government GitLab servers: OpenCoDE (Germany), code.europa.eu (European Union), ADULLACT (France), Platform One (US Department of Defense), USGS and Oak Ridge National Laboratory (US). Those are read through each server's public GitLab API and kept apart from GitHub by their web address. The GitLab servers are being added to the weekly job, so until then their repositories are not in the published counts.</p>
-        <p>It is not a census of all government code: an account missing from the registry, or a server not on this list, is missing here. A weekly job scrapes every GitHub account through the GitHub API and keeps a snapshot of each repository.</p>
+        <p>Government code does not all live on GitHub, so the index reads it from three sources.</p>
+        <ul>
+          <li><b>GitHub accounts</b> in the <a href="https://github.com/github/government.github.com">government.github.com registry</a>.</li>
+          <li><b>Government code servers</b>, read in full: OpenCoDE (Germany), code.overheid.nl (Netherlands), code.europa.eu (European Union), ADULLACT (France), Platform One (US Department of Defense), USGS and Oak Ridge National Laboratory (US). A maintainer adds these by hand.</li>
+          <li><b>Community submissions</b> of single accounts, reviewed by a maintainer. An account can be on GitHub, on a GitLab server such as gitlab.com, or on a Forgejo or Gitea server such as Codeberg. <a href="#/submit">Add an account</a>.</li>
+        </ul>
+        <p>Those three platforms are the ones whose public APIs list an account's repositories without a token, which keeps the weekly job free. Submissions are of whole accounts rather than single repositories, so one review covers everything the account publishes, now and later. On servers shared with the public, such as gitlab.com, only submitted accounts are read; personal accounts on government servers are left out.</p>
+        <p>Some bodies publish the same code in two places. A repository that is a mirror or a migrated copy of one already in the index is skipped, and so is a repository with the same name as one in the same body's GitHub account, so nothing is counted twice. Repositories from other platforms are counted and searchable, but they are <a href="#/about" data-scroll="themes">not sorted into themes yet</a>.</p>
+        <p>It is not a census of all government code: an account missing from these sources is missing here. A weekly job reads every source through its public API and keeps a snapshot of each repository.</p>
         <div class="facts">
           <div class="stat"><b>${num(t.repos)}</b><small>repositories</small></div>
           <div class="stat"><b>${num(t.accounts)}</b><small>accounts</small></div>
@@ -717,13 +728,14 @@
         <dl class="def">
           <dt>Original</dt><dd>Not a fork. ${num(t.original)} repositories. Themes and growth use original repositories only, so a government forking a popular project does not inflate a theme.</dd>
           <dt>Maintained</dt><dd>Original, not archived, and pushed to in the 12 months before the latest scrape. ${num(t.maintained)} repositories.</dd>
-          <dt>Licensed</dt><dd>Has an open licence GitHub can detect. ${t.licensed_share == null ? "–" : t.licensed_share + "%"} of maintained repositories.</dd>
+          <dt>Licensed</dt><dd>Has an open licence its platform can detect. ${t.licensed_share == null ? "–" : t.licensed_share + "%"} of maintained repositories.</dd>
           <dt>Notable</dt><dd>Has a description, some content, and a push after the day it was created. Lists of new repositories show only these, which hides empty placeholders.</dd>
         </dl>
 
         <h2 id="themes">Themes</h2>
         <p>The taxonomy is fixed and reviewed. Its top level is the ten divisions of the UN Classification of the Functions of Government (COFOG), plus a domain for cross-government capabilities such as identity, payments and design systems. Each domain has tags, each with a one-line definition: ${nd} domains and ${ntag} tags in taxonomy v${esc(state.themes.taxonomy_version ?? c.taxonomy_version ?? 1)}. The full list is at <a href="${esc(API)}/v1/taxonomy">/v1/taxonomy</a>.</p>
         <p>Evidence-backed runs read bounded repository metadata and README text, then store only fixed taxonomy IDs supported by literal quotes from the source. A repository is classified once and again only when it changes, so the weekly cost stays small.</p>
+        <p>For now only GitHub repositories are classified, because README text is read through GitHub's API. Repositories from other platforms are left out of the coverage figures below rather than counted as waiting.</p>
         ${c.model ? `<p>Current run: <code>${esc(c.model)}</code>, ${num(c.labelled_repos ?? c.classified_original_repos)} labelled of ${num(covered)} original repositories (${c.coverage}% coverage), taxonomy v${esc(c.taxonomy_version)}.</p>
         <div class="cov" role="img" aria-label="Classification coverage of original repositories">
           <div class="track"><i style="width:${w(c.labelled_repos)}%;background:var(--cobalt)"></i><i style="width:${w(c.abstained_repos)}%;background:var(--faint)"></i><i style="width:${w(c.pending_repos)}%;background:var(--line)"></i><i style="width:${w(c.failed_repos)}%;background:var(--hot)"></i></div>
@@ -740,11 +752,13 @@
           <li>Labels are AI-assisted, not human-certified. Quote validation proves the evidence exists, not that the label is right.</li>
           <li>Labelled means at least one domain, kind or tag was assigned, not a complete tag set. A missing tag is unknown, not a verified negative.</li>
           <li>Registry labels mix countries with international bodies and sub-national governments, such as "U.S. City" and "U.K. Councils".</li>
+          <li>GitLab and Forgejo report less than GitHub: few of their projects have a description or topics, Forgejo reports no licence, and neither has a push date, so the last activity date stands in for it. Their licensed and maintained figures are less complete.</li>
+          <li>On GitLab, copies of GitHub repositories are only recognised by name, through the same body's GitHub account when the submission names it.</li>
           <li>Stars are a weak signal of value in government: a few very large projects hold most of them. Government forks are a better one, and the <a href="#/reuse">reuse page</a> counts them.</li>
         </ul>
 
         <h2 id="corrections">Corrections and submissions</h2>
-        <p>If your organisation is missing, <a href="#/submit">suggest it</a>. If a repository is in the wrong theme or something else is wrong, open an issue on <a href="https://github.com/AndreasThinks/open-govtech-report/issues">GitHub</a> or email <a href="${mailto("Open GovTech Index correction")}">${esc(CONTACT)}</a>.</p>
+        <p>If your organisation is missing, on GitHub or another code platform, <a href="#/submit">suggest it</a>. To suggest a whole government code server, use the same page with the server's address. If a repository is in the wrong theme or something else is wrong, open an issue on <a href="https://github.com/AndreasThinks/open-govtech-report/issues">GitHub</a> or email <a href="${mailto("Open GovTech Index correction")}">${esc(CONTACT)}</a>.</p>
       </article>
     </div></div>`;
   }
@@ -816,7 +830,7 @@
       <div class="row">
         <div><div class="eyebrow">${a.account_type === "user" ? "User account" : "Organisation"} · ${esc(LEVEL_NAMES[a.level] || "")}</div><h1 class="mono-h">${esc(a.owner)}</h1>
           <p>${num(a.repos)} public repositories under <a href="${placeHref(a.label)}">${esc(a.label)}</a>. First repository ${date(a.first_repo)}, last push ${ago(a.last_push)}.</p></div>
-        <div class="acts"><a class="btn" href="${esc(a.github_url)}" rel="noopener">View on GitHub</a><a class="btn ghost" href="#/repos?q=${enc(a.owner)}&maintained=false">Browse all</a></div>
+        <div class="acts"><a class="btn" href="${esc(a.url || a.github_url)}" rel="noopener">View on ${esc(hostName(a.url || a.github_url))}</a><a class="btn ghost" href="#/repos?q=${enc(a.owner)}&maintained=false">Browse all</a></div>
       </div>
       <div class="stats">
         <div class="stat"><b>${num(a.maintained)}</b><small>maintained originals</small></div>
@@ -987,35 +1001,157 @@
   }
 
   // ------------------------------------------------------------------ submit an account
+  // Government servers read in full (keep in step with forge_hosts.yaml; a test checks).
+  const FORGE_SERVERS = { "gitlab.opencode.de": "gitlab", "code.europa.eu": "gitlab", "code.overheid.nl": "forgejo", "gitlab.adullact.net": "gitlab", "repo1.dso.mil": "gitlab", "code.usgs.gov": "gitlab", "code.ornl.gov": "gitlab" };
+  // Shared servers whose platform we know; any other host asks.
+  const SHARED_HOSTS = { "gitlab.com": "gitlab", "framagit.org": "gitlab", "codeberg.org": "forgejo", "gitea.com": "forgejo" };
+  const PLATFORM_NAMES = { github: "GitHub", gitlab: "GitLab", forgejo: "Forgejo or Gitea" };
+  const REPO_URL = "https://github.com/AndreasThinks/open-govtech-report";
+
+  function parseCodeUrl(raw) {
+    let u;
+    try { u = new URL(/^https?:\/\//i.test(raw.trim()) ? raw.trim() : "https://" + raw.trim()); } catch (e) { return null; }
+    const host = u.host.toLowerCase().replace(/^www\./, "");
+    let path = u.pathname.replace(/\/+$/, "").replace(/^\/+/, "");
+    path = path.replace(/^groups\//, "").split("/-/")[0];  // GitLab group pages
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) return null;
+    return { host, path };
+  }
+
+  // Ask the platform directly where it allows browsers to (gitlab.com and Codeberg do).
+  async function checkAccount(host, platform, owner, type) {
+    const p = enc(owner);
+    const urls = platform === "github" ? [`https://api.github.com/users/${p}`]
+      : platform === "forgejo" ? [`https://${host}/api/v1/users/${p}`]
+      : type === "user" ? [`https://${host}/api/v4/users?username=${p}`] : [`https://${host}/api/v4/groups/${p}?with_projects=false`];
+    try {
+      const r = await fetch(urls[0], { headers: { Accept: "application/json" } });
+      if (r.status === 404) return "missing";
+      if (!r.ok) return "unknown";
+      const body = await r.json();
+      return Array.isArray(body) && !body.length ? "missing" : "found";
+    } catch (e) { return "unknown"; }
+  }
+
   function pageSubmit() {
     app.innerHTML = `
     <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / Add an account</div><h1>Add an account</h1>
-      <p>Know a government GitHub account that is missing? Fill this in and we will open a prefilled submission on GitHub for you to propose. A maintainer reviews every submission.</p></div></section>
+      <p>Know a government account whose code is missing? It can be on GitHub, on a GitLab server (including gitlab.com) or on a Forgejo or Gitea server such as Codeberg. Fill this in and we will open a prefilled submission on GitHub for you to propose. A maintainer reviews every submission.</p></div></section>
     <section class="sec pad"><div class="in two">
-      <form class="card subform" id="sub">
-        <label>GitHub account<input name="org" required pattern="[A-Za-z0-9][A-Za-z0-9-]{0,38}" placeholder="for example nhsdigital"><small>The name in github.com/&lt;account&gt;</small></label>
-        <label>Country code<input name="country" required pattern="[A-Za-z]{2}" maxlength="2" placeholder="GB"><small>Two-letter ISO 3166 code</small></label>
-        <label>Account type<select name="account_type"><option value="org">Organisation</option><option value="user">User</option></select></label>
+      <form class="card subform" id="sub" novalidate>
+        <label>Where is the code?<input name="url" id="suburl" required autocomplete="off" spellcheck="false" placeholder="https://gitlab.com/your-group"><small>The address of the organisation, group or user page, not a single repository.</small></label>
+        <div class="detect" id="subdetect" aria-live="polite"><span class="cap">Paste an address to see what the index can read there.</span></div>
+        <label id="subplat" hidden>Which platform is this server?<select name="platform"><option value="gitlab">GitLab</option><option value="forgejo">Forgejo or Gitea</option><option value="other">Something else</option></select></label>
+        <label>Account type<select name="account_type"><option value="org">Organisation or group</option><option value="user">Person</option></select></label>
+        <label>Country<input name="country" required list="subcountries" placeholder="NL, Netherlands or U.K. Councils"><small>A two-letter code, a country name, or a label from the countries page</small><datalist id="subcountries"></datalist></label>
         <label>What it is<input name="description" required maxlength="200" placeholder="One plain sentence"></label>
-        <label>Evidence it is government<textarea name="evidence" required rows="3" placeholder="One link per line: an official website, register or Wikipedia article"></textarea></label>
+        <label id="subtwin" hidden>Same body on GitHub<input name="same_as_github" pattern="[A-Za-z0-9][A-Za-z0-9-]{0,38}" placeholder="Optional, for example betagouv"><small>If this body also has a GitHub account, name it so copies of its GitHub repositories are skipped.</small></label>
+        <label>Evidence it is government<textarea name="evidence" required rows="3" placeholder="One link per line: an official website or register that links to this account"></textarea><small>Best is an official site that links to the account, since anyone can create a group on gitlab.com or Codeberg.</small></label>
         <label>Notes for the reviewer<textarea name="notes" rows="2" placeholder="Optional"></textarea></label>
         <button class="btn" type="submit">Prepare submission</button>
       </form>
-      <div class="card"><h3>Your submission</h3><p class="cap">This file goes in <code>submissions/pending/</code>. GitHub opens it ready to propose; you need a GitHub account.</p>
+      <div class="card"><h3>Your submission</h3><p class="cap" id="subdest">This file goes in <code>submissions/pending/</code>. GitHub opens it ready to propose; you need a GitHub account.</p>
         <textarea id="subyaml" class="snippet" readonly rows="14">Fill in the form to see the file.</textarea>
-        <div class="acts" style="margin-top:10px"><a class="btn" id="subgo" href="https://github.com/AndreasThinks/open-govtech-report/tree/main/submissions" rel="noopener" aria-disabled="true">Open on GitHub</a>${copyButton("subyaml", "Copy file")}</div>
+        <div class="acts" style="margin-top:10px"><a class="btn" id="subgo" href="${REPO_URL}/tree/main/submissions" rel="noopener" aria-disabled="true">Open on GitHub</a>${copyButton("subyaml", "Copy file")}</div>
         <p class="cap" style="margin-top:12px">No GitHub account? Email the details to <a href="${mailto("Account for the Open GovTech Index")}">${esc(CONTACT)}</a>.</p></div>
     </div></section>`;
     const form = document.getElementById("sub"), out = document.getElementById("subyaml"), go = document.getElementById("subgo");
+    const detect = document.getElementById("subdetect"), dest = document.getElementById("subdest");
+    const platBox = document.getElementById("subplat"), twinBox = document.getElementById("subtwin");
+    data.countries().then(c => {
+      const list = document.getElementById("subcountries");
+      if (list && c && c.items) list.innerHTML = c.items.map(x => `<option value="${esc(x.label)}">`).join("");
+    }).catch(() => {});
     const q = v => JSON.stringify(v);
+    let target = null, seq = 0;
+
+    function describe() {
+      const f = Object.fromEntries(new FormData(form));
+      const parsed = parseCodeUrl(f.url || "");
+      target = null;
+      platBox.hidden = twinBox.hidden = true;
+      if (!f.url) { detect.className = "detect"; detect.innerHTML = '<span class="cap">Paste an address to see what the index can read there.</span>'; return; }
+      if (!parsed) { detect.className = "detect no"; detect.innerHTML = "That does not look like a web address."; return; }
+      const { host, path } = parsed;
+      if (host === "github.com") {
+        const owner = path.split("/")[0];
+        if (!owner) { detect.className = "detect no"; detect.innerHTML = "Add the account name, as in github.com/alphagov."; return; }
+        target = { kind: "account", host, platform: "github", owner };
+      } else if (FORGE_SERVERS[host]) {
+        detect.className = "detect ok";
+        detect.innerHTML = `<b>${esc(host)}</b> is a government server the index already reads in full, so every public group on it is included.`;
+        target = { kind: "covered", host }; return;
+      } else {
+        const known = SHARED_HOSTS[host];
+        if (!known) platBox.hidden = false;
+        const platform = known || f.platform;
+        if (platform === "other") {
+          detect.className = "detect no";
+          detect.innerHTML = `The index can read GitHub, GitLab, Forgejo and Gitea. For other platforms, email <a href="${mailto("Code platform for the Open GovTech Index: " + host)}">${esc(CONTACT)}</a> and we will note it.`;
+          return;
+        }
+        twinBox.hidden = false;
+        if (!path) {
+          target = { kind: "server", host, platform };
+          detect.className = "detect warn";
+          detect.innerHTML = `This is a whole server. If it is run by a government, suggest it and a maintainer will add it; the button opens an issue instead of a file. To add one account on it, include the group, as in <code>${esc(host)}/your-group</code>.`;
+          return;
+        }
+        target = { kind: "account", host, platform, owner: platform === "forgejo" ? path.split("/")[0] : path };
+      }
+      const t = target, mine = ++seq;
+      detect.className = "detect";
+      detect.innerHTML = `<span class="b co">${PLATFORM_NAMES[t.platform]}</span> <b>${esc(t.host)}/${esc(t.owner)}</b> <span class="cap">Checking…</span>`;
+      const indexed = t.platform === "github" ? t.owner : `${t.host}/${t.owner}`;
+      Promise.all([
+        state.live ? data.account(indexed).catch(() => null) : Promise.resolve(null),
+        checkAccount(t.host, t.platform, t.owner, f.account_type),
+      ]).then(([inIndex, check]) => {
+        if (mine !== seq) return;
+        const head = `<span class="b co">${PLATFORM_NAMES[t.platform]}</span> <b>${esc(t.host)}/${esc(t.owner)}</b>`;
+        if (inIndex) { detect.className = "detect ok"; detect.innerHTML = `${head}<br>This account is already in the index, with ${num(inIndex.repos)} repositories. <a href="${accountHref(inIndex.owner)}">See it</a>.`; target.kind = "indexed"; fixLinks(detect); return; }
+        const note = { found: "Found. The index can read its public repositories.", missing: "Not found. Check the address, and whether it is a group or a person.", unknown: "Could not check from your browser; the review will check it." }[check];
+        detect.className = "detect " + (check === "missing" ? "no" : check === "found" ? "ok" : "");
+        detect.innerHTML = `${head}<br>${note}`;
+      });
+    }
+    const urlBox = document.getElementById("suburl");
+    let timer;
+    urlBox.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(describe, 400); });
+    form.platform.addEventListener("change", describe);
+    form.account_type.addEventListener("change", describe);
+
     form.addEventListener("submit", e => {
       e.preventDefault();
-      const f = Object.fromEntries(new FormData(form)), cc = f.country.toUpperCase(), org = f.org.trim();
-      const evidence = f.evidence.split(/\s+/).filter(x => /^https?:\/\//.test(x));
-      if (!evidence.length) { out.value = "Add at least one evidence link starting with https://"; return; }
-      const yaml = `org: ${org}\ncountry: ${cc}\naccount_type: ${f.account_type}\ndescription: ${q(f.description.trim())}\nevidence:\n${evidence.map(x => `  - ${x}`).join("\n")}\nnotes: ${q(f.notes.trim())}\n`;
+      describe();
+      const f = Object.fromEntries(new FormData(form));
+      const evidence = f.evidence.split(/\s+/).filter(x => /^https:\/\//.test(x));
+      const fail = msg => { out.value = msg; go.setAttribute("aria-disabled", "true"); go.href = `${REPO_URL}/tree/main/submissions`; };
+      if (!target) return fail("Add the address of the account first.");
+      if (target.kind === "covered") return fail(`Nothing to submit: ${target.host} is already read in full.`);
+      if (target.kind === "indexed") return fail("Nothing to submit: this account is already in the index.");
+      if (!f.country.trim() || !f.description.trim()) return fail("Fill in the country and what it is.");
+      if (!evidence.length) return fail("Add at least one evidence link starting with https://");
+      const country = /^[A-Za-z]{2}$/.test(f.country.trim()) ? f.country.trim().toUpperCase() : f.country.trim();
+      const ev = evidence.map(x => `  - ${x}`).join("\n");
+      if (target.kind === "server") {
+        const body = `Please add this government code server.\n\nServer: https://${target.host}\nPlatform: ${PLATFORM_NAMES[target.platform]}\nCountry: ${country}\nWho runs it: ${f.description.trim()}\nEvidence:\n${ev}\n\nNotes: ${f.notes.trim() || "none"}`;
+        out.value = body;
+        dest.innerHTML = "Whole servers are added by a maintainer, so this opens a GitHub issue rather than a file.";
+        go.textContent = "Open issue on GitHub";
+        go.href = `${REPO_URL}/issues/new?title=${enc("Add government code server: " + target.host)}&body=${enc(body)}`;
+        go.removeAttribute("aria-disabled");
+        return;
+      }
+      const where = target.platform === "github" ? `org: ${target.owner}\n`
+        : `host: ${target.host}\nplatform: ${target.platform}\nowner: ${q(target.owner)}\n${f.same_as_github ? `same_as_github: ${f.same_as_github.trim()}\n` : ""}`;
+      const yaml = `${where}country: ${q(country)}\naccount_type: ${f.account_type}\ndescription: ${q(f.description.trim())}\nevidence:\n${ev}\nnotes: ${q(f.notes.trim())}\n`;
+      const stem = [country, target.platform === "github" ? "" : target.host.split(".")[0], target.owner].filter(Boolean).join("-");
+      const file = stem.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") + ".yaml";
       out.value = yaml;
-      go.href = `https://github.com/AndreasThinks/open-govtech-report/new/main/submissions/pending?filename=${enc(cc.toLowerCase() + "-" + org.toLowerCase() + ".yaml")}&value=${enc(yaml)}`;
+      dest.innerHTML = `This file goes in <code>submissions/pending/${esc(file)}</code>. GitHub opens it ready to propose; you need a GitHub account.`;
+      go.textContent = "Open on GitHub";
+      go.href = `${REPO_URL}/new/main/submissions/pending?filename=${enc(file)}&value=${enc(yaml)}`;
       go.removeAttribute("aria-disabled");
     });
   }
@@ -1034,7 +1170,7 @@
         <li><code>/v1/repos</code>: search and filter by text, country, language, topic, domain, tag or kind</li>
         <li><code>/v1/repos/{owner}/{name}</code> and <code>/context</code>: one repository, its classification, history and reuse</li>
         <li><code>/v1/countries</code> and <code>/v1/places</code>: registry labels with country, level of government and activity; <code>/v1/countries/{id}</code> for one</li>
-        <li><code>/v1/accounts/{owner}</code>: one government GitHub account</li>
+        <li><code>/v1/accounts/{owner}</code>: one government account; accounts on other forges are <code>{host}/{group}</code></li>
         <li><code>/v1/week</code>, <code>/v1/reuse</code>, <code>/v1/practice</code>, <code>/v1/building-blocks</code>: the data behind those pages</li>
         <li><code>/v1/taxonomy</code>, <code>/v1/stats</code></li>
       </ul>
@@ -1064,11 +1200,11 @@
       else if (page === "themes") pageThemes();
       else if (page === "theme") await pageTheme(parts[1]);
       else if (page === "repos") await pageRepos(query);
-      else if (page === "repo") await pageRepo(parts[1], parts[2]);
+      else if (page === "repo") await pageRepo(parts.slice(1, -1).join("/"), parts[parts.length - 1]);
       else if (page === "about" || page === "method") pageAbout();
       else if (page === "countries") await pageCountries(query);
       else if (page === "country") await pageCountry(parts[1]);
-      else if (page === "account") await pageAccount(parts[1]);
+      else if (page === "account") await pageAccount(parts.slice(1).join("/"));
       else if (page === "week") await pageWeek();
       else if (page === "reuse") await pageReuse();
       else if (page === "compare") await pageCompare(query);

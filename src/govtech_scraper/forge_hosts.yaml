@@ -1,10 +1,15 @@
-# Government-run GitLab servers outside GitHub, read through their public APIs.
+# Government-run code servers outside GitHub, read through their public APIs.
 #
-# Each entry is one server hostname. `country` uses the same
+# Each entry is one server hostname. `platform` is gitlab (the default) or forgejo
+# (Forgejo and Gitea, which share an API). `country` uses the same
 # labels as the government.github.com registry so the two sources line up.
 # `owners` (optional) limits the fetch to those top-level groups, for shared
 # hosts such as gitlab.com. `include_personal: true` keeps projects owned by
 # individual users. `level` is informational for now.
+#
+# Whole servers are added here by a maintainer. Single accounts on shared servers
+# (gitlab.com, codeberg.org) come in as community submissions instead; see
+# submissions/TEMPLATE.yaml.
 #
 # See docs/forges.md.
 
@@ -18,6 +23,12 @@ hosts:
     country: European Union
     level: international
     description: European Commission code platform for EU institutions (EC OSPO)
+
+  - host: code.overheid.nl
+    platform: forgejo
+    country: Netherlands
+    level: national
+    description: code.overheid.nl, the Dutch government's code platform (pilot since April 2026)
 
   - host: gitlab.adullact.net
     country: France

@@ -72,6 +72,16 @@ jobs:
           fi
           uv run --frozen govtech-scraper -v scrape $FORCE_FLAG
 
+      - name: Fetch government servers outside GitHub
+        # After the GitHub scrape, so copies of GitHub repos are recognised and skipped.
+        # One unreachable server (ADULLACT often times out from GitHub's runners) is
+        # reported and skipped. The first run makes two calls per GitLab project for
+        # language and licence (about 90 minutes); later runs reuse them. Each server
+        # saves when it finishes, and a failure here never blocks the GitHub data.
+        timeout-minutes: 150
+        continue-on-error: true
+        run: uv run --frozen govtech-scraper -v forges --allow-host-failures
+
       - name: Show stats
         run: uv run --frozen govtech-scraper stats
 

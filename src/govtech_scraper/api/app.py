@@ -46,7 +46,9 @@ def create_app(catalogue: Catalogue | None = None, site_dir: Path | None = SITE_
         version="1",
         description=(
             "Read-only access to public repositories owned by accounts in the government.github.com "
-            "registry, classified against the UN COFOG functions of government. "
+            "registry, government GitLab and Forgejo servers, and reviewed community submissions, "
+            "classified against the UN COFOG functions of government. Repositories outside GitHub "
+            "have a host-qualified owner, such as gitlab.com/commonground. "
             "MCP clients can connect to /mcp."
         ),
         lifespan=lifespan,
@@ -96,19 +98,26 @@ def create_app(catalogue: Catalogue | None = None, site_dir: Path | None = SITE_
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
 
-    @app.get("/v1/repos/{owner}/{name}", summary="One repository with tags and classification")
+    # Owners may contain slashes: repos from other forges are "host/group/name". The
+    # context route is registered first so ".../context" is not read as a repo name.
+    @app.get("/v1/repos/{owner:path}/{name}/context",
+             summary="History, government forks and similar repos")
+    def repo_context(owner: str, name: str):
+        context = insights.repo_context(owner, name)
+        if context is None:
+            # A repo literally named "context" on another forge.
+            repo = catalogue.get_repo(f"{owner}/{name}", "context")
+            if repo is not None:
+                return repo
+            raise HTTPException(status_code=404, detail="Repository not in the catalogue")
+        return context
+
+    @app.get("/v1/repos/{owner:path}/{name}", summary="One repository with tags and classification")
     def get_repo(owner: str, name: str):
         repo = catalogue.get_repo(owner, name)
         if repo is None:
             raise HTTPException(status_code=404, detail="Repository not in the catalogue")
         return repo
-
-    @app.get("/v1/repos/{owner}/{name}/context", summary="History, government forks and similar repos")
-    def repo_context(owner: str, name: str):
-        context = insights.repo_context(owner, name)
-        if context is None:
-            raise HTTPException(status_code=404, detail="Repository not in the catalogue")
-        return context
 
     @app.get("/v1/overview", summary="Headline numbers, timeline, countries and newest repos")
     def overview():
@@ -140,7 +149,7 @@ def create_app(catalogue: Catalogue | None = None, site_dir: Path | None = SITE_
             raise HTTPException(status_code=404, detail="No registry label with that id")
         return detail
 
-    @app.get("/v1/accounts/{owner}", summary="One government GitHub account")
+    @app.get("/v1/accounts/{owner:path}", summary="One government account, on GitHub or another forge")
     def account(owner: str):
         detail = insights.account(owner)
         if detail is None:

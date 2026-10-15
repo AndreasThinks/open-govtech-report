@@ -1,6 +1,6 @@
 # GovTech Scraper
 
-Catalogs public GitHub repositories owned by accounts in the government.github.com registry and accepted community submissions, then uses an LLM-powered tagging pipeline to automatically categorize them.
+Catalogs public repositories owned by accounts in the government.github.com registry, government GitLab and Forgejo servers, and accepted community submissions (GitHub, GitLab or Forgejo/Gitea accounts), then uses an LLM-powered tagging pipeline to automatically categorize them.
 
 **🏛️ [Live Dashboard](https://huggingface.co/spaces/AndreasThinks/govtech-dashboard)** — explore the data interactively.
 **📦 [Dataset on Hugging Face](https://huggingface.co/datasets/AndreasThinks/government-github-repos)** — download the full SQLite DB, CSV, and Parquet exports.

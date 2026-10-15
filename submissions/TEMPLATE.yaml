@@ -1,17 +1,31 @@
-# Government GitHub Repository Submission Template
+# Government Account Submission Template
 #
-# Copy this file to submissions/pending/<country-code>-<org-name>.yaml
-# Example: submissions/pending/gb-nhs-digital.yaml
+# Copy this file to submissions/pending/<country>-<account>.yaml (lower case, hyphens),
+# for example submissions/pending/gb-nhs-digital.yaml or nl-commonground.yaml.
+# The site's "Add an account" page (govtechindex.cloud/submit) fills this in for you.
 #
-# One file per organisation. Open a pull request when done.
+# One file per account. Open a pull request when done.
 # See CONTRIBUTING.md for full guidance.
 
-# GitHub organisation or user login (required)
-# The exact name as it appears in the GitHub URL: github.com/<org>
+# ---- Where the code is: fill in ONE of the two blocks below ----
+
+# A) A GitHub account: the name in github.com/<org>
 org: your-org-name
 
-# ISO 3166-1 alpha-2 country code (required)
-# Full list: https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
+# B) An account on another code platform. Delete `org:` above and uncomment these.
+# host: gitlab.com          # the server, e.g. gitlab.com, codeberg.org
+# platform: gitlab          # gitlab, or forgejo for Forgejo, Gitea and Codeberg
+# owner: your-group         # the group or organisation path, e.g. my-group/sub-group
+# same_as_github: ""        # optional: the same body's GitHub login, so copies of its
+#                           # GitHub repos are skipped
+#
+# Whole government servers (like code.overheid.nl) are added by a maintainer: open an
+# issue instead.
+
+# ---- About the account ----
+
+# Two-letter ISO 3166-1 code (GB, NL, DE), or a country name, or a
+# government.github.com registry label such as "U.K. Councils" or "U.S. City".
 country: GB
 
 # Account type: "org" or "user" (required)
@@ -22,9 +36,8 @@ account_type: org
 description: "UK National Health Service digital services organisation"
 
 # Evidence that this is a real government entity (required)
-# Link to an official government website, Wikipedia article, government register,
-# or other authoritative source confirming this organisation's government status.
-# At least one link required. More is better.
+# Best: an official government website that links to this account, since anyone can
+# create a group on gitlab.com or codeberg.org. A register or Wikipedia article helps too.
 evidence:
   - https://digital.nhs.uk
   - https://en.wikipedia.org/wiki/NHS_Digital
