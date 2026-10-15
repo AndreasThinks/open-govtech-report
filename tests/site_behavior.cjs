@@ -38,7 +38,7 @@ async function setup(mode = 'classified') {
   const source = fs.readFileSync(path.join(site, 'app.js'), 'utf8');
   assert.ok(source.includes('boot().then(route);'));
   vm.runInContext(source.replace('boot().then(route);',
-    'window.harness = {boot, data, pageRepo, pageRepos, pageTheme, pageAbout, pageOverview, emergingRule, isEmerging, fastestGrowing, pageSubmit};'), ctx);
+    'window.harness = {boot, data, pageRepo, pageRepos, pageTheme, pageAbout, pageOverview, isEmerging, risers, cooling, oneTeam, paceText, pageSubmit};'), ctx);
   await sandbox.harness.boot();
   return {...sandbox.harness, response, nodes, html: () => nodes.get('app').innerHTML};
 }
@@ -88,14 +88,18 @@ test('about replaces method, with contact and sponsor ask', async () => {
   assert.match(h.html(), /Sponsor the index/);
   assert.match(h.nodes.get('sponsor').innerHTML, /Interested in sponsoring it\?/);
 });
-test('fastest growing needs 50 repositories and emerging caps at 200', async () => {
+test('momentum lists follow the API status, not size', async () => {
   const h = await setup();
-  const rule = h.emergingRule();
-  assert.equal(rule.maxRepos, 200);
-  assert.ok(h.isEmerging({repos: 150, growth_12m: rule.minGrowth}, rule));
-  assert.ok(!h.isEmerging({repos: 1386, growth_12m: 99}, rule));
-  assert.ok(h.fastestGrowing().every(t => t.repos >= 50));
+  assert.ok(h.risers().length && h.risers().every(t => t.status === 'emerging'));
+  assert.ok(h.risers().some(t => t.repos > 200));
+  assert.ok(h.cooling().every(t => t.status === 'cooling' && t.pace < 1));
+  assert.ok(h.oneTeam().every(t => t.status === 'concentrated'));
+  assert.equal(h.paceText(1.55), '+55%'); assert.equal(h.paceText(0.7), '−30%');
+  assert.equal(h.paceText(1.2, true), '20% faster than the index');
   h.pageOverview();
-  assert.match(h.html(), /Fastest-growing theme/);
+  assert.match(h.html(), /Leading emerging theme/);
+  assert.match(h.html(), /One team busy/);
+  assert.match(h.html(), /Spreading, or one team\?/);
   assert.match(h.html(), /Show as a table/);
+  assert.doesNotMatch(h.html(), /growth_12m|Fastest-growing/);
 });
