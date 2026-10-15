@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Catalogs public GitHub repositories from accounts in the government.github.com registry and accepted community submissions; this is not a worldwide census. Source of truth for government accounts is the [government.github.com](https://github.com/github/government.github.com) YAML registry.
+Catalogs public repositories from accounts in the government.github.com registry, government GitLab/Forgejo servers (`forge_hosts.yaml`) and accepted community submissions on GitHub, GitLab or Forgejo; this is not a worldwide census. Source of truth for government accounts is the [government.github.com](https://github.com/github/government.github.com) YAML registry.
 
 ## Architecture
 
@@ -172,9 +172,9 @@ uv run streamlit run app.py
 
 `src/govtech_scraper/decision/` scores repos against a fixed, reviewed taxonomy (`decision/taxonomy.yaml`: COFOG domains, tags with definitions, kinds) using a System One decision model (hosted Jev, or open-weight Kev on our ZeroGPU Space in `spaces/decision-scorer/`). Results live in `decision_results` / `decision_probabilities`, keyed by taxonomy version and model; `repository_tags` is untouched. CLI: `uv run govtech-scraper decide --help`. Gold-set evaluation: `decide sample`, `decide label-gold`, `decide eval`. See `docs/decision-tagging.md`.
 
-## Government forges outside GitHub (experimental)
+## Government forges outside GitHub
 
-`src/govtech_scraper/forges.py` reads government GitLab servers (OpenCoDE, code.europa.eu, ADULLACT, US agencies) through their public GitLab APIs, configured in `forge_hosts.yaml`. Personal namespaces are skipped by default. CLI: `uv run govtech-scraper forges`. Not in the weekly pipeline yet. See `docs/forges.md`.
+`src/govtech_scraper/forges.py` reads government GitLab and Forgejo/Gitea servers (OpenCoDE, code.overheid.nl, code.europa.eu, ADULLACT, US agencies) through their public APIs, configured in `forge_hosts.yaml`, plus accepted community submissions of single accounts on shared servers (gitlab.com, Codeberg; `submissions.py`). Owners are stored host-qualified (`gitlab.com/group`), copies of indexed repos are skipped, and personal namespaces are skipped by default. Runs in the weekly pipeline after the GitHub scrape (`forges --allow-host-failures`, never blocking publication). Classification reads GitHub repos only (`CLASSIFIABLE` in `db.py`). CLI: `uv run govtech-scraper forges`. See `docs/forges.md`.
 
 ## Public API and MCP
 

@@ -119,7 +119,7 @@ def add_site_routes(app: FastAPI, catalogue: Catalogue, insights: Insights, site
         )
         return shell(f"/theme/{theme}", found["name"], desc)
 
-    @app.get("/repo/{owner}/{name}", include_in_schema=False)
+    @app.get("/repo/{owner:path}/{name}", include_in_schema=False)
     def repo_page(owner: str, name: str):
         repo = catalogue.get_repo(owner, name)
         path = f"/repo/{owner}/{name}"
@@ -140,12 +140,12 @@ def add_site_routes(app: FastAPI, catalogue: Catalogue, insights: Insights, site
         )
         return shell(f"/country/{slug}", label, desc)
 
-    @app.get("/account/{owner}", include_in_schema=False)
+    @app.get("/account/{owner:path}", include_in_schema=False)
     def account_page(owner: str):
         found = catalogue.search_repos(owner=owner, limit=1)
         if not found["total"]:
             return shell(f"/account/{owner}", "Not found", DEFAULT_DESCRIPTION, 404)
-        canonical = found["items"][0]["full_name"].split("/")[0]
+        canonical = found["items"][0]["full_name"].rsplit("/", 1)[0]
         desc = f"{canonical}, {found['items'][0]['country']}: {found['total']:,} public repositories in the index."
         return shell(f"/account/{owner}", canonical, desc)
 
@@ -224,7 +224,7 @@ def add_site_routes(app: FastAPI, catalogue: Catalogue, insights: Insights, site
 
     # ------------------------------------------------------------------ badge
 
-    @app.get("/badge/{owner}/{name}.svg", include_in_schema=False)
+    @app.get("/badge/{owner:path}/{name}.svg", include_in_schema=False)
     def badge(owner: str, name: str):
         repo = catalogue.get_repo(owner, name)
         right = "listed"

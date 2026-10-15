@@ -5,10 +5,13 @@ import asyncio
 import pytest
 
 from govtech_scraper.forges import (
+    Dedup,
     ForgeHost,
+    ForgeNotFound,
     fetch_forge,
     load_forge_hosts,
     main_language,
+    parse_forgejo_repo,
     parse_gitlab_project,
     scrape_forges,
 )
@@ -77,7 +80,7 @@ def test_shipped_host_list_loads():
 def test_parse_maps_gitlab_fields():
     repo = parse_gitlab_project(project("bmi/sub/team/tool", forked_from_project={
         "web_url": "https://gitlab.com/up/tool"}), FORGE)
-    assert (repo.owner, repo.name) == ("bmi/sub/team", "tool")
+    assert (repo.owner, repo.name) == (f"{HOST}/bmi/sub/team", "tool")
     assert repo.country == "Germany"
     assert repo.pushed_at == "2026-01-01T00:00:00.000Z"
     assert repo.fork and repo.fork_source == "https://gitlab.com/up/tool"
@@ -209,3 +212,211 @@ async def test_fork_parent_comes_from_detail_call_and_survives_reuse(tmp_db):
     await scrape_forges(tmp_db, [FORGE], get=FakeGitLab([[dict(a)]]))
     row = tmp_db.conn.execute("SELECT fork, fork_source FROM repositories").fetchone()
     assert tuple(row) == (1, "https://gitlab.com/up/a")
+
+
+# ---------------------------------------------------------------- Forgejo / Gitea
+
+FJ_HOST = "code.overheid.nl"
+FJ_API = f"https://{FJ_HOST}/api/v1"
+FJ = ForgeHost(host=FJ_HOST, country="Netherlands", platform="forgejo")
+
+
+def fj_repo(full_name, host=FJ_HOST, **extra):
+    record = {
+        "full_name": full_name,
+        "html_url": f"https://{host}/{full_name}",
+        "description": "omschrijving",
+        "language": "Java",
+        "stars_count": 2,
+        "forks_count": 1,
+        "watchers_count": 3,
+        "open_issues_count": 0,
+        "size": 120,
+        "topics": ["overheid"],
+        "default_branch": "main",
+        "fork": False,
+        "parent": None,
+        "archived": False,
+        "private": False,
+        "internal": False,
+        "empty": False,
+        "mirror": False,
+        "original_url": "",
+        "created_at": "2026-05-01T00:00:00Z",
+        "updated_at": "2026-09-01T00:00:00Z",
+    }
+    record.update(extra)
+    return record
+
+
+class FakeForgejo:
+    """Serves /orgs, /users/{o}/repos and /repos/search by page number."""
+
+    def __init__(self, orgs=(), repos=None, missing=()):
+        self.orgs = list(orgs)
+        self.repos = repos or {}  # owner -> list of repo records
+        self.missing = set(missing)
+        self.calls = []
+
+    async def __call__(self, url, params):
+        self.calls.append((url, params))
+        page, limit = params["page"], params["limit"]
+
+        def chunk(items):
+            return items[(page - 1) * limit: page * limit]
+
+        if url.endswith("/orgs"):
+            return chunk([{"username": o} for o in self.orgs]), None
+        if url.endswith("/repos/search"):
+            return {"ok": True, "data": chunk([r for v in self.repos.values() for r in v])}, None
+        owner = url.split("/users/")[1].split("/")[0]
+        if owner in self.missing:
+            raise ForgeNotFound(url)
+        return chunk(self.repos.get(owner, [])), None
+
+
+def test_parse_forgejo_maps_fields_and_qualifies_owner():
+    repo = parse_forgejo_repo(fj_repo("MinBZK/tool", fork=True,
+                                      parent={"html_url": "https://codeberg.org/up/tool"}), FJ)
+    assert (repo.owner, repo.name) == (f"{FJ_HOST}/MinBZK", "tool")
+    assert (repo.language, repo.size_kb, repo.watchers) == ("Java", 120, 3)
+    assert repo.pushed_at == "2026-09-01T00:00:00Z"
+    assert repo.fork and repo.fork_source == "https://codeberg.org/up/tool"
+    assert repo.license is None
+
+
+def test_parse_forgejo_skips_private_empty_and_off_host():
+    assert parse_forgejo_repo(fj_repo("a/b", private=True), FJ) is None
+    assert parse_forgejo_repo(fj_repo("a/b", empty=True), FJ) is None
+    assert parse_forgejo_repo(fj_repo("a/b", host="codeberg.org"), FJ) is None
+
+
+async def test_forgejo_whole_server_reads_orgs_and_pages():
+    many = [fj_repo(f"MinBZK/r{i}") for i in range(60)]
+    fake = FakeForgejo(orgs=["MinBZK", "Kadaster"],
+                       repos={"MinBZK": many, "Kadaster": [fj_repo("Kadaster/k")]})
+    result = await fetch_forge(fake, FJ)
+    assert len(result.repos) == 61
+    assert fake.calls[0][0] == f"{FJ_API}/orgs"
+    pages = [p["page"] for u, p in fake.calls if u.endswith("/MinBZK/repos")]
+    assert pages == [1, 2]
+    assert not any(u.endswith("/languages") for u, _ in fake.calls)  # no per-repo calls
+
+
+async def test_forgejo_skips_copies_of_indexed_repos():
+    fake = FakeForgejo(orgs=["MinBZK"], repos={"MinBZK": [
+        fj_repo("MinBZK/mirror", mirror=True, original_url="https://github.com/MinBZK/mirror.git"),
+        fj_repo("MinBZK/moved", original_url="https://GitHub.com/MinBZK/moved/"),
+        fj_repo("MinBZK/elsewhere", mirror=True, original_url="https://git.example.nl/x/elsewhere"),
+        fj_repo("MinBZK/own"),
+    ]})
+    dedup = Dedup(indexed_urls={"https://github.com/minbzk/mirror", "https://github.com/minbzk/moved"})
+    result = await fetch_forge(fake, FJ, dedup=dedup)
+    assert sorted(r.name for r in result.repos) == ["elsewhere", "own"]
+    assert result.skipped_copies == 2
+
+
+async def test_submitted_owner_twin_skips_same_named_github_repos():
+    forge = ForgeHost(host="codeberg.org", country="France", platform="forgejo",
+                      owners=["betagouv"], twins={"betagouv": "betagouv"})
+    fake = FakeForgejo(repos={"betagouv": [fj_repo("betagouv/site", host="codeberg.org"),
+                                           fj_repo("betagouv/new", host="codeberg.org")]})
+    dedup = Dedup(github_names={("betagouv", "site")})
+    result = await fetch_forge(fake, forge, dedup=dedup)
+    assert [r.name for r in result.repos] == ["new"]
+    assert fake.calls[0][0] == "https://codeberg.org/api/v1/users/betagouv/repos"
+
+
+async def test_missing_submitted_owner_is_skipped_not_fatal():
+    forge = ForgeHost(host="codeberg.org", country="France", platform="forgejo",
+                      owners=["gone", "here"])
+    fake = FakeForgejo(repos={"here": [fj_repo("here/x", host="codeberg.org")]}, missing=["gone"])
+    result = await fetch_forge(fake, forge)
+    assert [r.name for r in result.repos] == ["x"]
+    assert result.missing_owners == ["gone"]
+
+
+async def test_gitlab_twin_and_user_owner():
+    forge = ForgeHost(host="gitlab.com", country="Netherlands", owners=["commonground", "civil"],
+                      user_owners={"civil"}, twins={"commonground": "VNG-Realisatie"},
+                      owner_countries={"civil": "U.K. Councils"})
+
+    async def get(url, params):
+        if "/users/civil/" in url:
+            return [project("civil/tool", host="gitlab.com", kind="user")], None
+        return [project("commonground/sub/api", host="gitlab.com"),
+                project("commonground/new", host="gitlab.com")], None
+
+    dedup = Dedup(github_names={("vng-realisatie", "api")})
+    result = await fetch_forge(get, forge, details=False, dedup=dedup)
+    by_name = {r.name: r for r in result.repos}
+    assert set(by_name) == {"new", "tool"}  # personal kept for a submitted user
+    assert by_name["tool"].country == "U.K. Councils"
+    assert by_name["new"].country == "Netherlands"
+    assert result.skipped_copies == 1
+
+
+async def test_scrape_dedups_against_github_rows(tmp_db):
+    tmp_db.save_repositories([Repository(owner="MinBZK", name="dup", country="Netherlands",
+                                         html_url="https://github.com/MinBZK/dup")])
+    fake = FakeForgejo(orgs=["MinBZK"], repos={"MinBZK": [
+        fj_repo("MinBZK/dup", mirror=True, original_url="https://github.com/MinBZK/dup"),
+        fj_repo("MinBZK/only-here")]})
+    results = await scrape_forges(tmp_db, [FJ], get=fake)
+    assert results[0].skipped_copies == 1
+    urls = {r[0] for r in tmp_db.conn.execute("SELECT html_url FROM repositories WHERE current=1")}
+    assert urls == {"https://github.com/MinBZK/dup", f"https://{FJ_HOST}/MinBZK/only-here"}
+
+
+def _write(path, text):
+    path.write_text(text)
+    return path
+
+
+def test_submissions_merge_into_hosts(tmp_path):
+    hosts = _write(tmp_path / "hosts.yaml", """hosts:
+  - host: code.overheid.nl
+    platform: forgejo
+    country: Netherlands
+""")
+    subs = tmp_path / "subs"
+    subs.mkdir()
+    common = """account_type: org
+description: "A real body"
+evidence: ["https://www.gov.nl/about"]
+"""
+    _write(subs / "nl-commonground.yaml", "host: gitlab.com\nplatform: gitlab\n"
+           "owner: commonground\ncountry: NL\nsame_as_github: VNG-Realisatie\n" + common)
+    _write(subs / "fr-betagouv.yaml", "host: codeberg.org\nplatform: forgejo\n"
+           "owner: betagouv\ncountry: FR\n" + common)
+    _write(subs / "nl-minbzk.yaml", "host: code.overheid.nl\nplatform: forgejo\n"
+           "owner: MinBZK\ncountry: NL\nsame_as_github: MinBZK\n" + common)
+    _write(subs / "gb-alphagov.yaml", "org: alphagov\ncountry: GB\n" + common)
+    _write(subs / "broken.yaml", "host: gitlab.com\n")
+    by_host = {h.host: h for h in load_forge_hosts(hosts, submissions_dir=subs)}
+    assert set(by_host) == {"code.overheid.nl", "gitlab.com", "codeberg.org"}
+    gl = by_host["gitlab.com"]
+    assert (gl.platform, gl.owners, gl.country) == ("gitlab", ["commonground"], "Netherlands")
+    assert gl.twins == {"commonground": "VNG-Realisatie"}
+    assert by_host["codeberg.org"].owner_countries == {"betagouv": "France"}
+    # A whole curated server keeps reading every org; the submission only adds its twin.
+    assert by_host["code.overheid.nl"].owners == []
+    assert by_host["code.overheid.nl"].twins == {"minbzk": "MinBZK"}
+
+
+def test_shipped_hosts_include_dutch_forgejo():
+    hosts = {h.host: h for h in load_forge_hosts()}
+    assert hosts["code.overheid.nl"].platform == "forgejo"
+    assert hosts["gitlab.opencode.de"].platform == "gitlab"
+
+
+def test_submit_page_knows_every_curated_server():
+    """The Add an account page tells people a curated server is already read in full."""
+    import json
+    import re
+    from pathlib import Path
+
+    js = (Path(__file__).parents[1] / "src/govtech_scraper/site/app.js").read_text()
+    servers = json.loads(re.search(r"const FORGE_SERVERS = (\{.*?\});", js).group(1))
+    curated = {h.host: h.platform for h in load_forge_hosts() if not h.owners}
+    assert servers == curated

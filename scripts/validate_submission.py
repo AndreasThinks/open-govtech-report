@@ -3,109 +3,41 @@
 Validate a submission YAML file (or all files in submissions/pending/).
 
 Usage:
-    python scripts/validate_submission.py submissions/pending/gb-nhs-digital.yaml
+    python scripts/validate_submission.py submissions/pending/nl-commonground.yaml
     python scripts/validate_submission.py --all
+    python scripts/validate_submission.py --online <files>   # also ask the forge's API
 
 Exit 0 = all valid. Exit 1 = validation errors found.
-Called by the validate-submission GitHub Actions workflow on PRs.
+Called by the validate-submission GitHub Actions workflow on PRs. The rules live in
+govtech_scraper.submissions, which the scraper also uses to load submissions.
 """
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
 import yaml
 
 REPO_ROOT = Path(__file__).parent.parent
-SUBMISSIONS_DIR = REPO_ROOT / "submissions" / "pending"
+sys.path.insert(0, str(REPO_ROOT / "src"))
 
-REQUIRED_FIELDS = ["org", "country", "account_type", "description", "evidence"]
-VALID_ACCOUNT_TYPES = {"org", "user"}
+from govtech_scraper.submissions import (
+    SUBMISSIONS_DIR,
+    check_online,
+    parse,
+    validate_file,
+)
 
-# ISO 3166-1 alpha-2 codes (the ones most likely to appear; non-exhaustive)
-# A full hard-coded list would be maintenance burden — we do a format check instead
-COUNTRY_RE = re.compile(r"^[A-Z]{2}$")
-
-# Basic sanity check for a GitHub org/user login
-ORG_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,37}[a-zA-Z0-9])?$")
-
-
-def validate_file(path: Path) -> list[str]:
-    """Validate a single submission file. Returns list of error strings (empty = valid)."""
-    errors = []
-
-    # Must be YAML-parseable
-    try:
-        with open(path) as f:
-            data = yaml.safe_load(f)
-    except yaml.YAMLError as e:
-        return [f"YAML parse error: {e}"]
-
-    if not isinstance(data, dict):
-        return ["File must contain a YAML mapping (key: value pairs)"]
-
-    # Required fields present
-    for field in REQUIRED_FIELDS:
-        if field not in data or data[field] is None or data[field] == "":
-            errors.append(f"Missing required field: '{field}'")
-
-    if errors:
-        return errors  # stop here — further checks depend on fields being present
-
-    # org: valid GitHub login format
-    org = str(data["org"]).strip()
-    if not ORG_RE.match(org):
-        errors.append(
-            f"'org' value '{org}' doesn't look like a valid GitHub login "
-            "(alphanumeric and hyphens only, no leading/trailing hyphens, max 39 chars)"
-        )
-
-    # country: ISO 3166-1 alpha-2
-    country = str(data["country"]).strip()
-    if not COUNTRY_RE.match(country):
-        errors.append(
-            f"'country' value '{country}' must be a 2-letter ISO 3166-1 alpha-2 code (e.g. GB, US, DE)"
-        )
-
-    # account_type: org or user
-    if data["account_type"] not in VALID_ACCOUNT_TYPES:
-        errors.append(
-            f"'account_type' must be 'org' or 'user', got '{data['account_type']}'"
-        )
-
-    # description: non-empty string
-    desc = str(data.get("description", "")).strip()
-    if not desc or desc == "Short description of the organisation":
-        errors.append("'description' must be a non-empty, non-placeholder string")
-
-    # evidence: list with at least one non-empty entry
-    evidence = data.get("evidence", [])
-    if not isinstance(evidence, list) or not any(
-        isinstance(e, str) and e.strip() and not e.startswith("http://example")
-        for e in evidence
-    ):
-        errors.append(
-            "'evidence' must be a list with at least one real URL linking to an "
-            "authoritative source confirming government status"
-        )
-
-    # Filename convention: should match <country>-<something>.yaml
-    stem = path.stem.lower()
-    expected_prefix = country.lower() + "-"
-    if not stem.startswith(expected_prefix):
-        errors.append(
-            f"Filename '{path.name}' should start with the country code prefix '{expected_prefix}' "
-            f"(e.g. '{expected_prefix}{org.lower()}.yaml')"
-        )
-
-    return errors
+__all__ = ["validate_file"]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate govtech submission YAML files")
     parser.add_argument("files", nargs="*", type=Path, help="Submission files to validate")
-    parser.add_argument("--all", action="store_true", help="Validate all files in submissions/pending/")
+    parser.add_argument("--all", action="store_true",
+                        help="Validate all files in submissions/pending/")
+    parser.add_argument("--online", action="store_true",
+                        help="Also confirm each account exists through its platform's API")
     args = parser.parse_args()
 
     if args.all:
@@ -121,7 +53,11 @@ def main() -> int:
 
     all_valid = True
     for path in targets:
-        errors = validate_file(path)
+        errors, warnings = validate_file(path), []
+        if not errors and args.online:
+            errors, warnings = check_online(parse(yaml.safe_load(path.read_text()), path.name))
+        for warning in warnings:
+            print(f"WARN: {path.name}: {warning}")
         if errors:
             all_valid = False
             print(f"\nFAIL: {path.name}")
@@ -131,7 +67,7 @@ def main() -> int:
             print(f"OK:   {path.name}")
 
     if not all_valid:
-        print(f"\nValidation failed. Fix the errors above and re-push.")
+        print("\nValidation failed. Fix the errors above and re-push.")
         return 1
 
     print(f"\nAll {len(targets)} submission(s) valid.")

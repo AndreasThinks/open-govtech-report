@@ -257,3 +257,5 @@ table.cmp{min-width:480px}
 @keyframes flow-pulse { 0% { transform: translateX(0); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(14px); opacity: 0; } }
 @media (max-width: 640px) { .flow { grid-template-columns: 1fr; } .flow li::after, .flow li:not(:last-child)::before { display: none; } }
 @media (prefers-reduced-motion: reduce) { .flow li::before { animation: none; } }
+.detect{border:1px solid var(--line);border-radius:4px;padding:10px 12px;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.detect.ok{border-color:var(--ok)}.detect.no{border-color:var(--no)}.detect.warn{border-color:var(--hot)}

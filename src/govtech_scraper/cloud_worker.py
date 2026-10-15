@@ -21,6 +21,7 @@ import tempfile
 import time
 
 from .cloud_state import HubTransport, PrivateState
+from .db import CLASSIFIABLE
 from .decision.evidence import (EvidenceClassifier, EvidenceStore, OpenRouterClient,
     MODEL_PRICES_USD_PER_TOKEN, DEFAULT_PROMPT_VERSION, build_graphql_readme_query,
     decode_graphql_readmes, source_from_repo)
@@ -252,7 +253,8 @@ class Worker:
                 parent = self.merge(db)
                 planner = IncrementalPlanner(db, model=MODEL, prompt_version=DEFAULT_PROMPT_VERSION, taxonomy=load_taxonomy())
                 repos = [row_to_repository(row) for row in db.conn.execute(
-                    'SELECT * FROM repositories WHERE COALESCE(current,1)=1 AND COALESCE(fork,0)=0 ORDER BY html_url')]
+                    'SELECT * FROM repositories WHERE COALESCE(current,1)=1 AND COALESCE(fork,0)=0 '
+                    f'AND {CLASSIFIABLE} ORDER BY html_url')]
                 # Durable rotating cursor prevents failed acquisitions starving later work.
                 cursor = self.state.get(db, 'cursor', '')
                 repos = [r for r in repos if r.html_url > cursor] + [r for r in repos if r.html_url <= cursor]
@@ -377,7 +379,7 @@ class Worker:
                         raise RuntimeError('Public metadata conflict; bounded rebase exhausted') from None
                     parent = self.merge(db)
                     planner = IncrementalPlanner(db, model=MODEL, prompt_version=DEFAULT_PROMPT_VERSION, taxonomy=load_taxonomy())
-                    for row in db.conn.execute('SELECT * FROM repositories WHERE current=1 AND fork=0').fetchall():
+                    for row in db.conn.execute(f'SELECT * FROM repositories WHERE current=1 AND fork=0 AND {CLASSIFIABLE}').fetchall():
                         repo = row_to_repository(row)
                         plan = planner.plan(repo)
                         if plan.action == PlanAction.REUSE:

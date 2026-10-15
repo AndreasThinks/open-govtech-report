@@ -13,7 +13,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from ..db import Database
+from ..db import CLASSIFIABLE, Database
 from .client import BackendExhaustedError, DecisionClient, HttpSystemOneClient, SpaceClient
 from .scorer import DecisionResult, build_state, input_hash, score_repos
 from .store import DecisionStore, row_to_repository
@@ -74,7 +74,8 @@ async def run_decision_tagging(
         )
     else:
         rows = db.conn.execute(
-            "SELECT * FROM repositories WHERE COALESCE(current, 1) = 1 ORDER BY stars DESC"
+            f"SELECT * FROM repositories WHERE COALESCE(current, 1) = 1 AND {CLASSIFIABLE} "
+            "ORDER BY stars DESC"
         )
 
     todo = []

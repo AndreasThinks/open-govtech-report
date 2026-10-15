@@ -23,6 +23,7 @@ from pathlib import Path
 
 import yaml
 
+from ..db import CLASSIFIABLE
 from .places import LEVELS, place, slug
 from .queries import NOTABLE_SQL, TAG_THRESHOLD, Catalogue
 
@@ -308,11 +309,21 @@ class Insights:
             "classification": self._coverage(original),
         }
 
-    def _coverage(self, original: int) -> dict:
+    def _coverage(self, original: int | None = None) -> dict:
+        """Classification progress over current original repos the pipeline can read.
+
+        Repos from other forges are not classified yet (CLASSIFIABLE), so they are left
+        out of the denominator rather than shown as pending. `original` is ignored.
+        """
         cat = self.catalogue
         classified = 0
         assessed = 0
         failed = 0
+        with cat._connect() as conn:
+            original = conn.execute(
+                f"""SELECT COUNT(*) FROM repositories
+                    WHERE {cat.current_predicate()} AND fork = 0 AND {CLASSIFIABLE}"""
+            ).fetchone()[0]
         if cat.decision_model:
             with cat._connect() as conn:
                 if cat.confidence_mode == "evidence":
@@ -574,8 +585,8 @@ class Insights:
             reused_by = conn.execute(
                 f"""SELECT owner || '/' || name AS full_name, owner, country, created_at
                    FROM repositories WHERE {self.catalogue.current_predicate()} AND fork = 1
-                     AND LOWER(fork_source) = LOWER(?) ORDER BY created_at DESC LIMIT 20""",
-                (repo["full_name"],),
+                     AND LOWER(fork_source) IN (LOWER(?), LOWER(?)) ORDER BY created_at DESC LIMIT 20""",
+                (repo["full_name"], repo["html_url"]),
             ).fetchall()
 
         similar: list[dict] = []
@@ -588,7 +599,7 @@ class Insights:
             similar = [
                 r
                 for r in found["items"]
-                if r["full_name"] != repo["full_name"] and r["full_name"].split("/")[0] != owner
+                if r["full_name"] != repo["full_name"] and r["full_name"].rsplit("/", 1)[0].lower() != owner.lower()
             ][:5]
             if similar:
                 break
@@ -880,7 +891,9 @@ class Insights:
         return {
             "owner": owner,
             "account_type": kind,
-            "github_url": f"https://github.com/{owner}",
+            # Owners from other forges are "host/group", which is also their web address.
+            "url": f"https://{owner}" if "." in owner.split("/")[0] else f"https://github.com/{owner}",
+            "github_url": None if "." in owner.split("/")[0] else f"https://github.com/{owner}",
             **{k: v for k, v in place(row["country"]).items() if k != "label"},
             "label": row["country"],
             "repos": row["repos"],

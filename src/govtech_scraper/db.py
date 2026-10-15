@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = "govtech.db"
 
+# Repositories the classification pipeline reads. README acquisition and the paid
+# classification run only know GitHub, so repos from other forges are counted and
+# searchable but not yet sorted into themes.
+CLASSIFIABLE = "html_url LIKE 'https://github.com/%'"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
     username TEXT PRIMARY KEY,

@@ -183,3 +183,49 @@ def test_feeds_badge_and_sitemap(client):
     sitemap = client.get("/sitemap.xml").text
     assert "/country/uk-central</loc>" in sitemap and "/account/alphagov</loc>" in sitemap
     assert "Sitemap:" in client.get("/robots.txt").text
+
+
+# ---------------------------------------------------------------- other forges
+
+@pytest.fixture
+async def forge_client(tmp_db):
+    tmp_db.save_repositories([
+        _repo("alphagov", "notify-api", "U.K. Central", stars=900),
+        _repo("gitlab.com/commonground/sub", "api", "Netherlands",
+              html_url="https://gitlab.com/commonground/sub/api"),
+        _repo("code.overheid.nl/MinBZK", "context", "Netherlands",
+              html_url="https://code.overheid.nl/MinBZK/context"),
+    ])
+    await run_decision_tagging(tmp_db, FakeClient(), load_taxonomy())
+    with TestClient(create_app(Catalogue(tmp_db.db_path))) as c:
+        yield c
+
+
+def test_forge_repo_has_host_qualified_name_and_routes(forge_client):
+    r = forge_client.get("/v1/repos/gitlab.com/commonground/sub/api")
+    assert r.status_code == 200
+    assert r.json()["full_name"] == "gitlab.com/commonground/sub/api"
+    ctx = forge_client.get("/v1/repos/gitlab.com/commonground/sub/api/context")
+    assert ctx.status_code == 200 and "history" in ctx.json()
+    # A repo named "context" is still reachable.
+    named = forge_client.get("/v1/repos/code.overheid.nl/MinBZK/context")
+    assert named.status_code == 200 and named.json()["full_name"] == "code.overheid.nl/MinBZK/context"
+    # GitHub routes are unchanged.
+    assert forge_client.get("/v1/repos/alphagov/notify-api").status_code == 200
+    assert forge_client.get("/v1/repos/alphagov/notify-api/context").status_code == 200
+
+
+def test_forge_account_page_badge_and_link(forge_client):
+    a = forge_client.get("/v1/accounts/gitlab.com/commonground/sub").json()
+    assert a["url"] == "https://gitlab.com/commonground/sub" and a["github_url"] is None
+    gh = forge_client.get("/v1/accounts/alphagov").json()
+    assert gh["github_url"] == gh["url"] == "https://github.com/alphagov"
+    assert forge_client.get("/repo/gitlab.com/commonground/sub/api").status_code == 200
+    assert forge_client.get("/account/gitlab.com/commonground/sub").status_code == 200
+    assert forge_client.get("/badge/gitlab.com/commonground/sub/api.svg").status_code == 200
+
+
+def test_forge_repos_are_left_out_of_classification(forge_client):
+    cov = forge_client.get("/v1/overview").json()["classification"]
+    assert cov["current_total_repos"] == 1  # only the GitHub original
+    assert forge_client.get("/v1/repos/gitlab.com/commonground/sub/api").json()["classification"] is None

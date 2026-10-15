@@ -17,7 +17,7 @@ from pathlib import Path
 
 import aiohttp
 
-from ..db import Database
+from ..db import CLASSIFIABLE, Database
 from .scorer import build_state
 from .store import DecisionStore, row_to_repository
 from .taxonomy import Taxonomy
@@ -47,8 +47,8 @@ def _split_tags(value: str) -> set[str]:
 def write_sample(db: Database, out_path: str | Path, n: int = 300, seed: int = 7) -> int:
     """Write a CSV of `n` random, non-empty current repositories with blank gold columns."""
     rows = db.conn.execute(
-        """SELECT * FROM repositories
-           WHERE COALESCE(current, 1) = 1
+        f"""SELECT * FROM repositories
+           WHERE COALESCE(current, 1) = 1 AND {CLASSIFIABLE}
              AND (COALESCE(TRIM(description), '') != '' OR COALESCE(topics, '[]') != '[]')
            ORDER BY html_url"""
     ).fetchall()

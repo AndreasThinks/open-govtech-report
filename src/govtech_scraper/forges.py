@@ -1,9 +1,23 @@
-"""Repositories on government GitLab servers outside GitHub.
+"""Repositories on government code servers outside GitHub: GitLab and Forgejo/Gitea.
 
-Each server's own GitLab REST API is read anonymously: public projects need no
-token. The project list carries last activity, archived state, stars, topics and
+Each server's own REST API is read anonymously: public projects need no token.
+Hosts come from forge_hosts.yaml (whole government servers, curated) plus accepted
+community submissions of single accounts on shared servers such as gitlab.com or
+codeberg.org (see submissions.py).
+
+GitLab: the project list carries last activity, archived state, stars, topics and
 whether the owner is a group or a person; language and licence take one extra
 call each per project, so they are optional.
+
+Forgejo/Gitea (Codeberg, code.overheid.nl): the repo list already carries language,
+fork parent and mirror origin, so it needs no per-repo calls. It has no licence.
+
+Repos are stored with a host-qualified owner ("gitlab.com/commonground"), so their
+owner/name never collides with a GitHub account, whose logins cannot contain dots.
+
+Copies of repos already in the index are skipped: Forgejo says where a mirror or
+migrated repo came from, and a submission can name the same body's GitHub account
+(`same_as_github`) so repos with the same name there are skipped too.
 
 Projects in personal namespaces are skipped by default: on shared servers such
 as code.europa.eu or code.ornl.gov they are mostly individual experiments.
@@ -42,16 +56,57 @@ DETAIL_CONCURRENCY = 2
 MAX_PAUSE_SECONDS = 300
 
 
+PLATFORMS = ("gitlab", "forgejo")
+FORGEJO_PAGE = 50  # Forgejo's default maximum page size
+
+
+class ForgeNotFound(Exception):
+    """A 404: not retried, since the account or server path is gone."""
+
+
 @dataclass
 class ForgeHost:
-    """A government GitLab server."""
+    """A government code server, or the accounts read from a shared one."""
     host: str
     country: str
     level: str = "national"
     description: str = ""
-    # Top-level groups to limit a shared server (e.g. gitlab.com) to.
+    platform: str = "gitlab"
+    # Top-level groups (or Forgejo owners) to limit a shared server (e.g. gitlab.com) to.
     owners: list[str] = field(default_factory=list)
     include_personal: bool = False
+    # Owners that are people rather than groups (submitted with account_type: user).
+    user_owners: set[str] = field(default_factory=set)
+    # Per-owner country label, for shared servers holding several governments' accounts.
+    owner_countries: dict[str, str] = field(default_factory=dict)
+    # Owner -> GitHub login of the same body: repos with the same name there are copies.
+    twins: dict[str, str] = field(default_factory=dict)
+
+    def owner_key(self, namespace: str) -> str | None:
+        """The configured owner a namespace path sits under (longest match), if any."""
+        ns = namespace.lower()
+        best = None
+        for owner in self.owners:
+            o = owner.lower()
+            if (ns == o or ns.startswith(o + "/")) and (best is None or len(o) > len(best)):
+                best = o
+        return best
+
+    def country_for(self, namespace: str) -> str:
+        key = self.owner_key(namespace)
+        return self.owner_countries.get(key, self.country) if key else self.country
+
+
+@dataclass
+class Dedup:
+    """What is already in the index, to skip copies of it."""
+    indexed_urls: set[str] = field(default_factory=set)  # normalised html_urls on other hosts
+    github_names: set[tuple[str, str]] = field(default_factory=set)  # (login, name), lower case
+
+
+def normalise_url(url: str | None) -> str:
+    url = (url or "").strip().lower().rstrip("/")
+    return url.removesuffix(".git").rstrip("/")
 
 
 @dataclass
@@ -60,6 +115,8 @@ class HostResult:
     status: str  # "succeeded" or "failed"
     repos: list[Repository] = field(default_factory=list)
     skipped_personal: int = 0
+    skipped_copies: int = 0
+    missing_owners: list[str] = field(default_factory=list)
     detail_failures: int = 0
     details_reused: int = 0
     error_type: str | None = None
@@ -69,19 +126,60 @@ class HostResult:
 Getter = Callable[[str, dict | None], Awaitable[tuple[object, str | None]]]
 
 
-def load_forge_hosts(path: Path = FORGE_HOSTS_PATH) -> list[ForgeHost]:
+def load_forge_hosts(path: Path = FORGE_HOSTS_PATH,
+                     submissions_dir: Path | None = None) -> list[ForgeHost]:
+    """Curated hosts, plus accepted submissions on other forges merged in by host.
+
+    Pass submissions_dir=None to read only the curated list.
+    """
     data = yaml.safe_load(path.read_text())
-    hosts = []
+    hosts: dict[str, ForgeHost] = {}
     for entry in data.get("hosts", []):
-        hosts.append(ForgeHost(
+        platform = str(entry.get("platform", "gitlab")).strip().lower()
+        if platform not in PLATFORMS:
+            raise ValueError(f"Unknown platform {platform!r} for {entry['host']}")
+        forge = ForgeHost(
             host=str(entry["host"]).strip().lower(),
             country=str(entry["country"]).strip(),
             level=str(entry.get("level", "national")),
             description=str(entry.get("description", "")),
+            platform=platform,
             owners=[str(o).strip() for o in entry.get("owners") or []],
             include_personal=bool(entry.get("include_personal", False)),
-        ))
-    return hosts
+        )
+        hosts[forge.host] = forge
+    if submissions_dir is not None:
+        from .submissions import load_submissions
+
+        def warn(p, errors):
+            logger.warning("Skipping invalid submission %s: %s", p.name, "; ".join(errors))
+
+        for sub in load_submissions(submissions_dir, on_invalid=warn):
+            if not sub.is_github:
+                _merge_submission(hosts, sub)
+    return list(hosts.values())
+
+
+def _merge_submission(hosts: dict[str, ForgeHost], sub) -> None:
+    forge = hosts.get(sub.host)
+    if forge is None:
+        forge = hosts[sub.host] = ForgeHost(host=sub.host, country=sub.country, level="submitted",
+                                            description="Community-submitted accounts",
+                                            platform=sub.platform)
+    elif forge.platform != sub.platform:
+        logger.warning("Submission %s says %s is %s, but it is read as %s; skipping",
+                       sub.file, sub.host, sub.platform, forge.platform)
+        return
+    key = sub.owner.lower()
+    if sub.same_as_github:
+        forge.twins[key] = sub.same_as_github
+    if forge.owners or forge.level == "submitted":
+        # A whole curated server already covers every group; only add to owner lists.
+        if key not in {o.lower() for o in forge.owners}:
+            forge.owners.append(sub.owner)
+        forge.owner_countries[key] = sub.country
+        if sub.account_type == "user":
+            forge.user_owners.add(key)
 
 
 def parse_gitlab_project(data: dict, forge: ForgeHost) -> Repository | None:
@@ -93,15 +191,15 @@ def parse_gitlab_project(data: dict, forge: ForgeHost) -> Repository | None:
     full_name = data.get("path_with_namespace") or ""
     if not html_url.startswith(f"https://{forge.host}/") or "/" not in full_name:
         return None
-    # GitLab groups nest: keep the whole group path as the owner.
-    owner, name = full_name.rsplit("/", 1)
+    # GitLab groups nest: keep the whole group path as the owner, behind the host.
+    namespace, name = full_name.rsplit("/", 1)
     parent = data.get("forked_from_project") or {}
     last_activity = data.get("last_activity_at")
     return Repository(
-        owner=owner,
+        owner=f"{forge.host}/{namespace}",
         name=name,
         html_url=html_url,
-        country=forge.country,
+        country=forge.country_for(namespace),
         description=data.get("description") or None,
         stars=data.get("star_count") or 0,
         forks=data.get("forks_count") or 0,
@@ -116,6 +214,43 @@ def parse_gitlab_project(data: dict, forge: ForgeHost) -> Repository | None:
         pushed_at=last_activity,
         # Full URL: a bare path could collide with an unrelated GitHub repo.
         fork_source=parent.get("web_url"),
+    )
+
+
+def parse_forgejo_repo(data: dict, forge: ForgeHost) -> Repository | None:
+    """Map a Forgejo/Gitea repository record onto Repository.
+
+    Returns None for private, internal, empty or off-host records.
+    """
+    html_url = (data.get("html_url") or "").rstrip("/")
+    full_name = data.get("full_name") or ""
+    if (not html_url.startswith(f"https://{forge.host}/") or "/" not in full_name
+            or data.get("private") or data.get("internal") or data.get("empty")):
+        return None
+    namespace, name = full_name.split("/", 1)
+    parent = data.get("parent") or {}
+    # Forgejo has no push timestamp; updated_at moves on every push.
+    updated = data.get("updated_at")
+    return Repository(
+        owner=f"{forge.host}/{namespace}",
+        name=name,
+        html_url=html_url,
+        country=forge.country_for(namespace),
+        description=data.get("description") or None,
+        language=data.get("language") or None,
+        stars=data.get("stars_count") or 0,
+        forks=data.get("forks_count") or 0,
+        watchers=data.get("watchers_count") or 0,
+        open_issues=data.get("open_issues_count") or 0,
+        size_kb=data.get("size") or 0,
+        topics=list(data.get("topics") or []),
+        default_branch=data.get("default_branch") or "main",
+        fork=bool(data.get("fork")),
+        archived=bool(data.get("archived")),
+        created_at=data.get("created_at"),
+        updated_at=updated,
+        pushed_at=updated,
+        fork_source=parent.get("html_url") or None,
     )
 
 
@@ -144,6 +279,7 @@ def make_getter(session: aiohttp.ClientSession) -> Getter:
     limiters: dict[str, AsyncLimiter] = {}
     paused_until: dict[str, float] = {}
 
+    # ForgeNotFound is deliberately not retried.
     @retry_async(max_attempts=6, base_delay=5.0,
                  retry_on=(aiohttp.ClientError, RuntimeError, asyncio.TimeoutError))
     async def get(url: str, params: dict | None) -> tuple[object, str | None]:
@@ -159,14 +295,16 @@ def make_getter(session: aiohttp.ClientSession) -> Getter:
                 wait = _header_seconds(resp.headers.get("Retry-After"), 60)
                 paused_until[host] = max(paused_until.get(host, 0), loop.time() + wait)
                 logger.warning("%s rate limited; pausing it for %ss", host, int(wait))
-                raise RuntimeError("GitLab 429")
+                raise RuntimeError("Forge 429")
             if resp.status >= 500:
                 # Overloaded small servers answer 502/503: back off the whole host too.
                 paused_until[host] = max(paused_until.get(host, 0), loop.time() + 30)
                 logger.warning("%s answered %s; pausing it for 30s", host, resp.status)
-                raise RuntimeError(f"GitLab error {resp.status}")
+                raise RuntimeError(f"Forge error {resp.status}")
+            if resp.status == 404:
+                raise ForgeNotFound(url)
             if resp.status != 200:
-                raise RuntimeError(f"GitLab error {resp.status}")
+                raise RuntimeError(f"Forge error {resp.status}")
             if resp.headers.get("RateLimit-Remaining") == "0":
                 # GitLab sends RateLimit-Reset as a Unix timestamp.
                 try:
@@ -178,38 +316,69 @@ def make_getter(session: aiohttp.ClientSession) -> Getter:
     return get
 
 
+def _is_copy(repo: Repository, original_url: str | None, forge: ForgeHost,
+             dedup: Dedup | None) -> bool:
+    """A mirror or migration of a repo already indexed, or a twin of the same body's GitHub repo."""
+    if dedup is None:
+        return False
+    if original_url and normalise_url(original_url) in dedup.indexed_urls:
+        return True
+    namespace = repo.owner.split("/", 1)[1]
+    key = forge.owner_key(namespace) or namespace.lower()
+    twin = forge.twins.get(key)
+    return bool(twin) and (twin.lower(), repo.name.lower()) in dedup.github_names
+
+
 async def _list_projects(get: Getter, forge: ForgeHost, limit: int | None,
-                         result: HostResult) -> list[tuple[int, Repository]]:
+                         result: HostResult,
+                         dedup: Dedup | None = None) -> list[tuple[int, Repository]]:
     api = f"https://{forge.host}/api/v4"
     params = {"per_page": PER_PAGE, "pagination": "keyset", "order_by": "id", "sort": "asc",
               "visibility": "public"}
     if forge.owners:
-        starts = [(f"{api}/groups/{quote(o, safe='')}/projects",
-                   {**params, "include_subgroups": "true"}) for o in forge.owners]
+        starts = []
+        for o in forge.owners:
+            if o.lower() in forge.user_owners:
+                starts.append((o, f"{api}/users/{quote(o, safe='')}/projects", dict(params)))
+            else:
+                starts.append((o, f"{api}/groups/{quote(o, safe='')}/projects",
+                               {**params, "include_subgroups": "true"}))
     else:
-        starts = [(f"{api}/projects", params)]
+        starts = [(None, f"{api}/projects", params)]
 
     found: list[tuple[int, Repository]] = []
     seen: set[str] = set()
-    for url, first_params in starts:
+    for owner, url, first_params in starts:
         next_url: str | None = url
         page_params: dict | None = first_params
         for _ in range(MAX_PAGES):
             if next_url is None:
                 break
-            items, next_url = await get(next_url, page_params)
+            try:
+                items, next_url = await get(next_url, page_params)
+            except ForgeNotFound:
+                if owner is None:
+                    raise
+                # A submitted account that no longer exists: skip it, keep the others.
+                logger.warning("%s/%s not found; skipping it", forge.host, owner)
+                result.missing_owners.append(owner)
+                break
             page_params = None  # the next link carries them
             if not isinstance(items, list):
                 raise RuntimeError("Invalid GitLab project list")
             if next_url and not next_url.startswith(f"{api}/"):
                 raise RuntimeError("Invalid pagination origin")
             for item in items:
-                if (item.get("namespace") or {}).get("kind") == "user" \
-                        and not forge.include_personal:
+                personal = (item.get("namespace") or {}).get("kind") == "user"
+                if personal and not forge.include_personal and not (
+                        owner and owner.lower() in forge.user_owners):
                     result.skipped_personal += 1
                     continue
                 repo = parse_gitlab_project(item, forge)
                 if repo is None or repo.html_url in seen:
+                    continue
+                if _is_copy(repo, None, forge, dedup):
+                    result.skipped_copies += 1
                     continue
                 seen.add(repo.html_url)
                 found.append((item["id"], repo))
@@ -217,6 +386,59 @@ async def _list_projects(get: Getter, forge: ForgeHost, limit: int | None,
                     return found
         else:
             raise RuntimeError(f"Pagination exceeded {MAX_PAGES} pages for {forge.host}")
+    return found
+
+
+async def _forgejo_pages(get: Getter, url: str):
+    """Yield each page of a Forgejo list endpoint, by page number."""
+    for page in range(1, MAX_PAGES + 1):
+        items, _ = await get(url, {"limit": FORGEJO_PAGE, "page": page})
+        if isinstance(items, dict):  # /repos/search wraps its list
+            items = items.get("data")
+        if not isinstance(items, list):
+            raise RuntimeError("Invalid Forgejo list")
+        yield items
+        if len(items) < FORGEJO_PAGE:
+            return
+    raise RuntimeError(f"Pagination exceeded {MAX_PAGES} pages for {url}")
+
+
+async def _list_forgejo(get: Getter, forge: ForgeHost, limit: int | None,
+                        result: HostResult, dedup: Dedup | None = None) -> list[Repository]:
+    api = f"https://{forge.host}/api/v1"
+    if forge.owners:
+        owners: list[str] = list(forge.owners)
+    elif forge.include_personal:
+        owners = []
+    else:
+        # A whole server: read organisations, so personal accounts are left out.
+        owners = []
+        async for page in _forgejo_pages(get, f"{api}/orgs"):
+            owners += [o["username"] for o in page if isinstance(o, dict) and o.get("username")]
+    starts = ([(o, f"{api}/users/{quote(o, safe='')}/repos") for o in owners]
+              if owners or not forge.include_personal else [(None, f"{api}/repos/search")])
+
+    found: list[Repository] = []
+    seen: set[str] = set()
+    for owner, url in starts:
+        try:
+            async for items in _forgejo_pages(get, url):
+                for item in items:
+                    repo = parse_forgejo_repo(item, forge)
+                    if repo is None or repo.html_url in seen:
+                        continue
+                    if _is_copy(repo, item.get("original_url"), forge, dedup):
+                        result.skipped_copies += 1
+                        continue
+                    seen.add(repo.html_url)
+                    found.append(repo)
+                    if limit is not None and len(found) >= limit:
+                        return found
+        except ForgeNotFound:
+            if owner is None:
+                raise
+            logger.warning("%s/%s not found; skipping it", forge.host, owner)
+            result.missing_owners.append(owner)
     return found
 
 
@@ -279,13 +501,29 @@ def _known_details(db: Database, forge: ForgeHost) -> Known:
 
 
 async def fetch_forge(get: Getter, forge: ForgeHost, limit: int | None = None,
-                      details: bool = True, known: Known | None = None) -> HostResult:
+                      details: bool = True, known: Known | None = None,
+                      dedup: Dedup | None = None) -> HostResult:
     result = HostResult(host=forge.host, status="succeeded")
-    projects = await _list_projects(get, forge, limit, result)
+    if forge.platform == "forgejo":
+        result.repos = await _list_forgejo(get, forge, limit, result, dedup)
+        return result
+    projects = await _list_projects(get, forge, limit, result, dedup)
     if details:
         await _add_details(get, forge, projects, result, known)
     result.repos = [repo for _, repo in projects]
     return result
+
+
+def _dedup(db: Database, forge: ForgeHost) -> Dedup:
+    rows = db.conn.execute(
+        "SELECT html_url, owner, name FROM repositories WHERE COALESCE(current, 1) = 1 "
+        "AND html_url NOT LIKE ?", (f"https://{forge.host}/%",)).fetchall()
+    dedup = Dedup()
+    for url, owner, name in rows:
+        dedup.indexed_urls.add(normalise_url(url))
+        if url.startswith("https://github.com/"):
+            dedup.github_names.add((owner.lower(), name.lower()))
+    return dedup
 
 
 async def scrape_forges(
@@ -298,6 +536,8 @@ async def scrape_forges(
 ) -> list[HostResult]:
     """Fetch and store every forge. One host failing doesn't stop the rest.
 
+    Run it after the GitHub scrape, so copies of repos just refreshed there are skipped.
+
     Deliberately writes no scrape_runs row: publication reads the latest run as
     the GitHub scrape's completeness record.
     """
@@ -309,7 +549,7 @@ async def scrape_forges(
     async def one(forge: ForgeHost) -> HostResult:
         try:
             result = await fetch_forge(get, forge, limit=limit, details=details,
-                                       known=_known_details(db, forge))
+                                       known=_known_details(db, forge), dedup=_dedup(db, forge))
             # Synchronous, so no other host's write can interleave with this save.
             _save_host(db, forge, result.repos, complete=limit is None)
         except Exception as exc:  # noqa: BLE001 - one host must not stop the rest

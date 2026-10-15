@@ -34,13 +34,16 @@ jobs:
           echo "Changed submission files: $FILES"
 
       - name: Validate submissions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           FILES="${{ steps.changed.outputs.files }}"
           if [ -z "$FILES" ]; then
             echo "No submission files changed."
             exit 0
           fi
-          uv run --frozen python scripts/validate_submission.py $FILES
+          # --online confirms each account exists through its platform's API.
+          uv run --frozen python scripts/validate_submission.py --online $FILES
 
       - name: Post result comment
         if: failure()
@@ -56,11 +59,12 @@ jobs:
             One or more submission files have errors. Check the **Actions** tab for details.
 
             Common issues:
-            - Missing required fields (\`org\`, \`country\`, \`account_type\`, \`description\`, \`evidence\`)
-            - \`country\` must be a 2-letter ISO code (e.g. \`GB\`, \`US\`, \`DE\`)
-            - \`account_type\` must be \`org\` or \`user\`
-            - \`evidence\` must contain at least one real URL
-            - Filename must start with the country code (e.g. \`gb-org-name.yaml\`)
+            - Missing required fields (\`org\` for GitHub, or \`host\`, \`platform\` and \`owner\` for other forges, plus \`country\`, \`account_type\`, \`description\`, \`evidence\`)
+            - \`country\` must be a 2-letter ISO code (e.g. \`GB\`, \`NL\`) or a country name
+            - \`platform\` must be \`gitlab\` or \`forgejo\` (Forgejo, Gitea and Codeberg)
+            - The account was not found through its platform's API
+            - \`evidence\` must contain at least one real https:// link
+            - Filename must be lower case letters, digits and hyphens (e.g. \`nl-commonground.yaml\`)
 
             See [submissions/TEMPLATE.yaml](../blob/main/submissions/TEMPLATE.yaml) for the correct format.`
             })

@@ -9,9 +9,10 @@ from mcp.server.mcpserver import MCPServer
 from .insights import Insights
 from .queries import Catalogue
 
-INSTRUCTIONS = """Query a catalogue of public GitHub repositories owned by government accounts listed
-in the government.github.com registry (plus accepted community submissions). It is not a census
-of all government code. Repositories are classified against the UN COFOG functions of government
+INSTRUCTIONS = """Query a catalogue of public repositories owned by government accounts listed
+in the government.github.com registry, on government GitLab and Forgejo servers, and in accepted
+community submissions. Repositories outside GitHub have a host-qualified owner such as
+"gitlab.com/commonground" and are not classified yet. It is not a census of all government code. Repositories are classified against the UN COFOG functions of government
 (domain ids "01" to "10", plus "00" for cross-government capabilities) and a fixed tag list;
 call get_taxonomy for the ids. Evidence-mode classifications expose literal evidence and have
 null probabilities; legacy probability runs remain model scores, not ground truth."""
