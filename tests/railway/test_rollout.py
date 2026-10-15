@@ -21,14 +21,22 @@ def env():
         GOVTECH_RAILWAY_WEB_URL=WEB, GOVTECH_RAILWAY_API_TOKEN='test-secret')
 
 
+def connection(*nodes):
+    return {'edges': [{'node': node} for node in nodes],
+            'pageInfo': {'hasNextPage': False}}
+
+
 class Transport:
     def __init__(self):
         self.variables = {'RAILWAY_DOCKERFILE_PATH': 'spaces/railway/Dockerfile.web', 'OTHER': 'keep'}
-        self.instance = {'source': {'repo': rr.PUBLIC_REPO, 'image': None}, 'volumeMounts': [],
+        self.instance = {'source': {'repo': rr.PUBLIC_REPO, 'image': None},
                          'dockerfilePath': 'spaces/railway/Dockerfile.web',
                          'startCommand': None, 'cronSchedule': None,
                          'latestDeployment': {'id': 'old', 'status': 'SUCCESS',
                                               'meta': {'commitHash': CODE}}}
+        self.project = {'volumes': connection({'id': 'worker-volume',
+            'volumeInstances': connection({'serviceId': 'worker',
+                'environmentId': 'environment', 'mountPath': '/data'})})}
         self.writes = []
         self.ambiguous = False
         self.drop = False
@@ -39,7 +47,8 @@ class Transport:
         self.requests.append(request)
         assert request.full_url == 'https://backboard.railway.com/graphql/v2'
         assert dict(request.header_items()) == {
-            'Project-access-token': 'test-secret', 'Content-type': 'application/json'}
+            'Project-access-token': 'test-secret', 'Content-type': 'application/json',
+            'User-agent': 'govtech-index/1.0'}
         assert 'test-secret' not in request.data.decode()
         payload = json.loads(request.data)
         query = payload['query']
@@ -61,7 +70,15 @@ class Transport:
                 raise OSError('test-secret')
             data = {'variableCollectionUpsert': True}
         else:
-            data = {'variables': self.variables, 'serviceInstance': self.instance}
+            compact = ''.join(query.split())
+            assert 'volumeMounts' not in query
+            assert 'project(id:$projectId){volumes{' in compact
+            assert 'volumeInstances{' in compact
+            assert 'serviceIdenvironmentIdmountPath' in compact
+            assert compact.count('pageInfo{hasNextPage}') == 2
+            assert args == {'projectId': 'project', 'environmentId': 'environment', 'serviceId': 'web'}
+            data = {'variables': self.variables, 'serviceInstance': self.instance,
+                    'project': self.project}
         return io.BytesIO(json.dumps({'data': data}).encode())
 
 
@@ -122,7 +139,8 @@ def test_wrong_target(setup, bad):
     hub, receipt, t, client, fetch, _ = setup
     if bad == 'repo': t.instance['source']['repo'] = 'private/repo'
     if bad == 'image': t.instance['source']['image'] = 'worker:latest'
-    if bad == 'volume': t.instance['volumeMounts'] = [{'mountPath': '/private'}]
+    if bad == 'volume':
+        t.project['volumes']['edges'][0]['node']['volumeInstances']['edges'][0]['node']['serviceId'] = 'web'
     if bad == 'worker': t.variables['RAILWAY_DOCKERFILE_PATH'] = 'spaces/railway/Dockerfile.worker'
     if bad == 'credential': t.variables['HF_TOKEN'] = 'private'
     with pytest.raises(RuntimeError):
@@ -440,6 +458,150 @@ def test_scope_mismatch_precedes_combined_side_effects(setup):
     with pytest.raises(RuntimeError, match='scope'):
         rr.update_public_index(receipt, hub, environ=env(), railway=client,
                                fetch=fetch, attempts=1)
+    assert not transport.writes
+    assert hub.restarts == 0
+    assert seen == []
+
+
+@pytest.mark.parametrize('service,environment,allowed', [
+    ('worker', 'environment', True), ('web', 'other-environment', True),
+    ('worker', 'other-environment', True), ('web', 'environment', False),
+])
+def test_volume_attachment_matches_both_target_ids(service, environment, allowed):
+    transport = Transport()
+    transport.project['volumes']['edges'].append({'node': {
+        'id': 'second-volume', 'volumeInstances': connection(
+            {'serviceId': 'worker', 'environmentId': 'other', 'mountPath': '/data'},
+            {'serviceId': service, 'environmentId': environment, 'mountPath': '/data'})}})
+    client = rr.RailwayClient(rr.RolloutConfig.from_env(env()), transport=transport)
+    if allowed:
+        assert client.inspect()[2] == CODE
+    else:
+        with pytest.raises(RuntimeError, match='Unsafe or unverifiable'):
+            client.inspect()
+    assert not transport.writes
+
+
+@pytest.mark.parametrize('domain', [
+    'govtech-web.railway.internal', 'a.railway.internal',
+    '0.railway.internal', 'a-0.railway.internal',
+    'a' * (253 - len('.railway.internal')) + '.railway.internal',
+])
+def test_railway_private_domain_allowed(domain):
+    transport = Transport()
+    transport.variables['RAILWAY_PRIVATE_DOMAIN'] = domain
+    client = rr.RailwayClient(rr.RolloutConfig.from_env(env()), transport=transport)
+    variables, _, code = client.inspect()
+    assert code == CODE
+    assert variables['RAILWAY_PRIVATE_DOMAIN'] == domain
+    assert not transport.writes
+
+
+@pytest.mark.parametrize('domain', [
+    None, False, 0, {}, [], '', ' ', 'Govtech-web.railway.internal',
+    'govtech-web.RAILWAY.internal', '-web.railway.internal',
+    'web-.railway.internal', 'web_name.railway.internal',
+    'web.extra.railway.internal', '.railway.internal', 'railway.internal',
+    'https://web.railway.internal', 'web.railway.internal:80',
+    'web.railway.internal/', 'web.railway.internal.evil',
+    'web.railway.internal.', ' web.railway.internal',
+    'web.railway.internal\n', 'web\x00.railway.internal',
+    'a' * (254 - len('.railway.internal')) + '.railway.internal',
+])
+def test_invalid_railway_private_domain_rejected(domain):
+    transport = Transport()
+    transport.variables['RAILWAY_PRIVATE_DOMAIN'] = domain
+    client = rr.RailwayClient(rr.RolloutConfig.from_env(env()), transport=transport)
+    with pytest.raises(RuntimeError, match='Unsafe or unverifiable'):
+        client.inspect()
+    assert not transport.writes
+
+
+@pytest.mark.parametrize('key', [
+    'railway_private_domain', 'Railway_PRIVATE_DOMAIN',
+    'RAILWAY_PRIVATE_DOMAIN_EXTRA', 'EXTRA_RAILWAY_PRIVATE_DOMAIN',
+    'RAILWAY_PRIVATE_DOMAINS', 'PRIVATE_DOMAIN', 'PRIVATE_KEY',
+    'HF_TOKEN', 'SECRET', 'PASSWORD', 'OPENROUTER', 'GITHUB_APP',
+    'INSTALLATION', 'WORKER', 'VOLUME', 'API_KEY', 'ACCESS_KEY', 'CREDENTIAL',
+])
+def test_private_domain_exception_does_not_bypass_key_guards(key):
+    transport = Transport()
+    transport.variables['RAILWAY_PRIVATE_DOMAIN'] = 'govtech-web.railway.internal'
+    transport.variables[key] = 'govtech-web.railway.internal'
+    client = rr.RailwayClient(rr.RolloutConfig.from_env(env()), transport=transport)
+    with pytest.raises(RuntimeError, match='Unsafe or unverifiable'):
+        client.inspect()
+    assert not transport.writes
+
+
+@pytest.mark.parametrize('volumes', [connection(), connection(
+    {'id': 'unattached-volume', 'volumeInstances': connection()})])
+def test_complete_empty_volume_connections_allowed(volumes):
+    transport = Transport()
+    transport.project = {'volumes': volumes}
+    client = rr.RailwayClient(rr.RolloutConfig.from_env(env()), transport=transport)
+    assert client.inspect()[2] == CODE
+
+
+@pytest.mark.parametrize('path', [
+    (), ('volumes',), ('volumes', 'edges'), ('volumes', 'edges', 0),
+    ('volumes', 'edges', 0, 'node'), ('volumes', 'edges', 0, 'node', 'id'),
+    ('volumes', 'pageInfo'), ('volumes', 'pageInfo', 'hasNextPage'),
+    *[('volumes', 'edges', 0, 'node', 'volumeInstances', *suffix) for suffix in [
+        (), ('edges',), ('edges', 0), ('edges', 0, 'node'),
+        ('pageInfo',), ('pageInfo', 'hasNextPage'),
+        ('edges', 0, 'node', 'serviceId'), ('edges', 0, 'node', 'environmentId'),
+        ('edges', 0, 'node', 'mountPath')]],
+])
+@pytest.mark.parametrize('bad', [None, {}, [], '', ' ', True, 0, 'false', 'test-secret', 'missing'])
+def test_unverifiable_volume_data_blocks_all_side_effects(setup, path, bad):
+    hub, receipt, transport, client, fetch, seen = setup
+    if not path:
+        transport.project = bad
+    else:
+        parent = transport.project
+        for key in path[:-1]:
+            parent = parent[key]
+        # Nonempty identity strings are valid; use whitespace/invalid types instead.
+        if path[-1] in ('id', 'serviceId', 'environmentId', 'mountPath') and bad in ('false', 'test-secret'):
+            bad = ' invalid '
+        if path[-1] == 'edges' and bad == []:
+            bad = [None]
+        if bad == 'missing' and isinstance(path[-1], int):
+            bad = None
+        if bad == 'missing':
+            del parent[path[-1]]
+        else:
+            parent[path[-1]] = bad
+    with pytest.raises(RuntimeError, match='Unsafe or unverifiable') as error:
+        rr.update_public_index(receipt, hub, environ=env(), railway=client,
+                               fetch=fetch, attempts=1)
+    assert 'test-secret' not in str(error.value)
+    assert not transport.writes
+    assert hub.restarts == 0
+    assert seen == []
+
+
+@pytest.mark.parametrize('failure', ['graphql', 'http', 'missing-project'])
+def test_volume_query_refusal_has_no_fallback(setup, failure):
+    hub, receipt, transport, client, fetch, seen = setup
+    def refuse(request, timeout):
+        result = transport(request, timeout)
+        if 'serviceInstance' in json.loads(request.data)['query']:
+            if failure == 'http':
+                raise OSError('test-secret HTTP400')
+            if failure == 'graphql':
+                return io.BytesIO(b'{"errors":[{"message":"test-secret unknown field"}],"data":{}}')
+            data = json.loads(result.getvalue())
+            del data['data']['project']
+            return io.BytesIO(json.dumps(data).encode())
+        return result
+    client.transport = refuse
+    with pytest.raises(RuntimeError) as error:
+        rr.update_public_index(receipt, hub, environ=env(), railway=client,
+                               fetch=fetch, attempts=1)
+    assert 'test-secret' not in str(error.value)
+    assert len(transport.requests) == 2
     assert not transport.writes
     assert hub.restarts == 0
     assert seen == []

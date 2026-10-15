@@ -34,7 +34,9 @@ and dataset. Userinfo, ports, paths, query strings, fragments, encoded aliases a
 redirects are rejected. Public HTTP requests have no authentication headers, use a
 separate transport, and ignore proxy configuration. Only the fixed
 `https://backboard.railway.com/graphql/v2` GraphQL endpoint receives the token, using
-`Project-Access-Token: <token>` with `Content-Type: application/json`. There is no
+`Project-Access-Token: <token>` with `Content-Type: application/json` and the honest
+`User-Agent: govtech-index/1.0` (the default urllib user agent was rejected by
+Railway). There is no
 Bearer fallback. This follows Railway's documented
 [project-token authentication](https://docs.railway.com/guides/public-api#using-a-project-token);
 account, workspace and OAuth tokens use a different authentication scheme and are
@@ -50,7 +52,7 @@ operations procedure; this module is not a distributed lock service.
    the public service. Require repository
    `AndreasThinks/open-govtech-report`, no image override, web Dockerfile
    `spaces/railway/Dockerfile.web`, no worker command or cron schedule, no volume
-   mounts, no private-worker or credential variables. Source SHA comes from actual
+   attachments to this service in this environment, no private-worker or credential variables. Source SHA comes from actual
    deployment `meta.commitHash`. Missing or unsupported target metadata fails closed.
 2. Reuse HF's existing serialized restart intent and verify the **native HF** stats
    endpoint. `operations.update_index(endpoint=...)` accepts only native HF or
@@ -119,3 +121,32 @@ Cloud acceptance, permissions, real GraphQL schema/service configuration, deploy
 image, startup storage capacity, canonical routing and external freshness monitoring
 remain parent responsibilities. See `evidence/RAILWAY_ROLLOUT_HANDOFF.md` for exact
 local checks and restrictions; local fake tests are not cloud acceptance.
+
+## Volume contract and parent acceptance
+
+ServiceInstance has no `volumeMounts` field. Inspection reads
+`project(id:$projectId).volumes.edges.node` with volume `id` and nested
+`volumeInstances.edges.node { serviceId environmentId mountPath }` instead.
+Every node and identity is validated, including unrelated worker attachments.
+A well-formed worker volume is allowed; any attachment matching both the configured
+web service and environment is refused. Null/pending identities or mount paths,
+missing data, malformed nodes, and refused queries fail closed before rollout.
+Complete empty connections are valid, including an unattached volume.
+
+Both connections request `pageInfo { hasNextPage }` and require the literal boolean
+`false`. A further page, missing pagination metadata, or invalid metadata stops
+rollout; there is no partial-page inspection success or fallback query.
+
+The parent confirmed the user agent correction and volume query on the live API,
+including `pageInfo { hasNextPage }` returning `false` on both connections.
+The parent's real adapter inspection then exposed Railway's injected
+`RAILWAY_PRIVATE_DOMAIN=govtech-web.railway.internal` being rejected by the broad
+private-variable guard. Only the exact key `RAILWAY_PRIVATE_DOMAIN` is now exempt,
+and only when its value is a string matching
+`[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.railway\.internal` with total length at most 253.
+The field may be absent; an invalid present value fails closed. All other
+secret/private/credential-key guards remain in force, including lookalike keys.
+**Full live adapter inspection acceptance remains pending with the parent.**
+Offline tests do not establish live acceptance. Hermes owns lifecycle and external
+actions.
+See `evidence/RAILWAY_API_CONTRACT_HANDOFF.md` for this correction's verification.

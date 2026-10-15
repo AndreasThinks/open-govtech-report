@@ -104,7 +104,8 @@ class RailwayClient:
         request = urllib.request.Request(GRAPHQL_URL,
             data=json.dumps(dict(query=query, variables=variables)).encode(),
             headers={'Project-Access-Token': self.config.token,
-                     'Content-Type': 'application/json'})
+                     'Content-Type': 'application/json',
+                     'User-Agent': 'govtech-index/1.0'})
         try:
             with self.transport(request, timeout=20) as response:
                 result = json.loads(response.read(2 * 1024 * 1024))
@@ -118,12 +119,20 @@ class RailwayClient:
         result = self.call('''query($projectId:String!,$environmentId:String!,$serviceId:String!){
           variables(projectId:$projectId,environmentId:$environmentId,serviceId:$serviceId)
           serviceInstance(serviceId:$serviceId,environmentId:$environmentId){
-            source{repo image} dockerfilePath startCommand cronSchedule volumeMounts{mountPath}
+            source{repo image} dockerfilePath startCommand cronSchedule
             latestDeployment{id status meta}
           }
+          project(id:$projectId){volumes{
+            pageInfo{hasNextPage}
+            edges{node{id volumeInstances{
+              pageInfo{hasNextPage}
+              edges{node{serviceId environmentId mountPath}}
+            }}}
+          }}
         }''', self.config.target())
         try:
             variables, instance = result['variables'], result['serviceInstance']
+            self._check_volumes(result['project']['volumes'])
             source = instance['source']
             deployment = instance['latestDeployment']
             meta = deployment['meta']
@@ -131,7 +140,6 @@ class RailwayClient:
                 meta = json.loads(meta)
             code = valid_sha(meta['commitHash'])
             if (source != {'repo': PUBLIC_REPO, 'image': None}
-                    or instance['volumeMounts'] != []
                     or instance['dockerfilePath'] != 'spaces/railway/Dockerfile.web'
                     or instance['startCommand'] not in (None, '', 'python -m govtech_scraper.railway_web')
                     or instance['cronSchedule'] not in (None, '')
@@ -141,19 +149,58 @@ class RailwayClient:
                     or variables.get('GOVTECH_WEB_DB', '/app/data/govtech.db') != '/app/data/govtech.db'
                     or not deployment['id']):
                 raise ValueError()
+            # Railway injects this hostname; exempt only this exact, validated key.
+            if 'RAILWAY_PRIVATE_DOMAIN' in variables:
+                domain = variables['RAILWAY_PRIVATE_DOMAIN']
+                if (not isinstance(domain, str) or len(domain) > 253
+                        or not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.railway\.internal', domain)):
+                    raise ValueError()
             # Reject credentials/private-worker configuration even if inherited from shared vars.
             if any(re.search(r'TOKEN|SECRET|PASSWORD|PRIVATE|OPENROUTER|GITHUB_APP|INSTALLATION|WORKER|VOLUME|API_KEY|ACCESS_KEY|CREDENTIAL',
-                             key, re.I) for key in variables):
+                             key, re.I) for key in variables if key != 'RAILWAY_PRIVATE_DOMAIN'):
                 raise ValueError()
             return variables, deployment, code
         except Exception:
             raise RuntimeError('Unsafe or unverifiable Railway public web target') from None
+
+    def _check_volumes(self, volumes):
+        # Never infer absence from a truncated page or an unknown/pending identity.
+        for volume in _complete_connection_nodes(volumes):
+            _volume_identity(volume['id'])
+            for attachment in _complete_connection_nodes(volume['volumeInstances']):
+                service = _volume_identity(attachment['serviceId'])
+                environment = _volume_identity(attachment['environmentId'])
+                mount = attachment['mountPath']
+                if (not isinstance(mount, str) or not mount.startswith('/')
+                        or mount.strip() != mount or any(ord(c) < 32 for c in mount)):
+                    raise ValueError('Unverifiable volume mount path')
+                if (service == self.config.service_id
+                        and environment == self.config.environment_id):
+                    raise ValueError('Public web volume attachment refused')
 
     def write(self, changes, *, skip_deploys):
         self.call('''mutation($input:VariableCollectionUpsertInput!){
           variableCollectionUpsert(input:$input)
         }''', {'input': {**self.config.target(), 'variables': changes,
                         'replace': False, 'skipDeploys': skip_deploys}})
+
+
+def _complete_connection_nodes(connection):
+    if (not isinstance(connection, dict)
+            or not isinstance(connection.get('pageInfo'), dict)
+            or connection['pageInfo'].get('hasNextPage') is not False
+            or not isinstance(connection.get('edges'), list)):
+        raise ValueError('Incomplete or unverifiable volume connection')
+    for edge in connection['edges']:
+        if not isinstance(edge, dict) or not isinstance(edge.get('node'), dict):
+            raise ValueError('Unverifiable volume connection node')
+        yield edge['node']
+
+
+def _volume_identity(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', value):
+        raise ValueError('Unverifiable volume identity')
+    return value
 
 
 def _fingerprint(variables):
