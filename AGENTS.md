@@ -174,7 +174,7 @@ uv run streamlit run app.py
 
 ## Government forges outside GitHub (experimental)
 
-`src/govtech_scraper/forges.py` fetches repos from government GitLab servers (OpenCoDE, code.europa.eu, ADULLACT, US agencies) through ecosyste.ms, configured in `forge_hosts.yaml`. CLI: `uv run govtech-scraper forges`. Data is CC BY-SA 4.0. Not in the weekly pipeline yet. See `docs/forges.md`.
+`src/govtech_scraper/forges.py` reads government GitLab servers (OpenCoDE, code.europa.eu, ADULLACT, US agencies) through their public GitLab APIs, configured in `forge_hosts.yaml`. Personal namespaces are skipped by default. CLI: `uv run govtech-scraper forges`. Not in the weekly pipeline yet. See `docs/forges.md`.
 
 ## Public API and MCP
 

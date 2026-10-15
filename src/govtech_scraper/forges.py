@@ -1,11 +1,15 @@
-"""Repositories on government forges outside GitHub, via ecosyste.ms.
+"""Repositories on government GitLab servers outside GitHub.
 
-ecosyste.ms already indexes self-hosted GitLab, Gitea and other forges, so one
-client covers them all. Its data is CC BY-SA 4.0: anything published from these
-rows needs attribution and share-alike.
+Each server's own GitLab REST API is read anonymously: public projects need no
+token. The project list carries last activity, archived state, stars, topics and
+whether the owner is a group or a person; language and licence take one extra
+call each per project, so they are optional.
 
-The free anonymous tier allows 300 requests an hour; the limiter below stays
-inside it. Pages are 100 repos, so a 3,000-repo host costs about 30 requests.
+Projects in personal namespaces are skipped by default: on shared servers such
+as code.europa.eu or code.ornl.gov they are mostly individual experiments.
+
+An earlier version used ecosyste.ms, which indexes these servers but leaves
+language, activity and archived state empty for them (tested 2026-10-15).
 """
 
 import asyncio
@@ -25,27 +29,27 @@ from .retry import retry_async
 
 logger = logging.getLogger(__name__)
 
-ECOSYSTEMS_API = "https://repos.ecosyste.ms/api/v1"
 FORGE_HOSTS_PATH = Path(__file__).parent / "forge_hosts.yaml"
 USER_AGENT = "open-govtech-index (+https://govtechindex.cloud)"
 PER_PAGE = 100
-MAX_PAGES = 1000
+MAX_PAGES = 2000
 
-# 300 requests/hour anonymous; keep a margin.
-REQUESTS_PER_HOUR = 280
-
-# ecosyste.ms keeps rows for repos the forge no longer serves.
-_GONE_STATUSES = {"not_found", "removed", "hidden"}
+# Self-hosted GitLab defaults allow far more, but these are public servers run by
+# small teams: stay polite.
+REQUESTS_PER_SECOND = 5
+DETAIL_CONCURRENCY = 4
 
 
 @dataclass
 class ForgeHost:
-    """A government forge as ecosyste.ms names it."""
+    """A government GitLab server."""
     host: str
     country: str
     level: str = "national"
     description: str = ""
+    # Top-level groups to limit a shared server (e.g. gitlab.com) to.
     owners: list[str] = field(default_factory=list)
+    include_personal: bool = False
 
 
 @dataclass
@@ -53,12 +57,13 @@ class HostResult:
     host: str
     status: str  # "succeeded" or "failed"
     repos: list[Repository] = field(default_factory=list)
-    skipped_mirrors: int = 0
-    skipped_gone: int = 0
+    skipped_personal: int = 0
+    detail_failures: int = 0
     error_type: str | None = None
 
 
-PageFetcher = Callable[[str, dict], Awaitable[list[dict]]]
+# get(url, params) -> (decoded JSON, next page URL or None)
+Getter = Callable[[str, dict | None], Awaitable[tuple[object, str | None]]]
 
 
 def load_forge_hosts(path: Path = FORGE_HOSTS_PATH) -> list[ForgeHost]:
@@ -71,107 +76,141 @@ def load_forge_hosts(path: Path = FORGE_HOSTS_PATH) -> list[ForgeHost]:
             level=str(entry.get("level", "national")),
             description=str(entry.get("description", "")),
             owners=[str(o).strip() for o in entry.get("owners") or []],
+            include_personal=bool(entry.get("include_personal", False)),
         ))
     return hosts
 
 
-def parse_ecosystems_repo(data: dict, forge: ForgeHost) -> Repository | None:
-    """Map an ecosyste.ms repository record onto Repository.
+def parse_gitlab_project(data: dict, forge: ForgeHost) -> Repository | None:
+    """Map a GitLab project record onto Repository.
 
-    Returns None for records that don't belong to the forge (defensive) or
-    that lack a usable URL.
+    Returns None for records whose URL isn't on the forge (defensive).
     """
-    html_url = (data.get("html_url") or "").rstrip("/")
-    full_name = data.get("full_name") or ""
+    html_url = (data.get("web_url") or "").rstrip("/")
+    full_name = data.get("path_with_namespace") or ""
     if not html_url.startswith(f"https://{forge.host}/") or "/" not in full_name:
         return None
     # GitLab groups nest: keep the whole group path as the owner.
     owner, name = full_name.rsplit("/", 1)
+    parent = data.get("forked_from_project") or {}
+    last_activity = data.get("last_activity_at")
     return Repository(
         owner=owner,
         name=name,
         html_url=html_url,
         country=forge.country,
-        description=data.get("description"),
-        language=data.get("language"),
-        stars=data.get("stargazers_count") or 0,
+        description=data.get("description") or None,
+        stars=data.get("star_count") or 0,
         forks=data.get("forks_count") or 0,
-        watchers=data.get("subscribers_count") or 0,
         open_issues=data.get("open_issues_count") or 0,
-        size_kb=data.get("size") or 0,
-        license=data.get("license"),
-        topics=list(data.get("topics") or []),
+        topics=list(data.get("topics") or data.get("tag_list") or []),
         default_branch=data.get("default_branch") or "main",
-        fork=bool(data.get("fork")),
+        fork=bool(parent),
         archived=bool(data.get("archived")),
         created_at=data.get("created_at"),
-        updated_at=data.get("updated_at"),
-        pushed_at=data.get("pushed_at"),
-        fork_source=data.get("source_name"),
+        updated_at=data.get("updated_at") or last_activity,
+        # GitLab has no push timestamp; last activity is the closest equivalent.
+        pushed_at=last_activity,
+        # Full URL: a bare path could collide with an unrelated GitHub repo.
+        fork_source=parent.get("web_url"),
     )
 
 
-def _make_page_fetcher(session: aiohttp.ClientSession) -> PageFetcher:
-    limiter = AsyncLimiter(REQUESTS_PER_HOUR, 3600)
+def main_language(languages: object) -> str | None:
+    """GitLab returns {"Python": 90.4, "HTML": 9.6}; keep the largest."""
+    if not isinstance(languages, dict) or not languages:
+        return None
+    return max(languages.items(), key=lambda kv: kv[1])[0]
+
+
+def _next_link(link_header: str) -> str | None:
+    for part in link_header.split(","):
+        if 'rel="next"' in part:
+            return part.split(";")[0].strip().strip("<>")
+    return None
+
+
+def make_getter(session: aiohttp.ClientSession) -> Getter:
+    limiters: dict[str, AsyncLimiter] = {}
 
     @retry_async(max_attempts=4, base_delay=5.0,
                  retry_on=(aiohttp.ClientError, RuntimeError, asyncio.TimeoutError))
-    async def fetch(url: str, params: dict) -> list[dict]:
+    async def get(url: str, params: dict | None) -> tuple[object, str | None]:
+        host = url.split("/")[2]
+        limiter = limiters.setdefault(host, AsyncLimiter(REQUESTS_PER_SECOND, 1))
         async with limiter, session.get(url, params=params,
-                               headers={"User-Agent": USER_AGENT}) as resp:
+                                        headers={"User-Agent": USER_AGENT}) as resp:
             if resp.status == 429:
                 wait = min(300, int(resp.headers.get("Retry-After", "60") or 60))
-                logger.warning("ecosyste.ms rate limited; waiting %ss", wait)
+                logger.warning("%s rate limited; waiting %ss", host, wait)
                 await asyncio.sleep(wait)
-                raise RuntimeError("ecosyste.ms 429")
+                raise RuntimeError("GitLab 429")
             if resp.status != 200:
-                raise RuntimeError(f"ecosyste.ms error {resp.status}")
-            data = await resp.json()
-        if not isinstance(data, list):
-            raise RuntimeError("Invalid ecosyste.ms repository response")
-        return data
-    return fetch
+                raise RuntimeError(f"GitLab error {resp.status}")
+            return await resp.json(), _next_link(resp.headers.get("Link", ""))
+    return get
 
 
-async def fetch_forge_repos(
-    fetch_page: PageFetcher,
-    forge: ForgeHost,
-    limit: int | None = None,
-    include_mirrors: bool = False,
-) -> HostResult:
-    """Enumerate every repository on one host (or its listed owners)."""
-    host_path = quote(forge.host, safe="")
+async def _list_projects(get: Getter, forge: ForgeHost, limit: int | None,
+                         result: HostResult) -> list[tuple[int, Repository]]:
+    api = f"https://{forge.host}/api/v4"
+    params = {"per_page": PER_PAGE, "pagination": "keyset", "order_by": "id", "sort": "asc",
+              "visibility": "public"}
     if forge.owners:
-        urls = [f"{ECOSYSTEMS_API}/hosts/{host_path}/owners/{quote(o, safe='')}/repositories"
-                for o in forge.owners]
+        starts = [(f"{api}/groups/{quote(o, safe='')}/projects",
+                   {**params, "include_subgroups": "true"}) for o in forge.owners]
     else:
-        urls = [f"{ECOSYSTEMS_API}/hosts/{host_path}/repositories"]
+        starts = [(f"{api}/projects", params)]
 
-    result = HostResult(host=forge.host, status="succeeded")
+    found: list[tuple[int, Repository]] = []
     seen: set[str] = set()
-    for url in urls:
-        for page in range(1, MAX_PAGES + 1):
-            params = {"per_page": PER_PAGE, "page": page, "sort": "created_at", "order": "asc"}
-            items = await fetch_page(url, params)
+    for url, first_params in starts:
+        next_url: str | None = url
+        page_params: dict | None = first_params
+        for _ in range(MAX_PAGES):
+            if next_url is None:
+                break
+            items, next_url = await get(next_url, page_params)
+            page_params = None  # the next link carries them
+            if not isinstance(items, list):
+                raise RuntimeError("Invalid GitLab project list")
+            if next_url and not next_url.startswith(f"{api}/"):
+                raise RuntimeError("Invalid pagination origin")
             for item in items:
-                if item.get("status") in _GONE_STATUSES:
-                    result.skipped_gone += 1
+                if (item.get("namespace") or {}).get("kind") == "user" \
+                        and not forge.include_personal:
+                    result.skipped_personal += 1
                     continue
-                if item.get("mirror_url") and not include_mirrors:
-                    result.skipped_mirrors += 1
-                    continue
-                repo = parse_ecosystems_repo(item, forge)
+                repo = parse_gitlab_project(item, forge)
                 if repo is None or repo.html_url in seen:
                     continue
                 seen.add(repo.html_url)
-                result.repos.append(repo)
-                if limit is not None and len(result.repos) >= limit:
-                    return result
-            if len(items) < PER_PAGE:
-                break
+                found.append((item["id"], repo))
+                if limit is not None and len(found) >= limit:
+                    return found
         else:
             raise RuntimeError(f"Pagination exceeded {MAX_PAGES} pages for {forge.host}")
-    return result
+    return found
+
+
+async def _add_details(get: Getter, forge: ForgeHost, projects: list[tuple[int, Repository]],
+                       result: HostResult) -> None:
+    """Language and licence, one call each. A failure leaves the field empty."""
+    api = f"https://{forge.host}/api/v4"
+    semaphore = asyncio.Semaphore(DETAIL_CONCURRENCY)
+
+    async def one(project_id: int, repo: Repository) -> None:
+        async with semaphore:
+            try:
+                languages, _ = await get(f"{api}/projects/{project_id}/languages", None)
+                repo.language = main_language(languages)
+                detail, _ = await get(f"{api}/projects/{project_id}", {"license": "true"})
+                licence = (detail or {}).get("license") if isinstance(detail, dict) else None
+                repo.license = (licence or {}).get("key")
+            except Exception:  # noqa: BLE001 - details are best effort
+                result.detail_failures += 1
+
+    await asyncio.gather(*(one(pid, repo) for pid, repo in projects))
 
 
 def _save_host(db: Database, forge: ForgeHost, repos: list[Repository], complete: bool) -> None:
@@ -185,31 +224,44 @@ def _save_host(db: Database, forge: ForgeHost, repos: list[Repository], complete
     db.conn.commit()
 
 
+async def fetch_forge(get: Getter, forge: ForgeHost, limit: int | None = None,
+                      details: bool = True) -> HostResult:
+    result = HostResult(host=forge.host, status="succeeded")
+    projects = await _list_projects(get, forge, limit, result)
+    if details:
+        await _add_details(get, forge, projects, result)
+    result.repos = [repo for _, repo in projects]
+    return result
+
+
 async def scrape_forges(
     db: Database,
     forges: list[ForgeHost],
     limit: int | None = None,
-    fetch_page: PageFetcher | None = None,
+    details: bool = True,
+    get: Getter | None = None,
     session: aiohttp.ClientSession | None = None,
 ) -> list[HostResult]:
-    """Fetch and store each forge in turn. One host failing doesn't stop the rest.
+    """Fetch and store every forge. One host failing doesn't stop the rest.
 
     Deliberately writes no scrape_runs row: publication reads the latest run as
     the GitHub scrape's completeness record.
     """
-    if fetch_page is None:
+    if get is None:
         if session is None:
-            raise ValueError("Pass a session or a fetch_page function")
-        fetch_page = _make_page_fetcher(session)
+            raise ValueError("Pass a session or a get function")
+        get = make_getter(session)
 
-    results = []
-    for forge in forges:
+    async def one(forge: ForgeHost) -> HostResult:
         try:
-            result = await fetch_forge_repos(fetch_page, forge, limit=limit)
+            result = await fetch_forge(get, forge, limit=limit, details=details)
+            # Synchronous, so no other host's write can interleave with this save.
             _save_host(db, forge, result.repos, complete=limit is None)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - one host must not stop the rest
             db.conn.rollback()
             result = HostResult(host=forge.host, status="failed", error_type=type(exc).__name__)
             logger.error("Forge fetch failed for %s (%s)", forge.host, result.error_type)
-        results.append(result)
-    return results
+        return result
+
+    # Rate limits are per host, so hosts run side by side.
+    return list(await asyncio.gather(*(one(f) for f in forges)))

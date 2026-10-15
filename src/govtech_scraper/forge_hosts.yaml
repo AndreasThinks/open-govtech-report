@@ -1,11 +1,12 @@
-# Government-run code forges outside GitHub, fetched through ecosyste.ms.
+# Government-run GitLab servers outside GitHub, read through their public APIs.
 #
-# Each entry is one host as ecosyste.ms names it. `country` uses the same
+# Each entry is one server hostname. `country` uses the same
 # labels as the government.github.com registry so the two sources line up.
 # `owners` (optional) limits the fetch to those top-level groups, for shared
-# hosts such as gitlab.com. `level` is informational for now.
+# hosts such as gitlab.com. `include_personal: true` keeps projects owned by
+# individual users. `level` is informational for now.
 #
-# See docs/forges.md for how hosts were chosen.
+# See docs/forges.md.
 
 hosts:
   - host: gitlab.opencode.de
