@@ -20,7 +20,13 @@ jobs:
           version: "0.11.7"
       - run: uv python install 3.11
       - run: uv sync --frozen
+      - name: Check ADULLACT reachability
+        continue-on-error: true
+        run: |
+          curl -sS -m 60 -o /dev/null -w "%{http_code} in %{time_total}s\n" "https://gitlab.adullact.net/api/v4/projects?per_page=1"
+          curl -sS -m 120 -o /dev/null -w "%{http_code} in %{time_total}s\n" "https://gitlab.adullact.net/api/v4/projects?per_page=100&pagination=keyset&order_by=id&sort=asc&visibility=public"
       - name: List every configured forge (no per-repo calls)
+        continue-on-error: true
         run: uv run --frozen govtech-scraper --db probe.db forges --no-details
       - name: Counts before details
         run: |
