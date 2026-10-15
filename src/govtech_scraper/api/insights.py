@@ -7,7 +7,14 @@ repositories in the current catalogue.
 Growth is measured from creation dates: repositories created in the last 12 months as a share of
 those created before then. It needs no snapshot history, so it works on the first scrape, but it
 cannot see repositories deleted or made private during the year.
+
+Growth mostly reflects how young a theme is, so momentum uses pace instead: the rate of new
+repositories in the last 12 complete months against the 12 before, divided by the same ratio for
+the whole index. Pace comes with an 80% interval and with breadth (how many accounts created the
+new work), and together they give each theme a status: emerging, concentrated, cooling or steady.
 """
+
+import math
 
 import sqlite3
 from collections import Counter
@@ -22,7 +29,11 @@ from .queries import NOTABLE_SQL, TAG_THRESHOLD, Catalogue
 BUILDING_BLOCKS = Path(__file__).with_name("building_blocks.yaml")
 
 YEAR = timedelta(days=365)
-FASTEST_MIN = 50  # repositories a tag needs before it can rank as fastest growing
+PACE_MONTHS = 12  # complete months in each pace window
+PACE_MIN = 20  # new repositories across both windows before a theme gets a status
+PACE_Z = 1.2816  # two-sided 80% interval
+BREADTH_MIN = 5  # accounts creating new work before a rise counts as emerging
+CONCENTRATED_SHARE = 50  # top account's share of new work, in percent, above which a rise is one team's
 PRACTICE_MIN = 25  # maintained repositories a label needs to appear on the practice table
 UNLICENSED = ("", "NOASSERTION", "other", "Other")
 
@@ -63,6 +74,30 @@ def tag_name(tag_id: str) -> str:
 
 def _growth(now: int, before: int) -> float | None:
     return round((now - before) / before * 100, 1) if before else None
+
+
+def pace_stats(new: int, prior: int, index_ratio: float | None) -> dict:
+    """Pace against the index, with an 80% interval, from new repositories in two equal windows.
+
+    Half a repository is added to each count so empty windows give a wide interval, not a crash.
+    """
+    if not index_ratio:
+        return {"pace": None, "pace_low": None, "pace_high": None}
+    a, b = new + 0.5, prior + 0.5
+    pace = a / b / index_ratio
+    spread = math.exp(PACE_Z * math.sqrt(1 / a + 1 / b))
+    return {"pace": round(pace, 3), "pace_low": round(pace / spread, 3), "pace_high": round(pace * spread, 3)}
+
+
+def pace_status(new: int, prior: int, stats: dict, accounts: int, top_share: float) -> str:
+    """emerging, concentrated (rising but one team's work), cooling, steady, or too_small."""
+    if stats["pace"] is None or new + prior < PACE_MIN:
+        return "too_small"
+    if stats["pace_low"] > 1:
+        return "concentrated" if accounts < BREADTH_MIN or top_share > CONCENTRATED_SHARE else "emerging"
+    if stats["pace_high"] < 1:
+        return "cooling"
+    return "steady"
 
 
 class Insights:
@@ -335,19 +370,123 @@ class Insights:
                     if self._known(row["theme"])
                 ]
         items.sort(key=lambda t: (t["type"] != "domain", -t["repos"]))
+        momentum = self._momentum()
+        for t in items:
+            t.update(momentum["themes"].get(t["id"]) or self._no_momentum(len(momentum["months"])))
         return {
             "model": cat.decision_model,
             "taxonomy_version": self.taxonomy.version,
             "confidence_mode": cat.confidence_mode,
             "growth_definition": "Repositories created in the last 12 months as a percentage of "
             "those created before then. Original repositories only.",
+            "pace_definition": f"New original repositories in the last {PACE_MONTHS} complete months "
+            f"against the {PACE_MONTHS} before, divided by the same ratio for the whole index. "
+            "1.0 keeps pace with the index; pace_low and pace_high are an 80% interval.",
+            "status_definition": {
+                "emerging": f"80% interval above 1.0, at least {BREADTH_MIN} accounts created new work, "
+                f"none more than {CONCENTRATED_SHARE}% of it.",
+                "concentrated": "Rising like an emerging theme, but one account created most of the new work "
+                f"or fewer than {BREADTH_MIN} accounts did.",
+                "cooling": "80% interval below 1.0.",
+                "steady": "Pace not clearly different from the index.",
+                "too_small": f"Fewer than {PACE_MIN} new repositories across both windows.",
+            },
+            "index_pace": momentum["index_ratio"],
+            "trend_months": momentum["months"],
             "themes": items,
         }
+
+    @staticmethod
+    def _no_momentum(months: int) -> dict:
+        return {
+            "new_window": 0,
+            "new_prior": 0,
+            "pace": None,
+            "pace_low": None,
+            "pace_high": None,
+            "accounts_window": 0,
+            "countries_window": 0,
+            "top_account": None,
+            "top_account_share": 0,
+            "status": "too_small",
+            "trend": [0] * months,
+        }
+
+    def _momentum(self) -> dict:
+        """Pace, breadth and a monthly trend for every theme, from two grouped queries."""
+
+        def build() -> dict:
+            cat = self.catalogue
+            with cat._connect() as conn:
+                ref = self._ref_date(conn)
+                months = _months_back(ref, 2 * PACE_MONTHS + 1)[:-1]  # complete months only
+                prior, window = set(months[:PACE_MONTHS]), set(months[PACE_MONTHS:])
+                start, end = months[0], _months_back(ref, 1)[0]
+                cur = cat.current_predicate("r")
+                index = dict(
+                    conn.execute(
+                        f"""SELECT substr(r.created_at, 1, 7), COUNT(*) FROM repositories r
+                            WHERE {cur} AND r.fork = 0 AND r.created_at >= ? AND r.created_at < ?
+                            GROUP BY 1""",
+                        (start, end),
+                    ).fetchall()
+                )
+                i_new = sum(index.get(m, 0) for m in window)
+                i_prior = sum(index.get(m, 0) for m in prior)
+                index_ratio = i_new / i_prior if i_new and i_prior else None
+                if not cat.decision_model:
+                    return {"months": months, "index_ratio": index_ratio, "themes": {}}
+                members, params = self._members_sql()
+                rows = conn.execute(
+                    f"""WITH m AS ({members})
+                        SELECT m.theme, substr(r.created_at, 1, 7) AS month, r.owner, r.country, COUNT(*) AS n
+                        FROM m JOIN repositories r ON r.html_url = m.html_url
+                        WHERE {cur} AND r.fork = 0 AND r.created_at >= ? AND r.created_at < ?
+                        GROUP BY 1, 2, 3, 4""",
+                    params + [start, end],
+                ).fetchall()
+            per_month: dict[str, Counter] = {}
+            owners: dict[str, Counter] = {}
+            countries: dict[str, set] = {}
+            for r in rows:
+                per_month.setdefault(r["theme"], Counter())[r["month"]] += r["n"]
+                if r["month"] in window:
+                    owners.setdefault(r["theme"], Counter())[r["owner"]] += r["n"]
+                    countries.setdefault(r["theme"], set()).add(r["country"])
+            out = {}
+            for theme, counts in per_month.items():
+                new = sum(counts[m] for m in window)
+                before = sum(counts[m] for m in prior)
+                accounts = owners.get(theme, Counter())
+                top = accounts.most_common(1)[0] if accounts else (None, 0)
+                top_share = round(top[1] / new * 100) if new else 0
+                stats = pace_stats(new, before, index_ratio)
+                out[theme] = {
+                    "new_window": new,
+                    "new_prior": before,
+                    **stats,
+                    "accounts_window": len(accounts),
+                    "countries_window": len(countries.get(theme, ())),
+                    "top_account": top[0],
+                    "top_account_share": top_share,
+                    "status": pace_status(new, before, stats, len(accounts), top_share),
+                    "trend": [counts[m] for m in months],
+                }
+            return {
+                "months": months,
+                "index_ratio": round(index_ratio, 3) if index_ratio else None,
+                "themes": out,
+            }
+
+        return self._once("momentum", build)
 
     def theme(self, theme: str) -> dict | None:
         """One theme: summary, monthly new repos, countries, adopters, related themes and repos."""
         if not self._known(theme):
             return None
+        return self._once(("theme", theme), lambda: self._theme(theme))
+
+    def _theme(self, theme: str) -> dict:
         cat = self.catalogue
         if not cat.decision_model:
             return {**self._describe(theme), "repos": 0, "model": None}
@@ -358,6 +497,8 @@ class Insights:
             if not rows:
                 return {**self._describe(theme), "repos": 0, "model": cat.decision_model}
             summary = self._summary(rows[0])
+            momentum = self._momentum()
+            summary.update(momentum["themes"].get(theme) or self._no_momentum(len(momentum["months"])))
             base = f"""WITH m AS ({members})
                        SELECT {{cols}} FROM m JOIN repositories r ON r.html_url = m.html_url
                        WHERE {self.catalogue.current_predicate("r")} AND r.fork = 0"""
@@ -805,8 +946,10 @@ class Insights:
             )["items"]
             if (r["created_at"] or "") >= week_ago
         ]
-        fastest = [t for t in self.themes()["themes"] if t["type"] == "tag" and t["repos"] >= FASTEST_MIN]
-        fastest.sort(key=lambda t: -(t["growth_12m"] or 0))
+        fastest = [
+            t for t in self.themes()["themes"] if t["type"] == "tag" and t["status"] in ("emerging", "concentrated")
+        ]
+        fastest.sort(key=lambda t: -(t["pace"] or 0))
         return {
             "as_of": _iso(ref),
             "week_start": week_ago,

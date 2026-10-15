@@ -140,22 +140,31 @@
     const tl = state.overview.timeline, now = tl[tl.length - 1], then = tl[tl.length - 13];
     return then && then.total ? (now.total - then.total) / then.total * 100 : 0;
   }
-  function quantile(vals, q) { const s = vals.slice().sort((a, b) => a - b); return s.length ? s[Math.min(s.length - 1, Math.floor(q * s.length))] : 0; }
-  // Emerging: still small (5 to 200 repositories) and growing at least twice as fast as the index.
-  // Fastest growing: big enough (50 or more) that the growth rate is not noise, ranked by growth.
-  const EMERGING_MAX = 200, FASTEST_MIN = 50;
-  function emergingRule() {
-    return { maxRepos: EMERGING_MAX, minGrowth: Math.max(10, Math.round(overallGrowth() * 2 * 10) / 10) };
+  // Momentum comes from the API. Pace is new repositories in the last 12 complete months against the
+  // 12 before, divided by the same ratio for the whole index, with an 80% interval. Status:
+  // emerging (rising with confidence across 5+ accounts, none over half), concentrated (rising, but
+  // one team's work), cooling (confidently slower), steady, or too_small.
+  const STATUS = { emerging: "Emerging", concentrated: "One team busy", cooling: "Cooling", steady: "Keeping pace", too_small: "Too few to tell" };
+  const isEmerging = t => t.status === "emerging";
+  // Ranked by how many more (or fewer) new repositories a theme had than keeping pace with the index
+  // would give, so a large theme's shift outranks a small theme's noisy swing.
+  const excess = t => t.new_window - t.new_prior * (state.themes.index_pace || 1);
+  const byStatus = (s, dir = -1) => tags().filter(t => t.status === s).sort((a, b) => dir * (excess(a) - excess(b)));
+  const risers = () => byStatus("emerging");
+  const cooling = () => byStatus("cooling", 1);
+  const oneTeam = () => byStatus("concentrated");
+  function paceText(p, long) {
+    if (p == null) return "–";
+    const d = Math.round((p - 1) * 100);
+    if (long) return d === 0 ? "same pace as the index" : `${Math.abs(d)}% ${d > 0 ? "faster" : "slower"} than the index`;
+    return (d > 0 ? "+" : d < 0 ? "−" : "") + Math.abs(d) + "%";
   }
-  function isEmerging(t, rule = emergingRule()) { return t.repos >= 5 && t.repos <= rule.maxRepos && (t.growth_12m ?? 0) >= rule.minGrowth; }
-  const fastestGrowing = () => tags().filter(x => x.repos >= FASTEST_MIN && x.growth_12m != null).sort((a, b) => b.growth_12m - a.growth_12m);
-  function growthColour(g, gmax) {
-    if (g == null) return `color-mix(in srgb,var(--hot) 60%,var(--bg))`;
-    if (g < 0) return `color-mix(in srgb,var(--cool) ${Math.round(20 + Math.min(1, -g / 25) * 45)}%,var(--bg))`;
-    const s = Math.sqrt(Math.min(1, g / Math.max(gmax, 1)));
-    return `color-mix(in srgb,var(--hot) ${Math.round(8 + s * 82)}%,var(--bg))`;
+  const indexPaceText = () => { const p = state.themes.index_pace; return p ? `${p >= 1 ? "up" : "down"} ${Math.abs(Math.round((p - 1) * 100))}%` : "unchanged"; };
+  function paceColour(p) {
+    if (p == null) return `color-mix(in srgb,var(--faint) 22%,var(--bg))`;
+    const s = Math.max(-1, Math.min(1, Math.log(p) / Math.log(2)));
+    return s >= 0 ? `color-mix(in srgb,var(--hot) ${Math.round(8 + s * 82)}%,var(--bg))` : `color-mix(in srgb,var(--cool) ${Math.round(8 - s * 62)}%,var(--bg))`;
   }
-  const growthMax = () => quantile(tags().map(t => t.growth_12m ?? 0), .95);
 
   // ------------------------------------------------------------------ charts
   function spark(vals, color) {
@@ -182,24 +191,24 @@
     return out;
   }
   function treemap(svg) {
-    const W = 720, H = 470, gmax = growthMax();
+    const W = 720, H = 470;
     const cells = squarify(tags().sort((a, b) => b.repos - a.repos).map(t => ({ t, v: t.repos })), 0, 0, W, H);
     const dark = matchMedia("(prefers-color-scheme: dark)").matches;
     cells.forEach(c => {
       const t = c.t, g = el("g", { class: "tile" });
-      linkify(g, themeHref(t.id), `${t.name}: ${t.repos} repositories, ${pct(t.growth_12m)} growth`);
-      g.append(el("rect", { x: c.x, y: c.y, width: Math.max(0, c.w), height: Math.max(0, c.h), rx: 4, style: `fill:${growthColour(t.growth_12m, gmax)}` }));
-      const strong = (t.growth_12m ?? gmax) > gmax * .5;
+      linkify(g, themeHref(t.id), `${t.name}: ${t.repos} repositories, ${paceText(t.pace, true)}`);
+      g.append(el("rect", { x: c.x, y: c.y, width: Math.max(0, c.w), height: Math.max(0, c.h), rx: 4, style: `fill:${paceColour(t.pace)}` }));
+      const strong = t.pace != null && Math.abs(Math.log(t.pace) / Math.log(2)) > .5;
       const fg = strong ? (dark ? "#111" : "#fff") : css("--ink");
       const fit = (s, px) => { const m = Math.floor((c.w - 16) / px); return s.length <= m ? s : s.slice(0, Math.max(1, m - 1)) + "…"; };
       if (c.w > 40 && c.h > 26) {
         g.append(txt({ x: c.x + 8, y: c.y + 19, fill: fg }, fit(t.name, 7.4)));
-        if (c.h > 48) g.append(txt({ x: c.x + 9, y: c.y + 37, class: "s", fill: fg, "fill-opacity": .85 }, fit(`${num(t.repos)} · ${pct(t.growth_12m)}`, 7.2)));
+        if (c.h > 48) g.append(txt({ x: c.x + 9, y: c.y + 37, class: "s", fill: fg, "fill-opacity": .85 }, fit(`${num(t.repos)} · ${paceText(t.pace)}`, 7.2)));
       }
-      hover(g, `<b>${esc(t.name)}</b>${num(t.repos)} repositories · ${pct(t.growth_12m)} · ${t.countries} countries<br>${esc(t.domain_name)}`);
+      hover(g, `<b>${esc(t.name)}</b>${num(t.repos)} repositories · ${t.countries} countries<br>${esc(paceText(t.pace, true))} · ${STATUS[t.status] || ""}<br>${esc(t.domain_name)}`);
       svg.append(g);
     });
-    return [-25, -8, 0, gmax * .2, gmax * .5, gmax].map(g => `<i style="background:${growthColour(g, gmax)}"></i>`).join("");
+    return [.5, .7, .85, 1, 1.2, 1.4, 2].map(p => `<i style="background:${paceColour(p)}"></i>`).join("");
   }
   function lineChart(svg, points, opts) {
     // points: [{label, value}]
@@ -225,46 +234,58 @@
     });
     hit.addEventListener("mouseleave", () => { hideTip(); cross.setAttribute("opacity", 0); cd.setAttribute("opacity", 0); });
   }
-  function momentum(svg) {
-    const W = 1000, H = 420, M = { l: 70, r: 24, t: 18, b: 40 }, ts = tags(), rule = emergingRule();
+  function trendLine(series, status) {
+    const w = 300, h = 30, sm = series.map((v, i) => { const a = series.slice(Math.max(0, i - 2), i + 1); return a.reduce((x, y) => x + y, 0) / a.length; });
+    const mx = Math.max(...sm, 1), half = Math.floor(series.length / 2), X = i => i * w / Math.max(1, sm.length - 1), Y = v => h - 3 - v / mx * (h - 6);
+    const pts = sm.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`), colour = status === "cooling" ? "var(--cool)" : "var(--hot)";
+    return `<svg class="trend" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><rect x="${X(half - 1)}" y="0" width="${w - X(half - 1)}" height="${h}" fill="var(--tint)"/><polyline points="${pts.slice(0, half).join(" ")}" fill="none" stroke="var(--faint)" stroke-width="1.5" vector-effect="non-scaling-stroke"/><polyline points="${pts.slice(half - 1).join(" ")}" fill="none" stroke="${colour}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+  }
+  function momentumRow(t) {
+    const who = t.status === "concentrated"
+      ? `<span class="who warn">${esc(t.top_account)} ${t.top_account_share}%</span>`
+      : `<span class="who">${num(t.accounts_window)} accounts · ${num(t.countries_window)} countries</span>`;
+    return `<li><a href="${themeHref(t.id)}">${esc(t.name)}</a><span class="${t.status === "cooling" ? "cool" : "hot"}">${paceText(t.pace)}</span>${trendLine(t.trend || [], t.status)}<small>${who}${num(t.new_window)} new in 12 months, ${num(t.new_prior)} the year before</small></li>`;
+  }
+  function breadth(svg) {
+    const W = 1000, H = 420, M = { l: 56, r: 24, t: 24, b: 40 }, ts = tags().filter(t => t.pace != null && t.status !== "too_small");
     if (!ts.length) return;
-    const rs = ts.map(t => t.repos), gs = ts.map(t => t.growth_12m ?? 0);
-    const xlo = Math.log10(Math.max(1, Math.min(...rs)) * .8), xhi = Math.log10(Math.max(...rs) * 1.25);
-    const glo = Math.min(-10, Math.min(...gs)) - 5, ghi = Math.max(20, quantile(gs, .98)) * 1.1;
-    const xs = v => M.l + (Math.log10(Math.max(1, v)) - xlo) / (xhi - xlo) * (W - M.l - M.r);
-    const ys = v => M.t + (1 - (Math.min(v, ghi) - glo) / (ghi - glo)) * (H - M.t - M.b);
+    const xl = Math.log10(.8), xh = Math.log10(Math.max(20, ...ts.map(t => t.accounts_window)) * 1.6);
+    const ps = ts.map(t => t.pace), yl = Math.log10(Math.min(.5, ...ps) * .9), yh = Math.log10(Math.max(2, ...ps) * 1.1);
+    const xs = v => M.l + (Math.log10(Math.max(1, v)) - xl) / (xh - xl) * (W - M.l - M.r);
+    const ys = v => M.t + (1 - (Math.log10(v) - yl) / (yh - yl)) * (H - M.t - M.b);
+    svg.append(el("rect", { x: xs(5), y: M.t, width: Math.max(0, W - M.r - xs(5)), height: Math.max(0, ys(1) - M.t), fill: css("--hot"), "fill-opacity": .07 }));
     const ax = el("g", { class: "ax" }); svg.append(ax);
-    [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].filter(v => Math.log10(v) > xlo && Math.log10(v) < xhi).forEach(v => {
+    [1, 2, 5, 10, 20, 50, 100, 200, 500].filter(v => Math.log10(v) >= xl && Math.log10(v) <= xh).forEach(v => {
       ax.append(el("line", { x1: xs(v), x2: xs(v), y1: M.t, y2: H - M.b })); ax.append(txt({ x: xs(v), y: H - M.b + 16, "text-anchor": "middle" }, num(v)));
     });
-    ax.append(txt({ x: W - M.r, y: H - 4, "text-anchor": "end" }, "repositories (log scale)"));
-    const step = ghi - glo > 200 ? 50 : ghi - glo > 80 ? 25 : 10;
-    for (let v = Math.ceil(glo / step) * step; v <= ghi; v += step) {
-      ax.append(el("line", { x1: M.l, x2: W - M.r, y1: ys(v), y2: ys(v), class: v === 0 ? "zero" : "" }));
-      ax.append(txt({ x: M.l - 8, y: ys(v) + 4, "text-anchor": "end" }, pct(v)));
-    }
-    const ex = Math.min(xs(rule.maxRepos), W - M.r), ey = Math.max(M.t, ys(rule.minGrowth));
-    svg.append(el("rect", { x: M.l, y: M.t, width: Math.max(0, ex - M.l), height: Math.max(0, ey - M.t), fill: css("--hot"), "fill-opacity": .07 }));
-    svg.append(txt({ x: M.l + 10, y: M.t + 16, class: "quad hot" }, "Emerging"));
-    svg.append(txt({ x: W - M.r - 10, y: ys(0) - 8, class: "quad", "text-anchor": "end" }, "Mature"));
-    // Label emerging themes first, then the largest, skipping any label that would collide.
+    [.25, .5, 1, 2, 4].filter(v => Math.log10(v) >= yl && Math.log10(v) <= yh).forEach(v => {
+      ax.append(el("line", { x1: M.l, x2: W - M.r, y1: ys(v), y2: ys(v), class: v === 1 ? "zero" : "" }));
+      ax.append(txt({ x: M.l - 8, y: ys(v) + 4, "text-anchor": "end" }, "×" + v));
+    });
+    ax.append(txt({ x: W - M.r, y: H - 4, "text-anchor": "end" }, "accounts creating new repositories in the last 12 months (log scale)"));
+    ax.append(txt({ x: M.l - 8, y: M.t - 10, "text-anchor": "end" }, "pace"));
+    svg.append(txt({ x: W - M.r - 10, y: M.t + 16, class: "quad hot", "text-anchor": "end" }, "Spreading"));
+    svg.append(txt({ x: M.l + 10, y: M.t + 16, class: "quad" }, "One team busy"));
+    svg.append(txt({ x: W - M.r - 10, y: H - M.b - 10, class: "quad", "text-anchor": "end" }, "Cooling"));
+    // Label emerging, one-team and cooling themes first, then the largest, skipping any label that would collide.
     const placed = [], labelled = new Set();
-    ts.filter(t => isEmerging(t, rule)).sort((a, b) => b.growth_12m - a.growth_12m).concat(ts.slice().sort((a, b) => b.repos - a.repos).slice(0, 8)).forEach(t => {
-      const x = xs(t.repos), y = ys(t.growth_12m ?? ghi), w = t.name.length * 6.6 + 16;
-      const box = x < W - 200 ? [x, x + w] : [x - w, x];
-      if (labelled.has(t.id) || placed.some(p => Math.abs(p.y - y) < 16 && p.box[0] < box[1] && box[0] < p.box[1])) return;
+    risers().concat(oneTeam(), cooling().slice(0, 4), ts.slice().sort((a, b) => b.new_window - a.new_window).slice(0, 5)).forEach(t => {
+      if (!ts.includes(t)) return;
+      const x = xs(t.accounts_window), y = ys(t.pace), w = t.name.length * 6.6 + 16;
+      const box = x < W - 220 ? [x, x + w] : [x - w, x];
+      if (labelled.has(t.id) || placed.some(p => Math.abs(p.y - y) < 15 && p.box[0] < box[1] && box[0] < p.box[1])) return;
       placed.push({ y, box }); labelled.add(t.id);
     });
-    ts.slice().sort((a, b) => b.countries - a.countries).forEach(t => {
-      const x = xs(t.repos), y = ys(t.growth_12m ?? ghi), rad = 4 + Math.sqrt(t.countries) * 2.2;
-      const g = el("g", { class: "dot" + (isEmerging(t, rule) ? " em" : "") });
+    ts.slice().sort((a, b) => b.new_window - a.new_window).forEach(t => {
+      const x = xs(t.accounts_window), y = ys(t.pace), rad = 3 + Math.sqrt(t.new_window) * .55;
+      const g = el("g", { class: "dot " + t.status });
       linkify(g, themeHref(t.id), t.name);
       g.append(el("circle", { cx: x, cy: y, r: rad }));
       if (labelled.has(t.id)) {
-        const right = x < W - 200;
+        const right = x < W - 220;
         g.append(txt(right ? { x: x + rad + 4, y: y + 4 } : { x: x - rad - 4, y: y + 4, "text-anchor": "end" }, t.name));
       }
-      hover(g, `<b>${esc(t.name)}</b>${num(t.repos)} repositories · ${pct(t.growth_12m)} · ${t.countries} countries`);
+      hover(g, `<b>${esc(t.name)}</b>${esc(STATUS[t.status])} · ${esc(paceText(t.pace, true))}<br>${num(t.new_window)} new in 12 months, ${num(t.new_prior)} the year before<br>${num(t.accounts_window)} accounts · busiest ${esc(t.top_account || "–")} ${t.top_account_share}%`);
       svg.append(g);
     });
   }
@@ -378,9 +399,8 @@
 
   // ------------------------------------------------------------------ pages
   function pageOverview() {
-    const o = state.overview, t = o.totals, ts = tags(), rule = emergingRule();
-    const em = ts.filter(x => isEmerging(x, rule)).sort((a, b) => b.growth_12m - a.growth_12m);
-    const fastest = fastestGrowing().slice(0, 6), lead = fastest[0];
+    const o = state.overview, t = o.totals, ts = tags();
+    const em = risers(), lead = em[0], watch = em.concat(oneTeam()).slice(0, 6);
     const sp = CONFIG.sponsor;
     const tl = o.timeline, yearAgo = tl[tl.length - 13] || tl[0], growth = overallGrowth();
     const asOf = o.as_of ? date(o.as_of) : "unknown";
@@ -395,7 +415,7 @@
       <div class="kpis">
         <div class="kpi"><div class="k">Maintained repositories</div><div class="v">${num(t.maintained)}</div><div class="d up">+${num(t.new_7d)} new this week</div>${spark(tl.slice(-24).map(m => m.total), css("--cobalt"))}</div>
         <div class="kpi"><div class="k">Government accounts</div><div class="v">${num(t.accounts)}</div><div class="d up">${num(t.countries)} countries and labels</div></div>
-        <div class="kpi"><div class="k">Fastest-growing theme</div><div class="v kname">${lead ? `<a href="${themeHref(lead.id)}">${esc(lead.name)}</a>` : "–"}</div><div class="d hot">${lead ? `${pct(lead.growth_12m, 1)} in 12 months` : ""}${em.length ? ` · ${em.length} emerging` : ""}</div></div>
+        <div class="kpi"><div class="k">Leading emerging theme</div><div class="v kname">${lead ? `<a href="${themeHref(lead.id)}">${esc(lead.name)}</a>` : "None right now"}</div><div class="d hot">${lead ? `${esc(paceText(lead.pace, true))} · ${em.length} emerging` : "No theme is clearly picking up"}</div></div>
         <div class="kpi"><div class="k">Licensed for reuse</div><div class="v">${t.licensed_share == null ? "–" : Math.round(t.licensed_share) + "%"}</div><div class="d">of maintained repositories</div></div>
       </div>
     </div></section>
@@ -403,11 +423,11 @@
 
     <section class="sec pad"><div class="in">
       <h2>Everything in the index</h2>
-      <p class="sub">Each block is a theme, sized by original repositories and coloured by 12-month growth. Select one to open its page.</p>
+      <p class="sub">Each block is a theme, sized by original repositories and coloured by pace: how fast new repositories are arriving compared with the index as a whole. Select one to open its page.</p>
       <div class="ov">
         <div class="card"><svg class="fill" id="tm" viewBox="0 0 720 470" role="img" aria-label="Treemap of themes"></svg>
-          <div class="dlegend"><span>Shrinking</span><span class="bar" id="dbar"></span><span>Growing fast</span><span style="margin-left:auto">Area = original repositories</span></div>
-          ${chartTable("Themes by size and growth", ["Theme", "Repositories", "12-month growth", "Countries"], ts.slice().sort((a, b) => b.repos - a.repos).map(t => [`<a href="${themeHref(t.id)}">${esc(t.name)}</a>`, num(t.repos), pct(t.growth_12m, 1), num(t.countries)]))}</div>
+          <div class="dlegend"><span>Slowing</span><span class="bar" id="dbar"></span><span>Picking up</span><span style="margin-left:auto">Area = original repositories</span></div>
+          ${chartTable("Themes by size and pace", ["Theme", "Repositories", "Pace against the index", "Countries"], ts.slice().sort((a, b) => b.repos - a.repos).map(t => [`<a href="${themeHref(t.id)}">${esc(t.name)}</a>`, num(t.repos), paceText(t.pace), num(t.countries)]))}</div>
         <div class="stack">
           <div class="card"><h3>Original repositories over time</h3><p class="cap">By creation date, last three years. ${pct(growth, 1)} in 12 months.</p><svg class="fill" id="tot" viewBox="0 0 440 210" role="img" aria-label="Line chart of original repositories over three years"></svg></div>
           <div class="card"><h3>Where things stand</h3><p class="cap">Original repositories by status.</p><ul class="rows" id="flow"></ul></div>
@@ -417,16 +437,22 @@
 
     <section class="sec pad"><div class="in">
       <h2>Momentum</h2>
-      <p class="sub">Which themes are growing, and how big they already are. Further right is more repositories; higher is faster growth. Circle size is the number of countries. The shaded corner holds emerging themes: ${num(rule.maxRepos)} repositories or fewer, growing at least ${pct(rule.minGrowth, 1)} a year, twice the index overall.</p>
-      <div class="card"><svg class="fill" id="mm" viewBox="0 0 1000 420" role="img" aria-label="Scatter chart of themes by size and growth"></svg>
-        ${chartTable("Theme momentum", ["Theme", "Repositories", "12-month growth", "Status"], ts.slice().sort((a, b) => (b.growth_12m ?? 0) - (a.growth_12m ?? 0)).map(t => [`<a href="${themeHref(t.id)}">${esc(t.name)}</a>`, num(t.repos), pct(t.growth_12m, 1), isEmerging(t, rule) ? "Emerging" : t.repos >= FASTEST_MIN && fastest.includes(t) ? "Fastest growing" : ""]))}</div>
+      <p class="sub">Which themes are picking up and which are slowing. Pace compares new repositories in the last 12 complete months with the 12 before, against the index as a whole (${indexPaceText()}). Trend lines show new repositories a month over two years, with the last 12 months shaded.</p>
+      <div class="dig mom">
+        <div class="card"><h3>Emerging</h3><p class="cap">Faster than the index with confidence, and spread across at least five accounts.</p><ul class="rows">${em.slice(0, 6).map(momentumRow).join("") || "<li><small>No theme is clearly picking up right now.</small></li>"}</ul></div>
+        <div class="card"><h3>Cooling</h3><p class="cap">Slower than the index with confidence.</p><ul class="rows">${cooling().slice(0, 6).map(momentumRow).join("") || "<li><small>No theme is clearly slowing.</small></li>"}</ul></div>
+        <div class="card"><h3>One team busy</h3><p class="cap">Rising, but most of the new work comes from one account. Worth a look, not yet a trend.</p><ul class="rows">${oneTeam().slice(0, 6).map(momentumRow).join("") || "<li><small>No single-team spikes right now.</small></li>"}</ul></div>
+      </div>
+      <div class="card" style="margin-top:16px"><h3>Spreading, or one team?</h3><p class="cap">Across is how many accounts created new repositories in the theme in the last 12 months; up is pace. Circle size is new repositories. The shaded area is where emerging themes sit.</p>
+        <svg class="fill" id="mm" viewBox="0 0 1000 420" role="img" aria-label="Scatter chart of themes by breadth and pace"></svg>
+        ${chartTable("Theme momentum", ["Theme", "Status", "Pace against the index", "80% interval", "New, last 12 months", "New, 12 months before", "Accounts", "Busiest account"], tags().filter(t => t.pace != null).sort((a, b) => b.pace - a.pace).map(t => [`<a href="${themeHref(t.id)}">${esc(t.name)}</a>`, STATUS[t.status] || "", paceText(t.pace), `×${t.pace_low.toFixed(2)} to ×${t.pace_high.toFixed(2)}`, num(t.new_window), num(t.new_prior), num(t.accounts_window), t.top_account ? `${esc(t.top_account)} ${t.top_account_share}%` : "–"]))}</div>
     </div></section>
 
     <section class="sec pad"><div class="in">
       <h2>Dig in</h2>
       <p class="sub">Starting points for a closer look.</p>
       <div class="dig">
-        <div class="card"><h3>${tracked.length ? "Themes you track" : "Fastest growing"}</h3><p class="cap">${tracked.length ? "Saved in this browser." : `Themes with at least ${FASTEST_MIN} repositories.`}</p><ul class="rows">${(tracked.length ? tracked : fastest).map(x => `<li><a href="${themeHref(x.id)}">${esc(x.name)}</a><span>${pct(x.growth_12m)}</span><small>${num(x.repos)} repositories · ${x.countries} countries${isEmerging(x, rule) ? ' · <span class="sig">Emerging</span>' : ""}</small></li>`).join("") || "<li><small>No theme is big enough to rank yet.</small></li>"}</ul><a class="more" href="#/themes">All themes →</a></div>
+        <div class="card"><h3>${tracked.length ? "Themes you track" : "Picking up"}</h3><p class="cap">${tracked.length ? "Saved in this browser." : "Emerging themes, then single-team rises."}</p><ul class="rows">${(tracked.length ? tracked : watch).map(x => `<li><a href="${themeHref(x.id)}">${esc(x.name)}</a><span>${paceText(x.pace)}</span><small>${num(x.repos)} repositories · ${x.countries} countries${x.status === "emerging" || x.status === "cooling" ? ` · <span class="sig">${STATUS[x.status]}</span>` : ""}</small></li>`).join("") || "<li><small>No theme is clearly picking up right now.</small></li>"}</ul><a class="more" href="#/themes">All themes →</a></div>
         <div class="card"><h3>Countries</h3><p class="cap">Maintained repositories, with share licensed.</p><ul class="rows">${o.countries.map(c => `<li><a href="${placeHref(c.country)}">${esc(c.country)}</a><span>${num(c.maintained)} · ${Math.round(c.licensed_share)}%</span><div class="bar"><i style="width:${c.maintained / Math.max(1, o.countries[0].maintained) * 100}%"></i></div></li>`).join("")}</ul><a class="more" href="#/countries">All countries →</a></div>
         <div class="card"><h3>Newest</h3><p class="cap">Recently created, with a description and real content.</p><ul class="rows">${o.newest.map(r => `<li><a href="${repoHref(r)}"><code>${esc(r.full_name)}</code></a><span>${ago(r.created_at)}</span><small>${esc(r.country)}${r.domain && themeById(r.domain) ? " · " + esc(themeById(r.domain).name) : ""}</small></li>`).join("")}</ul><a class="more" href="#/week">This week →</a></div>
       </div>
@@ -444,26 +470,24 @@
     const fmax = Math.max(...F.map(f => f[1]), 1);
     document.getElementById("flow").innerHTML = F.map(f => `<li><span class="lbl">${f[0]}</span><span>${num(f[1])}</span><div class="bar"><i style="width:${f[1] / fmax * 100}%;background:${f[2]}"></i></div></li>`).join("") +
       `<li><small>${num(tl[tl.length - 1].total - yearAgo.total)} more original repositories than a year ago.</small></li>`;
-    momentum(document.getElementById("mm"));
+    breadth(document.getElementById("mm"));
   }
 
   function pageThemes() {
-    const rule = emergingRule(), ds = domains(), all = tags();
+    const ds = domains(), all = tags();
     app.innerHTML = `
     <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / Themes</div>
       <h1>Themes</h1><p>The ten UN COFOG functions of government, plus cross-government capabilities, each split into tags. A repository has one domain and any number of tags.</p></div></section>
     <section class="sec pad"><div class="in"><div class="domgrid">${ds.map(d => {
       const kids = all.filter(t => t.domain === d.id).sort((a, b) => b.repos - a.repos), mx = Math.max(1, ...kids.map(k => k.repos));
-      return `<div class="card"><h3><a href="${themeHref(d.id)}">${esc(d.name)}</a></h3><p class="cap">${num(d.repos)} repositories · ${pct(d.growth_12m)} in 12 months</p><ul class="rows">${kids.map(k => `<li><a href="${themeHref(k.id)}">${esc(k.name)}</a><span>${num(k.repos)} · ${pct(k.growth_12m)}</span>${isEmerging(k, rule) ? '<small><span class="sig">Emerging</span></small>' : ""}<div class="bar"><i style="width:${k.repos / mx * 100}%"></i></div></li>`).join("") || '<li><small>No tagged repositories yet.</small></li>'}</ul></div>`;
+      return `<div class="card"><h3><a href="${themeHref(d.id)}">${esc(d.name)}</a></h3><p class="cap">${num(d.repos)} repositories · ${esc(paceText(d.pace, true))}</p><ul class="rows">${kids.map(k => `<li><a href="${themeHref(k.id)}">${esc(k.name)}</a><span>${num(k.repos)} · ${paceText(k.pace)}</span>${k.status === "emerging" || k.status === "cooling" ? `<small><span class="sig">${STATUS[k.status]}</span></small>` : ""}<div class="bar"><i style="width:${k.repos / mx * 100}%"></i></div></li>`).join("") || '<li><small>No tagged repositories yet.</small></li>'}</ul></div>`;
     }).join("")}</div></div></section>`;
   }
 
   async function pageTheme(id) {
     const t = await data.theme(id);
     if (!t) { app.innerHTML = notFound("That theme is not in the taxonomy."); return; }
-    const summary = themeById(id) || t, rule = emergingRule(), em = t.type === "tag" && isEmerging(summary, rule);
-    const ranked = tags().slice().sort((a, b) => (b.growth_12m ?? 1e9) - (a.growth_12m ?? 1e9));
-    const rank = ranked.findIndex(x => x.id === id) + 1;
+    const m = themeById(id) || t, em = t.type === "tag" && isEmerging(m);
     const filter = `${t.type === "domain" ? "domain" : "tag"}=${enc(id)}`;
     const kids = t.type === "domain" ? tags().filter(x => x.domain === id).sort((a, b) => b.repos - a.repos) : [];
     app.innerHTML = `
@@ -475,9 +499,9 @@
       </div>
       <div class="stats">
         <div class="stat"><b>${num(t.repos)}</b><small>original repositories</small></div>
-        <div class="stat"><b>${pct(t.growth_12m)}</b><small>growth in 12 months</small></div>
+        <div class="stat"><b>${paceText(m.pace)}</b><small>pace against the index</small></div>
         <div class="stat"><b>${num(t.countries)}</b><small>countries and labels</small></div>
-        ${t.type === "tag" && rank ? `<div class="stat"><b>#${rank} of ${ranked.length}</b><small>for growth</small></div>` : ""}
+        ${m.status ? `<div class="stat"><b>${STATUS[m.status]}</b><small>${m.status === "concentrated" ? `${esc(m.top_account)} made ${m.top_account_share}% of new work` : `${num(m.accounts_window)} accounts made new work this year`}</small></div>` : ""}
         <div class="stat"><b>${t.licensed_share == null ? "–" : Math.round(t.licensed_share) + "%"}</b><small>licensed</small></div>
       </div>
     </div></section>
@@ -615,7 +639,7 @@
 
   // ------------------------------------------------------------------ about (was "method")
   function pageAbout() {
-    const o = state.overview, t = o.totals, c = o.classification || {}, rule = emergingRule(), sp = CONFIG.sponsor;
+    const o = state.overview, t = o.totals, c = o.classification || {}, sp = CONFIG.sponsor;
     const nt = state.themes.themes, nd = nt.filter(x => x.type === "domain").length, ntag = nt.filter(x => x.type === "tag").length;
     const covered = c.current_total_repos || t.original || 0, w = n => covered ? (n || 0) / covered * 100 : 0;
     const askBox = `<div class="sponsorbox"><b>Sponsor the index</b>
@@ -629,7 +653,7 @@
         <span class="grp">The project</span>
         ${[["why", "Why it exists"], ["who", "Who runs it"], ["supporters", "Supporters"]].map(([id, l]) => `<a href="#/about" data-scroll="${id}">${l}</a>`).join("")}
         <span class="grp">Method</span>
-        ${[["coverage", "Coverage"], ["counting", "Which repositories count"], ["themes", "Themes"], ["growth", "Growth and emerging"], ["limits", "Known limits"]].map(([id, l]) => `<a href="#/about" data-scroll="${id}">${l}</a>`).join("")}
+        ${[["coverage", "Coverage"], ["counting", "Which repositories count"], ["themes", "Themes"], ["growth", "Pace and emerging"], ["limits", "Known limits"]].map(([id, l]) => `<a href="#/about" data-scroll="${id}">${l}</a>`).join("")}
         <span class="grp">Get involved</span>
         <a href="#/about" data-scroll="corrections">Corrections and submissions</a>
       </nav>
@@ -685,9 +709,10 @@
           <div class="key"><span style="--c:var(--cobalt)">Labelled ${num(c.labelled_repos)}</span><span style="--c:var(--faint)">Abstained ${num(c.abstained_repos)}</span><span style="--c:var(--line)">Waiting ${num(c.pending_repos)}</span><span style="--c:var(--hot)">Failed ${num(c.failed_repos)}, retried weekly</span></div>
         </div>` : "<p>No classification run is published yet, so theme figures on this site are examples.</p>"}
 
-        <h2 id="growth">Growth and emerging themes</h2>
-        <p>Growth is the number of repositories created in the last 12 months as a share of those created before then. It uses creation dates, so it worked from the first scrape, but it cannot see repositories deleted or made private during the year. As weekly snapshots build up, growth will move to snapshot-to-snapshot change.</p>
-        <p><b>Fastest growing</b> themes have at least ${FASTEST_MIN} repositories, so the rate is not noise, and are ranked by growth. A theme is <b>emerging</b> when it has between 5 and ${num(rule.maxRepos)} repositories and grew at least twice as fast as the index overall (currently ${pct(rule.minGrowth, 1)} a year or more).</p>
+        <h2 id="growth">Pace and emerging themes</h2>
+        <p><b>Pace</b> is how fast new repositories are arriving in a theme compared with the index as a whole. It counts new original repositories in the last 12 complete months and in the 12 before, and divides that ratio by the same ratio for every repository in the index (currently ${indexPaceText()}). A pace of +40% means the theme sped up 40% more than government open source overall. Each pace comes with an 80% interval from the counts, so a theme that went from 3 repositories to 6 is not mistaken for a trend.</p>
+        <p>A theme is <b>emerging</b> when that interval is above the index's pace and at least 5 accounts created the new work, none of them more than half of it. A rise that fails that test is <b>one team busy</b>: worth a look, but not yet spreading. A theme is <b>cooling</b> when the interval is below the index's pace. Themes with fewer than 20 new repositories across the two years get no status.</p>
+        <p>Pace uses creation dates, so it cannot see repositories deleted or made private, and repositories still waiting for classification are missing from every theme alike. The theme API still reports <code>growth_12m</code>, repositories created in the last 12 months as a share of those before, but it mostly shows how young a theme is, so the site no longer uses it.</p>
 
         <h2 id="limits">Known limits</h2>
         <ul>
@@ -818,8 +843,8 @@
         ${w.notable.length ? w.notable.map(r => { const dom = r.domain && themeById(r.domain); return `<div class="newrow"><a href="${repoHref(r)}">${esc(r.full_name)}</a><span class="b">${esc(r.country)}</span><p>${esc(r.description)}</p><div class="meta">${dom ? `<a class="b co" href="${themeHref(dom.id)}">${esc(dom.name)}</a>` : ""}${r.language ? `<span class="b">${esc(r.language)}</span>` : ""}${licensed(r) ? `<span class="b ok">${esc(r.license)}</span>` : ""}<span class="b">${ago(r.created_at)}</span></div></div>`; }).join("") : '<p class="empty">Nothing notable was created this week.</p>'}
         ${hidden > 0 ? `<p class="cap" style="margin-top:10px">${num(hidden)} more new repositories had no description or code yet. <a href="#/repos?sort=newest&maintained=false">Show every new repository</a></p>` : ""}</div>
       <div class="stack">
-        <div class="card"><h3>Fastest-growing themes</h3><p class="cap">Repositories created in the last 12 months as a share of those before. Themes with at least ${FASTEST_MIN} repositories.</p>
-          <ul class="rows">${w.fastest_themes.map(t => `<li><a href="${themeHref(t.id)}">${esc(t.name)}</a><span>${pct(t.growth_12m, 1)}</span><div class="bar"><i class="h" style="width:${Math.max(0, t.growth_12m) / Math.max(1, w.fastest_themes[0].growth_12m) * 100}%"></i></div></li>`).join("") || "<li><small>No themes yet.</small></li>"}</ul></div>
+        <div class="card"><h3>Themes picking up</h3><p class="cap">Emerging and single-team rises, by pace against the index.</p>
+          <ul class="rows">${w.fastest_themes.map(t => `<li><a href="${themeHref(t.id)}">${esc(t.name)}</a><span>${paceText(t.pace)}</span><small>${esc(STATUS[t.status] || "")}</small><div class="bar"><i class="h" style="width:${Math.max(0, t.pace - 1) / Math.max(.01, w.fastest_themes[0].pace - 1) * 100}%"></i></div></li>`).join("") || "<li><small>No theme is clearly picking up right now.</small></li>"}</ul></div>
         <div class="card"><h3>Star movers</h3><p class="cap">${w.star_movers.since ? `Stars gained since the snapshot of ${date(w.star_movers.since)}.` : "Needs two weekly snapshots."}</p>
           <ul class="rows">${w.star_movers.items.map(r => `<li><a href="${repoHref(r)}"><code>${esc(r.full_name)}</code></a><span>+${num(r.gained)}</span><small>${esc(r.country)} · ${num(r.stars)} stars</small></li>`).join("") || "<li><small>No movers this week.</small></li>"}</ul></div>
         <div class="card"><h3>Archived this week</h3><p class="cap">${esc(w.definitions.archived)}</p>
@@ -893,8 +918,8 @@
       const row = (l, f) => `<tr><th scope="row">${l}</th><td class="r">${f(x)}</td><td class="r">${f(y)}</td></tr>`;
       out.innerHTML = `<div class="card tbl"><table class="list cmp"><thead><tr><th></th><th class="r"><a href="${themeHref(x.id)}">${esc(x.name)}</a></th><th class="r"><a href="${themeHref(y.id)}">${esc(y.name)}</a></th></tr></thead><tbody>
         ${row("Domain", t => esc(t.domain_name))}${row("Original repositories", t => num(t.repos))}${row("Maintained", t => num(t.maintained))}${row("New in 12 months", t => num(t.new_12m))}
-        ${row("Growth in 12 months", t => pct(t.growth_12m, 1))}${row("Countries and labels", t => num(t.countries))}${row("Accounts", t => num(t.accounts))}${row("Licensed", t => t.licensed_share == null ? "–" : Math.round(t.licensed_share) + "%")}
-        ${row("Status", t => isEmerging(t) ? "Emerging" : fastestGrowing().slice(0, 10).includes(t) ? "Fastest growing" : "–")}
+        ${row("Pace against the index", t => paceText(t.pace))}${row("Countries and labels", t => num(t.countries))}${row("Accounts", t => num(t.accounts))}${row("Licensed", t => t.licensed_share == null ? "–" : Math.round(t.licensed_share) + "%")}
+        ${row("Status", t => STATUS[t.status] || "–")}
       </tbody></table></div>`;
     }
     fixLinks(out);

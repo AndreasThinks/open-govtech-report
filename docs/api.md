@@ -32,7 +32,7 @@ publication (`HfApi().restart_space(...)`).
 | `GET /v1/repos/{owner}/{name}` | One repo, with its LLM tags, COFOG classification and README excerpt (when published) |
 | `GET /v1/repos/{owner}/{name}/context` | Snapshot history, government forks and similar repos |
 | `GET /v1/overview` | Headline totals, monthly timeline, status breakdown, top countries, newest notable repos |
-| `GET /v1/themes` | Every domain and tag with size, 12-month growth and country spread |
+| `GET /v1/themes` | Every domain and tag with size, 12-month growth, country spread, and momentum: `pace` against the index with an 80% interval (`pace_low`, `pace_high`), accounts and countries behind the new work, the top account's share, a `status` (`emerging`, `concentrated`, `cooling`, `steady`, `too_small`) and a 24-month `trend` |
 | `GET /v1/themes/{id}` | One domain or tag: monthly new repos, countries, adopters, teams, related tags, top repos |
 | `GET /v1/countries` | Repo, account and star counts per registry label, with `slug`, `country_name` and `level` |
 | `GET /v1/places` | Every registry label with country, level of government, maintained repos and licence share |
