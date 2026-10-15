@@ -246,7 +246,9 @@ def running_worker(state, tmp_path, sample_repos):
     return Worker(manager, Public(), volume_check=lambda _: None), api
 
 
-async def test_default_no_paid_or_remote_writes(running_worker):
+async def test_default_no_paid_or_remote_writes(running_worker, monkeypatch):
+    monkeypatch.delenv('RAILWAY_GIT_COMMIT_SHA', raising=False)
+    monkeypatch.delenv('GOVTECH_SOURCE_COMMIT', raising=False)
     worker, api = running_worker
     writes = api.writes
     status = await worker.run()
@@ -303,12 +305,20 @@ async def test_rejected_paid_gate_has_no_remote_writes(running_worker):
     assert api.writes == writes
 
 
-def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path):
+@pytest.mark.parametrize('classified', [True, False])
+@pytest.mark.parametrize('provenance', ['injected', 'railway'])
+def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path, monkeypatch, classified, provenance):
     from govtech_scraper.cloud_worker import PublicHub
     from govtech_scraper.decision.evidence import EvidenceStore, source_from_repo, taxonomy_digest, DEFAULT_PROMPT_VERSION
     from govtech_scraper.decision.taxonomy import load_taxonomy
     from govtech_scraper.decision.store import row_to_repository
     worker, _ = running_worker
+    from govtech_scraper.cloud_worker import Worker
+    monkeypatch.setenv('GOVTECH_SOURCE_COMMIT', 'f' * 40)
+    monkeypatch.setenv('RAILWAY_GIT_COMMIT_SHA', 'd' * 40)
+    code_sha = 'c' * 40 if provenance == 'injected' else 'd' * 40
+    worker = Worker(worker.state, worker.public,
+                    **({'source_commit': code_sha} if provenance == 'injected' else {}))
     api = FakeHub()
     api.root = tmp_path
     api.private = False
@@ -335,9 +345,17 @@ def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path)
     db.conn.execute('INSERT INTO scrape_runs VALUES (?,?,?,?,?,?)', ('run', now, now, 1, 1, 1))
     db.conn.execute('INSERT INTO account_fetches VALUES (?,?,?,?,?,?)', ('run','gov-org','succeeded',3,None,now))
     db.conn.commit()
-    first = worker.publish(db, api.sha)
+    if not classified:
+        db.conn.execute('DELETE FROM evidence_classifications')
+        db.conn.commit()
+    first_parent = api.sha
+    first = worker.publish(db, first_parent)
+    assert first['manifest']['source_commit'] == code_sha
+    assert first['parent_commit'] == first_parent
     second = worker.publish(db, api.sha)
     assert first['dataset_sha'] != second['dataset_sha']
+    assert second['manifest']['source_commit'] == code_sha
+    assert second['parent_commit'] == first['dataset_sha']
     import sqlite3
     with sqlite3.connect(api.files[api.sha]['data/govtech.db']) as conn:
         assert not any(r[0].startswith('openrouter_') for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'"))
@@ -353,7 +371,9 @@ def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path)
     worker.public.snapshot = lambda target: SimpleNamespace(path=newer, dataset_sha='e'*40)
     original_commit = api.create_commit
     conflicts = []
+    parents = []
     def conflict_once(**kwargs):
+        parents.append(kwargs["parent_commit"])
         if not conflicts:
             conflicts.append(True)
             api.files['e'*40] = dict(api.files[api.sha])
@@ -364,14 +384,17 @@ def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path)
         return original_commit(**kwargs)
     api.create_commit = conflict_once
     original_rows = [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')]
-    worker.publish(db, second['dataset_sha'])
+    retried = worker.publish(db, second['dataset_sha'])
+    assert parents == [second['dataset_sha'], 'e' * 40]
+    assert retried['parent_commit'] == 'e' * 40
+    assert retried['manifest']['source_commit'] == code_sha
     assert [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')] == original_rows
     assert db.conn.execute('SELECT MIN(stars) FROM repositories').fetchone()[0] == 999
     db.close()
 
 
-def test_positive_caveats_and_nonliteral_quotes_are_withdrawn(tmp_db, sample_repo):
-    from govtech_scraper.cloud_worker import caveat_exclusions
+@pytest.fixture
+def caveat_source(tmp_db, sample_repo):
     from govtech_scraper.decision.evidence import EvidenceStore, source_from_repo, DEFAULT_PROMPT_VERSION, taxonomy_digest
     from govtech_scraper.decision.taxonomy import load_taxonomy
     taxonomy = load_taxonomy()
@@ -384,11 +407,109 @@ def test_positive_caveats_and_nonliteral_quotes_are_withdrawn(tmp_db, sample_rep
         source=source, domain=None, kind=None,
         tags=[{'id':'notifications', 'quote':'sending emails and SMS', 'rationale':'No explicit evidence; omit', 'source_field':'readme'}],
         usage={'cost':.0001}, abstentions={}, taxonomy_sha=taxonomy_digest(taxonomy))
+    return source
+
+
+@pytest.mark.parametrize('storage', ['history', 'flat'])
+def test_positive_caveats_and_nonliteral_quotes_are_withdrawn(tmp_db, caveat_source, storage):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    if storage == 'flat':
+        tmp_db.conn.execute('DELETE FROM evidence_source_history')
     assert len(caveat_exclusions(tmp_db)) == 1
     tmp_db.conn.execute("UPDATE evidence_classification_tags SET rationale='Supported', quote='invented'")
     assert len(caveat_exclusions(tmp_db)) == 1
     tmp_db.conn.execute("UPDATE evidence_classification_tags SET quote='sending emails and SMS'")
     assert caveat_exclusions(tmp_db) == []
+
+
+@pytest.mark.parametrize('storage', ['history', 'flat'])
+@pytest.mark.parametrize('damage', [
+    'invalid-json', 'null', 'list', 'string', 'missing-fields', 'null-fields',
+    'list-fields', 'missing-quote-field', 'missing-repository', 'missing-url',
+    'list-value', 'dict-value', 'number-value', 'bool-value', 'null-value',
+])
+def test_invalid_caveat_source_fails_closed(tmp_db, caveat_source, storage, damage):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    tmp_db.conn.execute("UPDATE evidence_classification_tags SET rationale='Supported'")
+    fields = dict(caveat_source.fields)
+    if damage.startswith('missing-'):
+        fields.pop({'missing-quote-field': 'readme', 'missing-repository': 'repository',
+                    'missing-url': 'html_url'}.get(damage, 'readme'), None)
+    values = {'list-value': ['sending emails and SMS'],
+              'dict-value': {'sending emails and SMS': True}, 'number-value': 123,
+              'bool-value': True, 'null-value': None}
+    if damage in values:
+        fields['readme'] = values[damage]
+    payload = {'fields': fields} if storage == 'history' else fields
+    structures = {'null': None, 'list': [], 'string': 'sending emails and SMS',
+                  'missing-fields': {}, 'null-fields': {'fields': None},
+                  'list-fields': {'fields': ['sending emails and SMS']}}
+    if damage in structures:
+        payload = structures[damage]
+    raw = '{broken' if damage == 'invalid-json' else json.dumps(payload)
+    table = 'evidence_source_history' if storage == 'history' else 'evidence_sources'
+    if storage == 'flat':
+        tmp_db.conn.execute('DELETE FROM evidence_source_history')
+    tmp_db.conn.execute(f'UPDATE {table} SET source_json=?', (raw,))
+    before = tmp_db.conn.total_changes
+    exclusions = caveat_exclusions(tmp_db)
+    assert len(exclusions) == 1
+    assert exclusions[0]['reason'].startswith('Literal quote cannot be verified')
+    assert tmp_db.conn.total_changes == before
+
+
+@pytest.mark.parametrize('damage', ['absent', 'wrong-hash', 'wrong-field', 'empty-quote'])
+def test_caveat_requires_exact_recorded_source(tmp_db, caveat_source, damage):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    tmp_db.conn.execute('DELETE FROM evidence_source_history')
+    tmp_db.conn.execute("UPDATE evidence_classification_tags SET rationale='Supported'")
+    if damage == 'absent':
+        tmp_db.conn.execute('DELETE FROM evidence_sources')
+    elif damage == 'wrong-hash':
+        tmp_db.conn.execute("UPDATE evidence_sources SET source_hash='other'")
+    elif damage == 'wrong-field':
+        tmp_db.conn.execute("UPDATE evidence_classification_tags SET source_field='description'")
+    else:
+        tmp_db.conn.execute("UPDATE evidence_classification_tags SET quote=''")
+    assert len(caveat_exclusions(tmp_db)) == 1
+
+
+def test_caveat_history_takes_precedence_over_current_cache(tmp_db, caveat_source):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    tmp_db.conn.execute("UPDATE evidence_classification_tags SET rationale='Supported'")
+    tmp_db.conn.execute("UPDATE evidence_sources SET source_json='{}'")
+    assert caveat_exclusions(tmp_db) == []
+
+
+@pytest.mark.parametrize('storage', ['history', 'flat'])
+def test_caveat_optional_metadata_need_not_exist(tmp_db, caveat_source, storage):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    fields = {key: caveat_source.fields[key] for key in ('repository', 'html_url', 'readme')}
+    table = 'evidence_source_history' if storage == 'history' else 'evidence_sources'
+    if storage == 'flat':
+        tmp_db.conn.execute('DELETE FROM evidence_source_history')
+    payload = {'fields': fields} if storage == 'history' else fields
+    tmp_db.conn.execute(f'UPDATE {table} SET source_json=?', (json.dumps(payload),))
+    tmp_db.conn.execute("UPDATE evidence_classification_tags SET rationale='Supported'")
+    assert caveat_exclusions(tmp_db) == []
+
+
+def test_caveat_source_lookups_use_indexes(tmp_db, caveat_source):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    tmp_db.conn.execute('DELETE FROM evidence_source_history')
+    tmp_db.conn.execute('PRAGMA automatic_index=OFF')
+    statements = []
+    tmp_db.conn.set_trace_callback(statements.append)
+    try:
+        caveat_exclusions(tmp_db)
+    finally:
+        tmp_db.conn.set_trace_callback(None)
+    lookups = [s for s in statements if s.startswith('SELECT source_json')]
+    assert len(lookups) == 2
+    for sql in lookups:
+        plan = [row[3] for row in tmp_db.conn.execute('EXPLAIN QUERY PLAN ' + sql)]
+        assert any('SEARCH' in detail and 'INDEX' in detail for detail in plan), plan
+        assert not any('SCAN' in detail for detail in plan), plan
 
 
 def test_volume_guard(tmp_path):
@@ -478,3 +599,58 @@ def test_private_transfer_rejects_wrong_revision_and_hash(state, tmp_path):
     api.get_paths_info = corrupt
     with pytest.raises(ValueError, match='hash'):
         manager.hub.read('a'*40, 'state/master.db')
+
+
+@pytest.mark.parametrize('value', [None, '', 'main', 'a' * 39, 'a' * 41, 'g' * 40, 'a' * 40 + '\n'])
+@pytest.mark.parametrize('provenance', ['injected', 'railway'])
+def test_publication_rejects_missing_or_invalid_code_sha(running_worker, monkeypatch, value, provenance):
+    from govtech_scraper import cloud_worker
+    worker, _ = running_worker
+    monkeypatch.setenv('GOVTECH_SOURCE_COMMIT', 'f' * 40)
+    monkeypatch.delenv('RAILWAY_GIT_COMMIT_SHA', raising=False)
+    kwargs = {}
+    if provenance == 'injected':
+        kwargs['source_commit'] = value
+        if value is not None:
+            monkeypatch.setenv('RAILWAY_GIT_COMMIT_SHA', 'd' * 40)
+    elif value is not None:
+        monkeypatch.setenv('RAILWAY_GIT_COMMIT_SHA', value)
+    worker = cloud_worker.Worker(worker.state, worker.public, **kwargs)
+    def unexpected(*args, **kwargs):
+        pytest.fail('Invalid provenance must fail before preparing any publication')
+    monkeypatch.setattr(cloud_worker, 'prepare_classification_publication', unexpected)
+    monkeypatch.setattr(cloud_worker, 'prepare_publication', unexpected)
+    db = worker.state.open_normal()
+    try:
+        with pytest.raises(ValueError, match='source code commit SHA'):
+            worker.publish(db, 'b' * 40)
+        assert worker.state.get(db, 'pending_publication') is None
+    finally:
+        db.close()
+
+
+def test_pending_publication_preserves_original_provenance(running_worker, monkeypatch):
+    from govtech_scraper import cloud_worker
+    worker, _ = running_worker
+    monkeypatch.delenv('RAILWAY_GIT_COMMIT_SHA', raising=False)
+    monkeypatch.setenv('GOVTECH_SOURCE_COMMIT', 'f' * 40)
+    pending = {'directory': str(worker.state.directory / 'publication'),
+               'parent_commit': 'b' * 40, 'manifest': {'source_commit': 'c' * 40},
+               'artifacts': {}, 'stats': {}}
+    worker.public.head = lambda: 'e' * 40
+    seen = []
+    monkeypatch.setattr(cloud_worker, 'verify_remote', lambda *args: seen.append(args))
+    def unexpected(*args, **kwargs):
+        pytest.fail('Resume must verify the original bundle without preparing or uploading')
+    monkeypatch.setattr(cloud_worker, 'prepare_classification_publication', unexpected)
+    monkeypatch.setattr(cloud_worker, 'prepare_publication', unexpected)
+    monkeypatch.setattr(cloud_worker, 'publish_bundle', unexpected)
+    db = worker.state.open_normal()
+    try:
+        worker.state.set(db, 'pending_publication', pending)
+        receipt = worker.publish(db, 'd' * 40)
+        assert receipt == pending | {'dataset_sha': 'e' * 40}
+        assert seen == [(worker.public, 'e' * 40, pending['manifest'], pending['artifacts'])]
+        assert worker.state.get(db, 'pending_publication') is None
+    finally:
+        db.close()

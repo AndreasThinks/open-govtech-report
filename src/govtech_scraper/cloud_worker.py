@@ -15,6 +15,7 @@ import math
 import multiprocessing
 import os
 from pathlib import Path
+import re
 import sqlite3
 import tempfile
 import time
@@ -135,6 +136,23 @@ class TargetedSources:
         return acquired
 
 
+def _recorded_source_fields(source_json, *, history):
+    """History stores an envelope; the current cache stores flat string fields."""
+    try:
+        payload = json.loads(source_json)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    fields = payload.get('fields') if history else payload
+    # Metadata fields are optional, but source identity and string values are not.
+    if (not isinstance(fields, dict)
+            or not fields.get('repository') or not fields.get('html_url')
+            or not all(isinstance(value, str) for value in fields.values())):
+        return {}
+    return fields
+
+
 def caveat_exclusions(db):
     """Conservative explicit self-disqualification, never invented negative labels."""
     import re
@@ -146,10 +164,12 @@ def caveat_exclusions(db):
     for row in rows:
         source = db.conn.execute('SELECT source_json FROM evidence_source_history WHERE source_hash=?',
                                  (row['source_hash'],)).fetchone()
+        history = source is not None
         if source is None:
-            source = db.conn.execute('SELECT source_json FROM evidence_sources WHERE source_hash=?',
-                                     (row['source_hash'],)).fetchone()
-        fields = json.loads(source[0])['fields'] if source else {}
+            # html_url is indexed; a hash-only lookup scans the catalogue per tag.
+            source = db.conn.execute('SELECT source_json FROM evidence_sources WHERE html_url=? AND source_hash=?',
+                                     (row['html_url'], row['source_hash'])).fetchone()
+        fields = _recorded_source_fields(source[0], history=history) if source else {}
         reason = None
         if not row['quote'] or row['quote'] not in fields.get(row['source_field'], ''):
             reason = 'Literal quote cannot be verified against recorded source; withdrawn for review'
@@ -169,11 +189,13 @@ def verify_volume(directory, environ=os.environ, mountinfo=Path('/proc/self/moun
 
 class Worker:
     def __init__(self, state, public, *, sources=None, prices=None, client=None,
-                 clock=time.monotonic, volume_check=verify_volume, client_factory=None):
+                 clock=time.monotonic, volume_check=verify_volume, client_factory=None,
+                 source_commit=None):
         self.state, self.public = state, public
         self.sources, self.prices, self.client = sources, prices, client
         self.clock, self.volume_check = clock, volume_check
         self.client_factory = client_factory
+        self.source_commit = source_commit if source_commit is not None else os.environ.get('RAILWAY_GIT_COMMIT_SHA')
 
     def merge(self, db):
         with tempfile.TemporaryDirectory(prefix='govtech-public-') as folder:
@@ -317,6 +339,11 @@ class Worker:
             verify_remote(self.public, head, pending['manifest'], pending['artifacts'])
             receipt = pending | {'dataset_sha': head}
         else:
+            # Code provenance is independent of the dataset's optimistic concurrency guard.
+            # Validate only for new bundles so dry-run and durable receipt recovery still work.
+            source_commit = self.source_commit
+            if not isinstance(source_commit, str) or not re.fullmatch(r'[0-9a-f]{40}', source_commit):
+                raise ValueError('Expected immutable source code commit SHA from Worker injection or RAILWAY_GIT_COMMIT_SHA')
             for attempt in range(attempts):
                 folder = self.state.directory / ('publication-' + uuid.uuid4().hex)
                 # Recheck literal source proof and stale metadata via existing exporter.
@@ -325,11 +352,11 @@ class Worker:
                         db.conn.execute('INSERT OR IGNORE INTO evidence_review_exclusions VALUES (?,?,?,?,?)',
                             tuple(item[k] for k in ('html_url','taxonomy_version','model','tag_id','reason')))
                 try:
-                    manifest = prepare_classification_publication(self.state.master, folder, parent, allow_partial=True)
+                    manifest = prepare_classification_publication(self.state.master, folder, source_commit=source_commit, allow_partial=True)
                 except ValueError as exc:
                     if str(exc) not in ('No evidence classifications available for publication', 'No fresh assessed evidence classifications available'):
                         raise
-                    manifest = prepare_publication(self.state.master, folder, parent)
+                    manifest = prepare_publication(self.state.master, folder, source_commit=source_commit)
                 check_freshness(manifest)
                 intent = {'directory': str(folder), 'dataset': DATASET, 'parent_commit': parent, 'manifest': manifest,
                     'artifacts': {f'data/{name}': artifact_metadata(folder/name) for name in (*FILES,'manifest.json')}}
