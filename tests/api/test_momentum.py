@@ -62,6 +62,29 @@ def test_status_needs_confidence_and_breadth():
     assert pace_status(30, 80, pace_stats(30, 80, 1.1), accounts=12, top_share=20) == "cooling"
     assert pace_status(40, 38, pace_stats(40, 38, 1.1), accounts=12, top_share=20) == "steady"
     assert pace_status(8, 2, pace_stats(8, 2, 1.1), accounts=8, top_share=20) == "too_small"
+    # A large theme drifting 8% has a narrow interval above 1.0 but is not emerging.
+    drift = pace_stats(1140, 1000, 1.05)
+    assert drift["pace_low"] > 1 and pace_status(1140, 1000, drift, accounts=200, top_share=5) == "steady"
+
+
+@pytest.fixture
+async def backlog_client(tmp_db):
+    # Twice as many repositories this year, but half of this year's are still unclassified.
+    # Only classified repositories set the index, so the theme keeps pace rather than cooling.
+    repos = [_repo("clinic", f"records-{i}", 60 + i * 5) for i in range(20)]
+    repos += [_repo("clinic", f"records-old-{i}", 420 + i * 12) for i in range(20)]
+    tmp_db.save_repositories(repos)
+    await run_decision_tagging(tmp_db, FakeClient(), load_taxonomy())
+    tmp_db.save_repositories([_repo("clinic", f"waiting-{i}", 60 + i * 5) for i in range(20)])
+    with TestClient(create_app(Catalogue(tmp_db.db_path))) as c:
+        yield c
+
+
+def test_unclassified_repositories_do_not_slow_every_theme(backlog_client):
+    body = backlog_client.get("/v1/themes").json()
+    health = {t["id"]: t for t in body["themes"]}["07"]
+    assert body["index_pace"] == pytest.approx(1.0)
+    assert health["pace"] == pytest.approx(1.0, abs=0.01) and health["status"] == "steady"
 
 
 @pytest.fixture

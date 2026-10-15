@@ -59,7 +59,7 @@
   function momentum(seed, prior, neu, accounts, topShare) {
     const a = neu + .5, b = prior + .5, pace = a / b / INDEX_PACE, spread = Math.exp(1.2816 * Math.sqrt(1 / a + 1 / b));
     const lo = pace / spread, hi = pace * spread;
-    const status = neu + prior < 20 ? "too_small" : lo > 1 ? (accounts < 5 || topShare > 50 ? "concentrated" : "emerging") : hi < 1 ? "cooling" : "steady";
+    const status = neu + prior < 20 ? "too_small" : lo > 1 && pace >= 1.2 ? (accounts < 5 || topShare > 50 ? "concentrated" : "emerging") : hi < 1 && pace <= 1 / 1.2 ? "cooling" : "steady";
     const r = rng(seed), trend = TREND_MONTHS.map((m, i) => Math.max(0, Math.round((i < 12 ? prior : neu) / 12 * (0.7 + r() * .6))));
     return { new_window: neu, new_prior: prior, pace: Math.round(pace * 1000) / 1000, pace_low: Math.round(lo * 1000) / 1000, pace_high: Math.round(hi * 1000) / 1000,
       accounts_window: accounts, countries_window: Math.max(1, Math.round(accounts / 2)), top_account: "example-gov", top_account_share: topShare, status, trend };

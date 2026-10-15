@@ -90,6 +90,7 @@ svg.fill{display:block;width:100%;height:auto}
 .rows li span{font:600 13px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
 .rows li span.lbl{font:600 14.5px var(--body);color:var(--ink)}
 .rows li small{grid-column:1/-1;color:var(--muted);font-size:12.5px}
+.wide{overflow-x:auto}.wide svg{min-width:680px}
 .rows li span.hot{color:var(--hot)}.rows li span.cool{color:var(--cool)}
 .rows li .trend{grid-column:1/-1;display:block;width:100%;height:30px}
 .rows .who{font:600 11.5px var(--mono);color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 5px;margin-right:6px;white-space:nowrap}
