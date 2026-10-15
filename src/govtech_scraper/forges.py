@@ -160,6 +160,11 @@ def make_getter(session: aiohttp.ClientSession) -> Getter:
                 paused_until[host] = max(paused_until.get(host, 0), loop.time() + wait)
                 logger.warning("%s rate limited; pausing it for %ss", host, int(wait))
                 raise RuntimeError("GitLab 429")
+            if resp.status >= 500:
+                # Overloaded small servers answer 502/503: back off the whole host too.
+                paused_until[host] = max(paused_until.get(host, 0), loop.time() + 30)
+                logger.warning("%s answered %s; pausing it for 30s", host, resp.status)
+                raise RuntimeError(f"GitLab error {resp.status}")
             if resp.status != 200:
                 raise RuntimeError(f"GitLab error {resp.status}")
             if resp.headers.get("RateLimit-Remaining") == "0":
@@ -310,7 +315,7 @@ async def scrape_forges(
         except Exception as exc:  # noqa: BLE001 - one host must not stop the rest
             db.conn.rollback()
             result = HostResult(host=forge.host, status="failed", error_type=type(exc).__name__)
-            logger.error("Forge fetch failed for %s (%s)", forge.host, result.error_type)
+            logger.error("Forge fetch failed for %s (%s: %s)", forge.host, result.error_type, exc)
         return result
 
     # Rate limits are per host, so hosts run side by side.

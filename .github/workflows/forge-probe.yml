@@ -27,7 +27,7 @@ jobs:
           curl -sS -m 120 -o /dev/null -w "%{http_code} in %{time_total}s\n" "https://gitlab.adullact.net/api/v4/projects?per_page=100&pagination=keyset&order_by=id&sort=asc&visibility=public"
       - name: List every configured forge (no per-repo calls)
         continue-on-error: true
-        run: uv run --frozen govtech-scraper --db probe.db forges --no-details
+        run: uv run --frozen govtech-scraper --db probe.db forges --no-details --host code.ornl.gov --host gitlab.adullact.net
       - name: Counts before details
         run: |
           sqlite3 probe.db "SELECT substr(html_url, 9, instr(substr(html_url, 9), '/') - 1) h,
@@ -36,7 +36,7 @@ jobs:
       - name: Add language and licence (one call each per repo, throttled)
         timeout-minutes: 300
         continue-on-error: true
-        run: uv run --frozen govtech-scraper --db probe.db forges
+        run: uv run --frozen govtech-scraper --db probe.db forges --host code.ornl.gov
       - name: Summarise
         if: always()
         run: |
