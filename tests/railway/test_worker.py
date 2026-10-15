@@ -246,7 +246,9 @@ def running_worker(state, tmp_path, sample_repos):
     return Worker(manager, Public(), volume_check=lambda _: None), api
 
 
-async def test_default_no_paid_or_remote_writes(running_worker):
+async def test_default_no_paid_or_remote_writes(running_worker, monkeypatch):
+    monkeypatch.delenv('RAILWAY_GIT_COMMIT_SHA', raising=False)
+    monkeypatch.delenv('GOVTECH_SOURCE_COMMIT', raising=False)
     worker, api = running_worker
     writes = api.writes
     status = await worker.run()
@@ -303,12 +305,20 @@ async def test_rejected_paid_gate_has_no_remote_writes(running_worker):
     assert api.writes == writes
 
 
-def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path):
+@pytest.mark.parametrize('classified', [True, False])
+@pytest.mark.parametrize('provenance', ['injected', 'railway'])
+def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path, monkeypatch, classified, provenance):
     from govtech_scraper.cloud_worker import PublicHub
     from govtech_scraper.decision.evidence import EvidenceStore, source_from_repo, taxonomy_digest, DEFAULT_PROMPT_VERSION
     from govtech_scraper.decision.taxonomy import load_taxonomy
     from govtech_scraper.decision.store import row_to_repository
     worker, _ = running_worker
+    from govtech_scraper.cloud_worker import Worker
+    monkeypatch.setenv('GOVTECH_SOURCE_COMMIT', 'f' * 40)
+    monkeypatch.setenv('RAILWAY_GIT_COMMIT_SHA', 'd' * 40)
+    code_sha = 'c' * 40 if provenance == 'injected' else 'd' * 40
+    worker = Worker(worker.state, worker.public,
+                    **({'source_commit': code_sha} if provenance == 'injected' else {}))
     api = FakeHub()
     api.root = tmp_path
     api.private = False
@@ -335,9 +345,17 @@ def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path)
     db.conn.execute('INSERT INTO scrape_runs VALUES (?,?,?,?,?,?)', ('run', now, now, 1, 1, 1))
     db.conn.execute('INSERT INTO account_fetches VALUES (?,?,?,?,?,?)', ('run','gov-org','succeeded',3,None,now))
     db.conn.commit()
-    first = worker.publish(db, api.sha)
+    if not classified:
+        db.conn.execute('DELETE FROM evidence_classifications')
+        db.conn.commit()
+    first_parent = api.sha
+    first = worker.publish(db, first_parent)
+    assert first['manifest']['source_commit'] == code_sha
+    assert first['parent_commit'] == first_parent
     second = worker.publish(db, api.sha)
     assert first['dataset_sha'] != second['dataset_sha']
+    assert second['manifest']['source_commit'] == code_sha
+    assert second['parent_commit'] == first['dataset_sha']
     import sqlite3
     with sqlite3.connect(api.files[api.sha]['data/govtech.db']) as conn:
         assert not any(r[0].startswith('openrouter_') for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'"))
@@ -353,7 +371,9 @@ def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path)
     worker.public.snapshot = lambda target: SimpleNamespace(path=newer, dataset_sha='e'*40)
     original_commit = api.create_commit
     conflicts = []
+    parents = []
     def conflict_once(**kwargs):
+        parents.append(kwargs["parent_commit"])
         if not conflicts:
             conflicts.append(True)
             api.files['e'*40] = dict(api.files[api.sha])
@@ -364,7 +384,10 @@ def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path)
         return original_commit(**kwargs)
     api.create_commit = conflict_once
     original_rows = [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')]
-    worker.publish(db, second['dataset_sha'])
+    retried = worker.publish(db, second['dataset_sha'])
+    assert parents == [second['dataset_sha'], 'e' * 40]
+    assert retried['parent_commit'] == 'e' * 40
+    assert retried['manifest']['source_commit'] == code_sha
     assert [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')] == original_rows
     assert db.conn.execute('SELECT MIN(stars) FROM repositories').fetchone()[0] == 999
     db.close()
@@ -576,3 +599,58 @@ def test_private_transfer_rejects_wrong_revision_and_hash(state, tmp_path):
     api.get_paths_info = corrupt
     with pytest.raises(ValueError, match='hash'):
         manager.hub.read('a'*40, 'state/master.db')
+
+
+@pytest.mark.parametrize('value', [None, '', 'main', 'a' * 39, 'a' * 41, 'g' * 40, 'a' * 40 + '\n'])
+@pytest.mark.parametrize('provenance', ['injected', 'railway'])
+def test_publication_rejects_missing_or_invalid_code_sha(running_worker, monkeypatch, value, provenance):
+    from govtech_scraper import cloud_worker
+    worker, _ = running_worker
+    monkeypatch.setenv('GOVTECH_SOURCE_COMMIT', 'f' * 40)
+    monkeypatch.delenv('RAILWAY_GIT_COMMIT_SHA', raising=False)
+    kwargs = {}
+    if provenance == 'injected':
+        kwargs['source_commit'] = value
+        if value is not None:
+            monkeypatch.setenv('RAILWAY_GIT_COMMIT_SHA', 'd' * 40)
+    elif value is not None:
+        monkeypatch.setenv('RAILWAY_GIT_COMMIT_SHA', value)
+    worker = cloud_worker.Worker(worker.state, worker.public, **kwargs)
+    def unexpected(*args, **kwargs):
+        pytest.fail('Invalid provenance must fail before preparing any publication')
+    monkeypatch.setattr(cloud_worker, 'prepare_classification_publication', unexpected)
+    monkeypatch.setattr(cloud_worker, 'prepare_publication', unexpected)
+    db = worker.state.open_normal()
+    try:
+        with pytest.raises(ValueError, match='source code commit SHA'):
+            worker.publish(db, 'b' * 40)
+        assert worker.state.get(db, 'pending_publication') is None
+    finally:
+        db.close()
+
+
+def test_pending_publication_preserves_original_provenance(running_worker, monkeypatch):
+    from govtech_scraper import cloud_worker
+    worker, _ = running_worker
+    monkeypatch.delenv('RAILWAY_GIT_COMMIT_SHA', raising=False)
+    monkeypatch.setenv('GOVTECH_SOURCE_COMMIT', 'f' * 40)
+    pending = {'directory': str(worker.state.directory / 'publication'),
+               'parent_commit': 'b' * 40, 'manifest': {'source_commit': 'c' * 40},
+               'artifacts': {}, 'stats': {}}
+    worker.public.head = lambda: 'e' * 40
+    seen = []
+    monkeypatch.setattr(cloud_worker, 'verify_remote', lambda *args: seen.append(args))
+    def unexpected(*args, **kwargs):
+        pytest.fail('Resume must verify the original bundle without preparing or uploading')
+    monkeypatch.setattr(cloud_worker, 'prepare_classification_publication', unexpected)
+    monkeypatch.setattr(cloud_worker, 'prepare_publication', unexpected)
+    monkeypatch.setattr(cloud_worker, 'publish_bundle', unexpected)
+    db = worker.state.open_normal()
+    try:
+        worker.state.set(db, 'pending_publication', pending)
+        receipt = worker.publish(db, 'd' * 40)
+        assert receipt == pending | {'dataset_sha': 'e' * 40}
+        assert seen == [(worker.public, 'e' * 40, pending['manifest'], pending['artifacts'])]
+        assert worker.state.get(db, 'pending_publication') is None
+    finally:
+        db.close()
