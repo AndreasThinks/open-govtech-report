@@ -19,7 +19,9 @@ uv run govtech-scraper forges --no-details            # skip language and licenc
 - The project list gives stars, forks, topics, archived state and last activity
   (stored as `pushed_at`, since GitLab has no push timestamp). Language and licence
   cost one extra call each per project; a failed lookup leaves the field empty.
-- Requests are held to 5 a second per server. Servers are fetched side by side.
+- Requests are held to 2 a second per server, and a 429 pauses that whole server for its
+  Retry-After. Servers are fetched side by side. Projects with no activity since the last
+  run keep their stored language and licence, so only the first run makes every call.
 - A complete run marks a server's vanished projects `current=0`, as the GitHub scrape
   does per account. It writes no `scrape_runs` row, since publication reads that as
   the GitHub scrape's record.

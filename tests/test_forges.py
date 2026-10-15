@@ -175,3 +175,25 @@ async def test_limit_stops_early_and_keeps_other_repos_current(tmp_db):
 def test_scrape_needs_a_getter(tmp_db):
     with pytest.raises(ValueError):
         asyncio.run(scrape_forges(tmp_db, [FORGE]))
+
+
+async def test_unchanged_projects_reuse_stored_details(tmp_db):
+    a = project("g/a")
+    first = FakeGitLab([[a]], languages={a["id"]: {"Go": 100}}, licences={a["id"]: {"key": "mit"}})
+    await scrape_forges(tmp_db, [FORGE], get=first)
+    second = FakeGitLab([[dict(a)]])
+    results = await scrape_forges(tmp_db, [FORGE], get=second)
+    assert results[0].details_reused == 1
+    assert not any(u.endswith("/languages") for u, _ in second.calls)
+    row = tmp_db.conn.execute("SELECT language, license FROM repositories").fetchone()
+    assert tuple(row) == ("Go", "mit")
+
+
+async def test_new_activity_refetches_details(tmp_db):
+    a = project("g/a")
+    await scrape_forges(tmp_db, [FORGE], get=FakeGitLab(
+        [[a]], languages={a["id"]: {"Go": 100}}))
+    moved = dict(a, last_activity_at="2026-09-01T00:00:00.000Z")
+    second = FakeGitLab([[moved]], languages={a["id"]: {"Rust": 100}})
+    await scrape_forges(tmp_db, [FORGE], get=second)
+    assert tmp_db.conn.execute("SELECT language FROM repositories").fetchone()[0] == "Rust"

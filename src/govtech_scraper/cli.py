@@ -138,6 +138,7 @@ def forges(ctx: click.Context, hosts: tuple[str, ...], limit: int | None,
             extra = f" ({r.error_type})" if r.error_type else ""
             click.echo(f"{r.host}: {r.status}{extra}, {len(r.repos)} repos, "
                        f"{r.skipped_personal} personal skipped, "
+                       f"{r.details_reused} details reused, "
                        f"{r.detail_failures} detail lookups failed")
         if any(r.status == "failed" for r in results):
             sys.exit(1)

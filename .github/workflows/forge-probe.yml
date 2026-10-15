@@ -12,7 +12,7 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
@@ -20,7 +20,16 @@ jobs:
           version: "0.11.7"
       - run: uv python install 3.11
       - run: uv sync --frozen
-      - name: Fetch all configured forges
+      - name: List every configured forge (no per-repo calls)
+        run: uv run --frozen govtech-scraper --db probe.db forges --no-details
+      - name: Counts before details
+        run: |
+          sqlite3 probe.db "SELECT substr(html_url, 9, instr(substr(html_url, 9), '/') - 1) h,
+            COUNT(*), SUM(fork=0), SUM(archived), SUM(pushed_at >= date('now','-365 days')),
+            COUNT(DISTINCT owner) FROM repositories GROUP BY h ORDER BY 2 DESC"
+      - name: Add language and licence (one call each per repo, throttled)
+        timeout-minutes: 300
+        continue-on-error: true
         run: uv run --frozen govtech-scraper --db probe.db forges
       - name: Summarise
         if: always()

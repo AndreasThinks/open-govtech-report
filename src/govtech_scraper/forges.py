@@ -14,6 +14,7 @@ language, activity and archived state empty for them (tested 2026-10-15).
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,10 +35,11 @@ USER_AGENT = "open-govtech-index (+https://govtechindex.cloud)"
 PER_PAGE = 100
 MAX_PAGES = 2000
 
-# Self-hosted GitLab defaults allow far more, but these are public servers run by
-# small teams: stay polite.
-REQUESTS_PER_SECOND = 5
-DETAIL_CONCURRENCY = 4
+# Public servers run by small teams, and several (OpenCoDE, code.europa.eu) throttle
+# anonymous callers hard: stay slow, and pause the whole host on a 429.
+REQUESTS_PER_SECOND = 2
+DETAIL_CONCURRENCY = 2
+MAX_PAUSE_SECONDS = 300
 
 
 @dataclass
@@ -59,6 +61,7 @@ class HostResult:
     repos: list[Repository] = field(default_factory=list)
     skipped_personal: int = 0
     detail_failures: int = 0
+    details_reused: int = 0
     error_type: str | None = None
 
 
@@ -130,23 +133,42 @@ def _next_link(link_header: str) -> str | None:
     return None
 
 
+def _header_seconds(value: str | None, default: float) -> float:
+    try:
+        return max(0.0, min(MAX_PAUSE_SECONDS, float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
 def make_getter(session: aiohttp.ClientSession) -> Getter:
     limiters: dict[str, AsyncLimiter] = {}
+    paused_until: dict[str, float] = {}
 
-    @retry_async(max_attempts=4, base_delay=5.0,
+    @retry_async(max_attempts=6, base_delay=5.0,
                  retry_on=(aiohttp.ClientError, RuntimeError, asyncio.TimeoutError))
     async def get(url: str, params: dict | None) -> tuple[object, str | None]:
         host = url.split("/")[2]
+        loop = asyncio.get_running_loop()
+        # One 429 pauses every request to that host, not just the one that hit it.
+        while (wait := paused_until.get(host, 0) - loop.time()) > 0:
+            await asyncio.sleep(wait)
         limiter = limiters.setdefault(host, AsyncLimiter(REQUESTS_PER_SECOND, 1))
         async with limiter, session.get(url, params=params,
                                         headers={"User-Agent": USER_AGENT}) as resp:
             if resp.status == 429:
-                wait = min(300, int(resp.headers.get("Retry-After", "60") or 60))
-                logger.warning("%s rate limited; waiting %ss", host, wait)
-                await asyncio.sleep(wait)
+                wait = _header_seconds(resp.headers.get("Retry-After"), 60)
+                paused_until[host] = max(paused_until.get(host, 0), loop.time() + wait)
+                logger.warning("%s rate limited; pausing it for %ss", host, int(wait))
                 raise RuntimeError("GitLab 429")
             if resp.status != 200:
                 raise RuntimeError(f"GitLab error {resp.status}")
+            if resp.headers.get("RateLimit-Remaining") == "0":
+                # GitLab sends RateLimit-Reset as a Unix timestamp.
+                try:
+                    wait = float(resp.headers.get("RateLimit-Reset", "")) - time.time()
+                except ValueError:
+                    wait = 60
+                paused_until[host] = loop.time() + max(0.0, min(MAX_PAUSE_SECONDS, wait))
             return await resp.json(), _next_link(resp.headers.get("Link", ""))
     return get
 
@@ -193,13 +215,27 @@ async def _list_projects(get: Getter, forge: ForgeHost, limit: int | None,
     return found
 
 
+# html_url -> (pushed_at, language, license) from the last stored run
+Known = dict[str, tuple[str | None, str | None, str | None]]
+
+
 async def _add_details(get: Getter, forge: ForgeHost, projects: list[tuple[int, Repository]],
-                       result: HostResult) -> None:
-    """Language and licence, one call each. A failure leaves the field empty."""
+                       result: HostResult, known: Known | None = None) -> None:
+    """Language and licence, one call each. A failure leaves the field empty.
+
+    Projects with no activity since the last stored run keep their stored values,
+    so only the first run pays for every project.
+    """
     api = f"https://{forge.host}/api/v4"
     semaphore = asyncio.Semaphore(DETAIL_CONCURRENCY)
+    known = known or {}
 
     async def one(project_id: int, repo: Repository) -> None:
+        previous = known.get(repo.html_url)
+        if previous and previous[0] == repo.pushed_at and (previous[1] or previous[2]):
+            repo.language, repo.license = previous[1], previous[2]
+            result.details_reused += 1
+            return
         async with semaphore:
             try:
                 languages, _ = await get(f"{api}/projects/{project_id}/languages", None)
@@ -224,12 +260,19 @@ def _save_host(db: Database, forge: ForgeHost, repos: list[Repository], complete
     db.conn.commit()
 
 
+def _known_details(db: Database, forge: ForgeHost) -> Known:
+    rows = db.conn.execute(
+        "SELECT html_url, pushed_at, language, license FROM repositories WHERE html_url LIKE ?",
+        (f"https://{forge.host}/%",)).fetchall()
+    return {r[0]: (r[1], r[2], r[3]) for r in rows}
+
+
 async def fetch_forge(get: Getter, forge: ForgeHost, limit: int | None = None,
-                      details: bool = True) -> HostResult:
+                      details: bool = True, known: Known | None = None) -> HostResult:
     result = HostResult(host=forge.host, status="succeeded")
     projects = await _list_projects(get, forge, limit, result)
     if details:
-        await _add_details(get, forge, projects, result)
+        await _add_details(get, forge, projects, result, known)
     result.repos = [repo for _, repo in projects]
     return result
 
@@ -254,7 +297,8 @@ async def scrape_forges(
 
     async def one(forge: ForgeHost) -> HostResult:
         try:
-            result = await fetch_forge(get, forge, limit=limit, details=details)
+            result = await fetch_forge(get, forge, limit=limit, details=details,
+                                       known=_known_details(db, forge))
             # Synchronous, so no other host's write can interleave with this save.
             _save_host(db, forge, result.repos, complete=limit is None)
         except Exception as exc:  # noqa: BLE001 - one host must not stop the rest
