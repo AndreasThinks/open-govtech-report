@@ -75,7 +75,10 @@ svg.fill{display:block;width:100%;height:auto}
 .quad.hot{fill:var(--hot)}
 .dot{cursor:pointer}
 .dot circle{fill:color-mix(in srgb,var(--cobalt) 22%,transparent);stroke:var(--cobalt);stroke-width:1.5}
-.dot.em circle{fill:color-mix(in srgb,var(--hot) 25%,transparent);stroke:var(--hot)}
+.dot.emerging circle,.dot.concentrated circle{fill:color-mix(in srgb,var(--hot) 55%,transparent);stroke:var(--hot)}
+.dot.concentrated circle{stroke:var(--ink);stroke-width:2}
+.dot.cooling circle{fill:color-mix(in srgb,var(--cool) 55%,transparent);stroke:var(--cool)}
+.dot.steady circle{fill:color-mix(in srgb,var(--faint) 22%,transparent);stroke:var(--faint)}
 .dot:hover circle,.dot:focus-visible circle{stroke:var(--ink);stroke-width:3}
 .dot text{font:600 11.5px var(--body);fill:var(--ink);pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:3px}
 .dig{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
@@ -87,6 +90,11 @@ svg.fill{display:block;width:100%;height:auto}
 .rows li span{font:600 13px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
 .rows li span.lbl{font:600 14.5px var(--body);color:var(--ink)}
 .rows li small{grid-column:1/-1;color:var(--muted);font-size:12.5px}
+.rows li span.hot{color:var(--hot)}.rows li span.cool{color:var(--cool)}
+.rows li .trend{grid-column:1/-1;display:block;width:100%;height:30px}
+.rows .who{font:600 11.5px var(--mono);color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 5px;margin-right:6px;white-space:nowrap}
+.rows .who.warn{border-style:dashed;border-color:var(--hot)}
+.mom .rows{gap:14px}
 .rows li .bar{grid-column:1/-1;height:6px;background:var(--tint);border-radius:3px;overflow:hidden}
 .rows li .bar i{display:block;height:100%;background:var(--cobalt)}
 .more{display:inline-block;margin-top:12px;font-weight:700;font-size:14px;text-decoration:none}

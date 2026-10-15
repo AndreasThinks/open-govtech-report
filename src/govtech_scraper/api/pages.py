@@ -112,11 +112,10 @@ def add_site_routes(app: FastAPI, catalogue: Catalogue, insights: Insights, site
                 return shell(f"/theme/{theme}", "Not found", DEFAULT_DESCRIPTION, 404)
             found = insights._describe(theme)
             return shell(f"/theme/{theme}", found["name"], found["definition"])
-        growth = found.get("growth_12m")
+        status = {"emerging": " Emerging.", "cooling": " Cooling."}.get(found.get("status"), "")
         desc = (
             f"{found['definition']} {found['repos']:,} government repositories in "
-            f"{found['countries']} countries"
-            + (f", {growth:+.0f}% in 12 months." if growth is not None else ".")
+            f"{found['countries']} countries.{status}"
         )
         return shell(f"/theme/{theme}", found["name"], desc)
 

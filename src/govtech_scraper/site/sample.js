@@ -54,13 +54,25 @@
     };
   });
 
+  // Momentum fields, shaped like the API's: pace against the index with an 80% interval, breadth and status.
+  const INDEX_PACE = 1.1, TREND_MONTHS = monthsBack(25).slice(0, 24);
+  function momentum(seed, prior, neu, accounts, topShare) {
+    const a = neu + .5, b = prior + .5, pace = a / b / INDEX_PACE, spread = Math.exp(1.2816 * Math.sqrt(1 / a + 1 / b));
+    const lo = pace / spread, hi = pace * spread;
+    const status = neu + prior < 20 ? "too_small" : lo > 1 ? (accounts < 5 || topShare > 50 ? "concentrated" : "emerging") : hi < 1 ? "cooling" : "steady";
+    const r = rng(seed), trend = TREND_MONTHS.map((m, i) => Math.max(0, Math.round((i < 12 ? prior : neu) / 12 * (0.7 + r() * .6))));
+    return { new_window: neu, new_prior: prior, pace: Math.round(pace * 1000) / 1000, pace_low: Math.round(lo * 1000) / 1000, pace_high: Math.round(hi * 1000) / 1000,
+      accounts_window: accounts, countries_window: Math.max(1, Math.round(accounts / 2)), top_account: "example-gov", top_account_share: topShare, status, trend };
+  }
   function summary(t) {
     const [id, name, domain, repos, g, countries, definition] = t;
     const before = Math.round(repos / (1 + g / 100));
+    const prior = Math.max(12, Math.round(repos / 8)), neu = Math.round(prior * Math.min(4, 1 + g / 60));
     return {
       id, type: "tag", name, definition, domain, domain_name: DOMAINS[domain], repos,
       maintained: Math.round(repos * .62), new_12m: repos - before, growth_12m: g, countries,
       accounts: countries * 3, licensed_share: 55 + countries, stars: repos * 12,
+      ...momentum(repos, prior, neu, countries < 9 ? 3 : countries * 2, countries < 9 ? 70 : 20),
     };
   }
   const themes = T.map(summary);
@@ -69,7 +81,8 @@
     const repos = kids.reduce((a, b) => a + b.repos, 0), newer = kids.reduce((a, b) => a + b.new_12m, 0);
     return { id, type: "domain", name, definition: "", domain: id, domain_name: name, repos, maintained: Math.round(repos * .6),
       new_12m: newer, growth_12m: Math.round(newer / (repos - newer) * 1000) / 10, countries: Math.max(...kids.map(k => k.countries)),
-      accounts: 0, licensed_share: 69, stars: 0 };
+      accounts: 0, licensed_share: 69, stars: 0,
+      ...momentum(repos + 1, kids.reduce((a, b) => a + b.new_prior, 0), kids.reduce((a, b) => a + b.new_window, 0), kids.length * 6, 20) };
   });
 
   const total = (() => { const r = rng(41), months = monthsBack(36), out = []; let v = 7900; months.forEach((m, i) => { const n = Math.round(48 + r() * 30 + i); v += n; out.push({ month: m, new: n, total: v }); }); return out; })();
@@ -128,7 +141,7 @@
       newest: REPOS.slice().sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 6),
       classification: { model: null, taxonomy_version: 1, confidence_mode: null, classified_original_repos: 0, labelled_repos: 0, unclassified_repos: 0, failed_repos: 0, current_total_repos: 0, coverage: 0 },
     },
-    themes: { model: "sample", taxonomy_version: 1, growth_definition: "", themes: domainThemes.concat(themes) },
+    themes: { model: "sample", taxonomy_version: 1, growth_definition: "", index_pace: INDEX_PACE, trend_months: TREND_MONTHS, themes: domainThemes.concat(themes) },
     theme, repo, context, repos,
     countries: COUNTRIES.map(country => ({ country })),
   };

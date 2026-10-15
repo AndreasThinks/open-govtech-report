@@ -17,7 +17,7 @@ moved to paths automatically.
 
 | Path | What it shows |
 | --- | --- |
-| `/` | Headline numbers, themes treemap (size = repos, colour = 12-month growth), repos over time, status breakdown, momentum scatter, fastest-growing themes, countries, newest notable repos |
+| `/` | Headline numbers, themes treemap (size = repos, colour = pace against the index), repos over time, status breakdown, emerging / cooling / one-team lists with trends, breadth-against-pace chart, countries, newest notable repos |
 | `/themes`, `/theme/{id}` | Every COFOG domain and tag; one theme with new repos per month, countries, adopters, teams to talk to, related tags, an RSS feed and repo lists |
 | `/countries`, `/country/{id}` | Registry labels grouped by country and level of government; one label's theme mix against the index, active accounts, languages and cross-border reuse |
 | `/account/{owner}` | One GitHub account: themes, languages, reuse in both directions, top and recent repos |
@@ -47,9 +47,11 @@ overview's headline numbers and in About's Supporters section.
 - **Themes** are the COFOG domains and taxonomy tags from the decision-model run the API picks
   (see [decision-tagging.md](decision-tagging.md)). Counts cover original (non-fork) repos.
 - **Growth** is repos created in the last 12 months as a share of those created before. It
-  works from a single scrape; once snapshots build up it can move to snapshot deltas.
-- **Fastest growing** means at least 50 repos, ranked by growth. **Emerging** means 5 to 200
-  repos and growing at least twice as fast as the whole index.
+  mostly shows how young a theme is, so the site uses pace for momentum.
+- **Pace** is new repos in the last 12 complete months against the 12 before, divided by the
+  same ratio for the whole index, with an 80% interval. **Emerging** means the interval is above
+  1.0 and at least 5 accounts made the new work, none more than half of it. A rise that fails the
+  breadth test is **one team busy** (`concentrated`); an interval below 1.0 is **cooling**.
 - **Notable** means a description, some content and a push after the creation day. Lists of new
   repos, the week page and feeds show only notable repos, which hides empty placeholders.
 - **Countries** split each registry label into country and level of government
