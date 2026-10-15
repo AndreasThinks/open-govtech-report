@@ -235,3 +235,17 @@ table.cmp{min-width:480px}
 @media (max-width:980px){.ov,.two{grid-template-columns:1fr}.dig{grid-template-columns:1fr}.about{grid-template-columns:1fr;gap:16px}.toc{position:static;display:flex;flex-wrap:wrap;gap:6px 14px}.toc a{border-left:0;padding:0}.toc .grp{display:none}}
 @media (max-width:720px){.def{grid-template-columns:1fr}.mixrow{grid-template-columns:minmax(0,120px) minmax(0,1fr) 52px}.kpis{grid-template-columns:1fr 1fr}.kpi:nth-child(2){border-right:0}.kpi:nth-child(-n+2){border-bottom:1px solid var(--line)}.mini{flex-basis:100%}}
 @media (prefers-reduced-motion:reduce){.tip{transition:none}}
+
+/* About: pipeline steps */
+.flow { list-style: none; margin: 20px 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.flow li { position: relative; border: 1px solid var(--line); border-radius: 10px; padding: 14px 14px 12px; background: transparent; }
+.flow li::after { content: ""; position: absolute; right: -12px; top: 50%; width: 12px; height: 2px; background: var(--cobalt); }
+.flow li:last-child::after { display: none; }
+.flow .n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--cobalt); color: #fff; font-size: 12px; font-weight: 700; }
+.flow b { display: block; margin: 8px 0 4px; }
+.flow p { margin: 0 0 8px; font-size: 14px; }
+.flow code { display: block; font-size: 12px; color: var(--muted); white-space: normal; }
+.flow li:not(:last-child)::before { content: ""; position: absolute; right: -12px; top: calc(50% - 3px); width: 6px; height: 6px; border-radius: 50%; background: var(--hot); animation: flow-pulse 3s linear infinite; }
+@keyframes flow-pulse { 0% { transform: translateX(0); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(14px); opacity: 0; } }
+@media (max-width: 640px) { .flow { grid-template-columns: 1fr; } .flow li::after, .flow li:not(:last-child)::before { display: none; } }
+@media (prefers-reduced-motion: reduce) { .flow li::before { animation: none; } }
