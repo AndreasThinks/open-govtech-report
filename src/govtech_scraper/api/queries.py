@@ -7,8 +7,10 @@ worker threads and can never change the data.
 
 import json
 import os
+import re
 import sqlite3
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
@@ -16,8 +18,10 @@ from functools import lru_cache
 from ..decision.evidence import source_from_repo
 from ..decision.store import row_to_repository
 from ..decision.taxonomy import Taxonomy, load_taxonomy
+from .places import place
 
 MAX_LIMIT = 100
+README_EXCERPT = 600
 TAG_THRESHOLD = 0.5
 SORTS = {
     "stars": "r.stars DESC",
@@ -25,6 +29,11 @@ SORTS = {
     "newest": "r.created_at DESC",
     "name": "r.owner, r.name",
 }
+# Described, not empty, and pushed again after the day it was created.
+NOTABLE_SQL = (
+    "(TRIM(COALESCE(r.description, '')) != '' AND COALESCE(r.size_kb, 0) > 0"
+    " AND julianday(r.pushed_at) - julianday(r.created_at) > 1)"
+)
 
 
 @dataclass
@@ -66,6 +75,7 @@ class RepoDetail(RepoSummary):
     fork_source: str | None = None
     llm_tags: list[str] = field(default_factory=list)
     classification: Classification | None = None
+    readme_excerpt: str | None = None
 
 
 class Catalogue:
@@ -84,6 +94,7 @@ class Catalogue:
             self._has_reuse = conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_reuse'"
             ).fetchone() is not None
+        self._year_ago: str | None = None
         self.decision_model = os.getenv("DECISION_MODEL") or self._default_decision_model()
         self.confidence_mode = self._model_mode(self.decision_model)
 
@@ -147,6 +158,21 @@ class Catalogue:
             }
         )
         return source_from_repo(repo).metadata_hash
+
+    def year_before_scrape(self) -> str:
+        """ISO timestamp 365 days before the latest scrape; the database never changes in-process."""
+        if self._year_ago is None:
+            with self._connect() as conn:
+                last = conn.execute(
+                    f"SELECT MAX(last_scraped) FROM repositories WHERE {self.current_predicate()}"
+                ).fetchone()[0]
+            try:
+                ref = datetime.fromisoformat((last or "").replace("Z", "+00:00"))
+            except ValueError:
+                ref = datetime.now(UTC)
+            ref = ref if ref.tzinfo else ref.replace(tzinfo=UTC)
+            self._year_ago = (ref - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return self._year_ago
 
     def current_predicate(self, alias: str = "") -> str:
         """Legacy publications contain only current rows; never migrate an input database."""
@@ -299,8 +325,16 @@ class Catalogue:
         sort: str = "stars",
         limit: int = 20,
         offset: int = 0,
+        owner: str | None = None,
+        maintained: bool = False,
+        notable: bool = False,
     ) -> dict:
-        """Filter and page through repositories. Returns {"total", "items"}."""
+        """Filter and page through repositories. Returns {"total", "items"}.
+
+        maintained: not archived and pushed in the 12 months before the latest scrape.
+        notable: has a description, some content, and a push after the day it was created,
+        which hides empty placeholders from lists of new repositories.
+        """
         if sort not in SORTS:
             raise ValueError(f"sort must be one of {', '.join(SORTS)}")
         limit = max(1, min(limit, MAX_LIMIT))
@@ -326,10 +360,18 @@ class Catalogue:
                 "EXISTS (SELECT 1 FROM json_each(r.topics) t WHERE LOWER(t.value) = LOWER(?))"
             )
             params.append(topic)
+        if owner:
+            where.append("LOWER(r.owner) = LOWER(?)")
+            params.append(owner)
         if not include_forks:
             where.append("r.fork = 0")
         if not include_archived:
             where.append("r.archived = 0")
+        if maintained:
+            where.append("r.archived = 0 AND r.pushed_at >= ?")
+            params.append(self.year_before_scrape())
+        if notable:
+            where.append(NOTABLE_SQL)
         if domain or tag or kind:
             if not join:
                 raise ValueError("No classification data in this database yet")
@@ -395,12 +437,31 @@ class Catalogue:
                         (row["html_url"],),
                     )
                 ]
+            detail.readme_excerpt = self._readme_excerpt(conn, row["html_url"])
             if self.decision_model:
                 detail.classification = self._classification(conn, row["html_url"])
                 if detail.classification:
                     detail.domain = detail.classification.domain
                     detail.kind = detail.classification.kind
         return asdict(detail)
+
+    def _readme_excerpt(self, conn: sqlite3.Connection, html_url: str) -> str | None:
+        """The opening of the README the classifier read, when the publication includes it."""
+        if not self._has_table(conn, "evidence_sources"):
+            return None
+        row = conn.execute(
+            "SELECT source_json FROM evidence_sources WHERE html_url=?", (html_url,)
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            readme = (json.loads(row[0]).get("fields") or {}).get("readme") or ""
+        except (ValueError, AttributeError):
+            return None
+        text = _plain(readme)
+        if not text:
+            return None
+        return text if len(text) <= README_EXCERPT else text[: README_EXCERPT - 1].rsplit(" ", 1)[0] + "…"
 
     def _classification(self, conn: sqlite3.Connection, html_url: str) -> Classification | None:
         if self.confidence_mode == "evidence":
@@ -471,7 +532,7 @@ class Catalogue:
         )
 
     def list_countries(self) -> list[dict]:
-        """Countries with repository counts."""
+        """Registry labels with repository counts, plus the country and level each one means."""
         with self._connect() as conn:
             rows = conn.execute(
                 f"""SELECT country, COUNT(*) AS repos, COUNT(DISTINCT owner) AS accounts,
@@ -479,7 +540,7 @@ class Catalogue:
                    FROM repositories WHERE {self.current_predicate()}
                    GROUP BY country ORDER BY repos DESC"""
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [{**dict(row), **_place_fields(row["country"])} for row in rows]
 
     def taxonomy_summary(self) -> dict:
         """The taxonomy, with how many repos each domain and tag covers in the current run."""
@@ -585,3 +646,18 @@ class Catalogue:
             "classified_repos": classified,
             "top_languages": [dict(row) for row in languages],
         }
+
+
+def _place_fields(label: str) -> dict:
+    p = place(label)
+    return {"slug": p["slug"], "country_name": p["country"], "level": p["level"]}
+
+
+def _plain(markdown: str) -> str:
+    """Rough plain text from README markdown: drop images, HTML, link targets and markup."""
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", markdown)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"```.*?```", " ", text, flags=re.S)
+    text = re.sub(r"[#*_`>|]+", " ", text)
+    return " ".join(text.split())

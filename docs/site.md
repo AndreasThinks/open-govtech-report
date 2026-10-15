@@ -10,14 +10,37 @@ is zero.
 
 ## Pages
 
-| Route | What it shows |
+When the API serves the site, every page has a real path (below) with its own title,
+description and link-preview tags, so links can be shared and indexed. Static copies hosted
+elsewhere use the same routes after `#` (for example `#/theme/geospatial`); old `#/` links are
+moved to paths automatically.
+
+| Path | What it shows |
 | --- | --- |
-| `#/` | Headline numbers, themes treemap (size = repos, colour = 12-month growth), repos over time, status breakdown, momentum scatter, fastest-growing themes, countries, newest repos |
-| `#/themes` | Every COFOG domain with its tags |
-| `#/theme/{id}` | One domain or tag: new repos per month, countries, adopting accounts, how the model assigns it, related tags, most starred and newest repos. "Track this theme" saves to the browser |
-| `#/repos` | Search and filter by text, country, domain, tag, forks and archived |
-| `#/repo/{owner}/{name}` | Classification probabilities, stars and forks history, government forks, similar repos |
-| `#/method`, `#/data` | How the numbers are made; API and MCP details |
+| `/` | Headline numbers, themes treemap (size = repos, colour = 12-month growth), repos over time, status breakdown, momentum scatter, fastest-growing themes, countries, newest notable repos |
+| `/themes`, `/theme/{id}` | Every COFOG domain and tag; one theme with new repos per month, countries, adopters, teams to talk to, related tags, an RSS feed and repo lists |
+| `/countries`, `/country/{id}` | Registry labels grouped by country and level of government; one label's theme mix against the index, active accounts, languages and cross-border reuse |
+| `/account/{owner}` | One GitHub account: themes, languages, reuse in both directions, top and recent repos |
+| `/repos`, `/repo/{owner}/{name}` | Search (text, country, domain, tag, language, maintained only, forks, archived) with CSV download; one repo's classification, history, forks, README excerpt and badge |
+| `/week` | Notable new repos, fastest-growing themes, star movers, archived this week, RSS |
+| `/reuse` | Government forks of other governments' code: flows and most reused repos |
+| `/compare` | Two labels or two themes side by side |
+| `/building-blocks` | Hand-picked components from `api/building_blocks.yaml`, with live figures |
+| `/practice` | Licence, description and topic shares by label |
+| `/submit` | Builds a `submissions/pending/*.yaml` file and opens it on GitHub |
+| `/about`, `/data` | Why the index exists, who runs it, supporters and the method (`/method` redirects); API, MCP, feeds and badges |
+
+Charts have a "Show as a table" option. Feeds live at `/feeds/week.xml`,
+`/feeds/theme/{id}.xml` and `/feeds/country/{id}.xml`; badges at `/badge/{owner}/{name}.svg`;
+`/sitemap.xml` and `/robots.txt` are generated. Set `GOVTECH_SITE_URL` if the public address is
+not `https://www.govtechindex.cloud`.
+
+## Sponsor slot and contact
+
+`config.js` holds `contact` (shown for sponsorship, corrections and submissions) and `sponsor`.
+With `sponsor: null` every page shows "Interested in sponsoring it? Get in touch". Set it to
+`{name, url, logo, since, blurb}` to credit a sponsor in the strip above the footer, under the
+overview's headline numbers and in About's Supporters section.
 
 ## Where the numbers come from
 
@@ -25,8 +48,13 @@ is zero.
   (see [decision-tagging.md](decision-tagging.md)). Counts cover original (non-fork) repos.
 - **Growth** is repos created in the last 12 months as a share of those created before. It
   works from a single scrape; once snapshots build up it can move to snapshot deltas.
-- **Emerging** means at least five repos, smaller than three quarters of tags, and growing at
-  least twice as fast as the whole index (and at least 20%).
+- **Fastest growing** means at least 50 repos, ranked by growth. **Emerging** means 5 to 200
+  repos and growing at least twice as fast as the whole index.
+- **Notable** means a description, some content and a push after the creation day. Lists of new
+  repos, the week page and feeds show only notable repos, which hides empty placeholders.
+- **Countries** split each registry label into country and level of government
+  (`api/places.py`).
+- **Reuse** counts forks by one government account of another account's original repo.
 
 ## Sample-data fallback
 

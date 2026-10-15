@@ -17,8 +17,10 @@
   <nav aria-label="Main">
     <a href="#/" data-nav="overview">Overview</a>
     <a href="#/themes" data-nav="themes">Themes</a>
+    <a href="#/countries" data-nav="countries">Countries</a>
     <a href="#/repos" data-nav="repos">Repositories</a>
-    <a href="#/method" data-nav="method">Method</a>
+    <a href="#/week" data-nav="week">This week</a>
+    <a href="#/about" data-nav="about">About</a>
     <a href="#/data" data-nav="data">Data and API</a>
   </nav>
   <form class="mini" role="search" id="sf"><label for="sq" class="vh">Search the index</label><input id="sq" type="search" placeholder="Search themes and repositories"></form>
@@ -26,9 +28,16 @@
 
 <main id="app" aria-live="polite"><div class="loading pad"><div class="in">Loading the index…</div></div></main>
 
+<div class="sponstrip pad" id="sponsor" hidden></div>
 <footer class="pad"><div class="in foot">
-  <span>Covers accounts in the <a href="https://github.com/github/government.github.com">government.github.com registry</a> plus accepted submissions. It is not a census of all government code.</span>
-  <span>govtechindex.cloud · <a href="#/method">Method</a> · <a href="#/data">Data and API</a> · <a href="https://github.com/AndreasThinks/open-govtech-report">Source</a></span>
+  <div class="fcol">
+    <span>Covers accounts in the <a href="https://github.com/github/government.github.com">government.github.com registry</a> plus accepted submissions. It is not a census of all government code.</span>
+    <span id="status" hidden></span>
+  </div>
+  <nav class="fnav" aria-label="Explore">
+    <a href="#/reuse">Reuse</a><a href="#/building-blocks">Building blocks</a><a href="#/compare">Compare</a><a href="#/practice">Open-source practice</a><a href="#/submit">Add an account</a>
+  </nav>
+  <span>govtechindex.cloud · <a href="#/about">About</a> · <a href="#/data">Data and API</a> · <a href="https://github.com/AndreasThinks/open-govtech-report">Source</a> · <a href="https://andreasthinks.me">andreasthinks.me</a></span>
 </div></footer>
 
 <div class="tip" id="tip" role="tooltip"></div>

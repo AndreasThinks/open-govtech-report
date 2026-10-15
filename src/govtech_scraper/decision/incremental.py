@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 import hashlib
 import json
@@ -43,6 +43,9 @@ VOLATILE_FIELDS = frozenset({'stars', 'forks', 'watchers', 'open_issues', 'size_
                             'commit_count', 'created_at', 'updated_at', 'pushed_at',
                             'last_scraped'})
 ACQUIRED = frozenset({'fetched', 'empty', 'missing'})
+# A failed classification of unchanged evidence is retried at most once per weekly run.
+# Slightly under seven days so a run that starts a little early still picks it up.
+RETRY_FAILED_AFTER = timedelta(days=6)
 
 
 def meaningful_hash(source: EvidenceSource) -> str:
@@ -98,6 +101,15 @@ class IncrementalPlanner:
             AND (COALESCE(r.source_url,b.source_url) IS NULL
                  OR COALESCE(r.source_url,b.source_url)=?) LIMIT 1''', (url,)).fetchone() is not None
 
+    def _retry_due(self, classified_at: str | None) -> bool:
+        try:
+            when = datetime.fromisoformat(str(classified_at).replace('Z', '+00:00'))
+        except ValueError:
+            return True
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        return datetime.now(UTC) - when >= RETRY_FAILED_AFTER
+
     def plan(self, repo: Repository, source: EvidenceSource | None = None) -> IncrementalPlan:
         def result(action: PlanAction, reason: str, original: str | None = None) -> IncrementalPlan:
             return IncrementalPlan(repo.html_url, action, reason, source, original)
@@ -132,6 +144,8 @@ class IncrementalPlanner:
                 cached = self.conn.execute('SELECT * FROM evidence_sources WHERE html_url=? AND source_hash=?',
                                            (repo.html_url, row['source_hash'])).fetchone()
                 original = _cached(cached) if cached else None
+            if row['status'] == 'failed' and self._retry_due(row['classified_at']):
+                return result(PlanAction.CLASSIFY, 'weekly retry of failed classification')
             # Do not reconstruct missing historical evidence or guess equivalence.
             if original and meaningful_hash(original) == meaningful_hash(source):
                 for tag in self.conn.execute(
