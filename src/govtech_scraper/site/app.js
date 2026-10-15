@@ -642,6 +642,18 @@
   }
 
   // ------------------------------------------------------------------ about (was "method")
+  function pipelineFigure() {
+    const steps = [
+      ["Find sources", "Start from a list of government accounts and servers.", "government.github.com YAML · forge_hosts.yaml"],
+      ["Fetch", "Ask each platform for its public repositories. Code itself is not copied.", "GitHub REST API · GitLab v4 API, 2 requests a second per server"],
+      ["Store", "Keep one row per repository in one database, with a snapshot each week.", "SQLite · repositories, repository_snapshots, cache (ETag)"],
+      ["Count", "Work out originals, maintained and licensed repositories for the numbers.", "fork, archived and pushed_at filters"],
+      ["Classify", "An AI model picks themes from a fixed list and must quote its evidence. Only new or changed repositories are read again.", "decision model · taxonomy v1 · quote validation · content-hash cache"],
+      ["Publish", "Rebuild the site, the API and the open dataset from the same database.", "static site · FastAPI and MCP · Parquet and CSV export"],
+    ];
+    return `<ol class="flow" aria-label="The six steps from sources to published data">${steps.map(([name, plain, tech], i) => `<li><span class="n">${i + 1}</span><b>${name}</b><p>${plain}</p><code>${tech}</code></li>`).join("")}</ol>`;
+  }
+
   function pageAbout() {
     const o = state.overview, t = o.totals, c = o.classification || {}, sp = CONFIG.sponsor;
     const nt = state.themes.themes, nd = nt.filter(x => x.type === "domain").length, ntag = nt.filter(x => x.type === "tag").length;
@@ -657,7 +669,7 @@
         <span class="grp">The project</span>
         ${[["why", "Why it exists"], ["who", "Who runs it"], ["supporters", "Supporters"]].map(([id, l]) => `<a href="#/about" data-scroll="${id}">${l}</a>`).join("")}
         <span class="grp">Method</span>
-        ${[["coverage", "Coverage"], ["counting", "Which repositories count"], ["themes", "Themes"], ["growth", "Pace and emerging"], ["limits", "Known limits"]].map(([id, l]) => `<a href="#/about" data-scroll="${id}">${l}</a>`).join("")}
+        ${[["coverage", "Coverage"], ["pipeline", "How the data is made"], ["counting", "Which repositories count"], ["themes", "Themes"], ["growth", "Pace and emerging"], ["limits", "Known limits"]].map(([id, l]) => `<a href="#/about" data-scroll="${id}">${l}</a>`).join("")}
         <span class="grp">Get involved</span>
         <a href="#/about" data-scroll="corrections">Corrections and submissions</a>
       </nav>
@@ -687,7 +699,8 @@
         : `<p>Running the index costs money: hosting, the weekly scrape and the classification of new repositories. It is currently funded by its author.</p>${askBox}`}
 
         <h2 id="coverage">Coverage</h2>
-        <p>The index covers public repositories owned by accounts in the <a href="https://github.com/github/government.github.com">government.github.com registry</a>, plus community submissions that have been reviewed. It is not a census of all government code: an account missing from the registry is missing here. A weekly job scrapes every account through the GitHub API and keeps a snapshot of each repository.</p>
+        <p>The index covers public repositories owned by accounts in the <a href="https://github.com/github/government.github.com">government.github.com registry</a>, plus community submissions that have been reviewed. It also reads public repositories from six government GitLab servers: OpenCoDE (Germany), code.europa.eu (European Union), ADULLACT (France), Platform One (US Department of Defense), USGS and Oak Ridge National Laboratory (US). Those are read through each server's public GitLab API and kept apart from GitHub by their web address. The GitLab servers are being added to the weekly job, so until then their repositories are not in the published counts.</p>
+        <p>It is not a census of all government code: an account missing from the registry, or a server not on this list, is missing here. A weekly job scrapes every GitHub account through the GitHub API and keeps a snapshot of each repository.</p>
         <div class="facts">
           <div class="stat"><b>${num(t.repos)}</b><small>repositories</small></div>
           <div class="stat"><b>${num(t.accounts)}</b><small>accounts</small></div>
@@ -695,6 +708,10 @@
           <div class="stat"><b>Weekly</b><small>last scrape ${esc(o.as_of ? date(o.as_of) : "unknown")}</small></div>
         </div>
         <p>Registry labels mix countries with parts of a government and international bodies. The <a href="#/countries">countries page</a> groups each label by country and level of government: national, regional, local, tribal or international.</p>
+
+        <h2 id="pipeline">How the data is made</h2>
+        <p>Each week the index runs the same six steps. The plain-English version is in each card; the technical names are underneath.</p>
+        ${pipelineFigure()}
 
         <h2 id="counting">Which repositories count</h2>
         <dl class="def">

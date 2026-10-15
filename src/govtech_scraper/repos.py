@@ -25,6 +25,9 @@ RATE_LIMITER = AsyncLimiter(12, 1.0)
 # Max concurrent connections
 MAX_CONCURRENT = 20
 
+# Owner names can repeat on other forges (see forges.py); scope owner updates to GitHub.
+GITHUB_URL_PATTERN = "https://github.com/%"
+
 
 class AccountNotFound(Exception):
     """A confirmed HTTP 404, distinct from network or permission failure."""
@@ -172,7 +175,7 @@ async def fetch_all_repos(
         async with semaphore:
             try:
                 repos = await fetch_repos_for_account(session, auth, account, db, force)
-                old = db.conn.execute('SELECT * FROM repositories WHERE lower(owner)=lower(?) AND current=1', (account.username,)).fetchall()
+                old = db.conn.execute('SELECT * FROM repositories WHERE lower(owner)=lower(?) AND current=1 AND html_url LIKE ?', (account.username, GITHUB_URL_PATTERN)).fetchall()
                 old_by_url = {r['html_url']: r for r in old}
                 def equal(repo):
                     row = old_by_url.get(repo.html_url)
@@ -184,7 +187,7 @@ async def fetch_all_repos(
                 status = 'unchanged' if len(old) == len(repos) and all(equal(r) for r in repos) else 'succeeded'
                 # Save and mark current only after this account's entire enumeration succeeds.
                 db.save_repositories(repos)
-                db.conn.execute('UPDATE repositories SET current=0 WHERE lower(owner)=lower(?)', (account.username,))
+                db.conn.execute('UPDATE repositories SET current=0 WHERE lower(owner)=lower(?) AND html_url LIKE ?', (account.username, GITHUB_URL_PATTERN))
                 db.conn.executemany('UPDATE repositories SET current=1 WHERE html_url=?', [(r.html_url,) for r in repos])
             except AccountNotFound:
                 status = 'not-found'

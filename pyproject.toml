@@ -40,7 +40,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-govtech_scraper = ["decision/taxonomy.yaml", "api/*.yaml", "site/*"]
+govtech_scraper = ["decision/taxonomy.yaml", "api/*.yaml", "forge_hosts.yaml", "site/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

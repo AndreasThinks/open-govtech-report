@@ -111,6 +111,42 @@ def scrape(ctx: click.Context, force: bool, limit: int | None) -> None:
 
 
 @main.command()
+@click.option("--host", "hosts", multiple=True, help="Only these hosts (repeatable)")
+@click.option("--limit", type=int, default=None, help="Max repos per host (for testing)")
+@click.option("--no-details", is_flag=True, help="Skip the per-repo language and licence calls")
+@click.pass_context
+def forges(ctx: click.Context, hosts: tuple[str, ...], limit: int | None,
+           no_details: bool) -> None:
+    """Fetch repos from government GitLab servers outside GitHub."""
+    from .forges import load_forge_hosts, scrape_forges
+
+    targets = load_forge_hosts()
+    if hosts:
+        wanted = {h.lower() for h in hosts}
+        targets = [f for f in targets if f.host in wanted]
+        if not targets:
+            raise click.UsageError(f"No configured forge matches {', '.join(hosts)}")
+    db = Database(ctx.obj["db_path"])
+    try:
+        async def _run():
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=90)) as session:
+                return await scrape_forges(db, targets, limit=limit, details=not no_details,
+                                           session=session)
+
+        results = asyncio.run(_run())
+        for r in results:
+            extra = f" ({r.error_type})" if r.error_type else ""
+            click.echo(f"{r.host}: {r.status}{extra}, {len(r.repos)} repos, "
+                       f"{r.skipped_personal} personal skipped, "
+                       f"{r.details_reused} details reused, "
+                       f"{r.detail_failures} detail lookups failed")
+        if any(r.status == "failed" for r in results):
+            sys.exit(1)
+    finally:
+        db.close()
+
+
+@main.command()
 @click.option("--limit", type=int, default=None, help="Limit repos to tag (for testing)")
 @click.option("--retag", is_flag=True, help="Re-tag already tagged repos")
 @click.option("--model", default="qwen/qwen3-32b", help="LLM model for tag suggestion")
