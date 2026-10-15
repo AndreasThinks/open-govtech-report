@@ -88,6 +88,8 @@
       state.live = false; state.sampleThemes = true;
       state.overview = SAMPLE.overview; state.themes = SAMPLE.themes;
     }
+    // A pace on a handful of repositories is noise, so it is shown only where a theme has a status.
+    state.themes.themes.forEach(t => { if (t.status === "too_small") t.pace = null; });
     const banner = document.getElementById("banner");
     if (!state.live) {
       banner.innerHTML = "Sample data: the index API could not be reached, so every figure on this site is an example.";
@@ -268,13 +270,15 @@
     svg.append(txt({ x: M.l + 10, y: M.t + 16, class: "quad" }, "One team busy"));
     svg.append(txt({ x: W - M.r - 10, y: H - M.b - 10, class: "quad", "text-anchor": "end" }, "Cooling"));
     // Label emerging, one-team and cooling themes first, then the largest, skipping any label that would collide.
-    const placed = [], labelled = new Set();
+    // A label goes right of its dot, else left, else nudged below; skipped if every spot collides.
+    const placed = [], labelled = new Map();
     risers().concat(oneTeam(), cooling().slice(0, 4), ts.slice().sort((a, b) => b.new_window - a.new_window).slice(0, 5)).forEach(t => {
-      if (!ts.includes(t)) return;
+      if (!ts.includes(t) || labelled.has(t.id)) return;
       const x = xs(t.accounts_window), y = ys(t.pace), w = t.name.length * 6.6 + 16;
-      const box = x < W - 220 ? [x, x + w] : [x - w, x];
-      if (labelled.has(t.id) || placed.some(p => Math.abs(p.y - y) < 15 && p.box[0] < box[1] && box[0] < p.box[1])) return;
-      placed.push({ y, box }); labelled.add(t.id);
+      const free = (box, ly) => box[0] >= M.l && box[1] <= W - M.r && !placed.some(p => Math.abs(p.y - ly) < 15 && p.box[0] < box[1] && box[0] < p.box[1]);
+      const spot = [[1, 0], [-1, 0], [1, 14], [-1, 14]].find(([dir, dy]) => free(dir > 0 ? [x, x + w] : [x - w, x], y + dy));
+      if (!spot) return;
+      placed.push({ y: y + spot[1], box: spot[0] > 0 ? [x, x + w] : [x - w, x] }); labelled.set(t.id, spot);
     });
     ts.slice().sort((a, b) => b.new_window - a.new_window).forEach(t => {
       const x = xs(t.accounts_window), y = ys(t.pace), rad = 3 + Math.sqrt(t.new_window) * .55;
@@ -282,8 +286,8 @@
       linkify(g, themeHref(t.id), t.name);
       g.append(el("circle", { cx: x, cy: y, r: rad }));
       if (labelled.has(t.id)) {
-        const right = x < W - 220;
-        g.append(txt(right ? { x: x + rad + 4, y: y + 4 } : { x: x - rad - 4, y: y + 4, "text-anchor": "end" }, t.name));
+        const [dir, dy] = labelled.get(t.id), ly = y + dy + 4;
+        g.append(txt(dir > 0 ? { x: x + rad + 4, y: ly } : { x: x - rad - 4, y: ly, "text-anchor": "end" }, t.name));
       }
       hover(g, `<b>${esc(t.name)}</b>${esc(STATUS[t.status])} · ${esc(paceText(t.pace, true))}<br>${num(t.new_window)} new in 12 months, ${num(t.new_prior)} the year before<br>${num(t.accounts_window)} accounts · busiest ${esc(t.top_account || "–")} ${t.top_account_share}%`);
       svg.append(g);
