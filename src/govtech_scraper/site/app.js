@@ -150,7 +150,7 @@
   // 12 before, divided by the same ratio for the whole index, with an 80% interval. Status:
   // emerging (rising with confidence across 5+ accounts, none over half), concentrated (rising, but
   // one team's work), cooling (confidently slower), steady, or too_small.
-  const STATUS = { emerging: "Emerging", concentrated: "One team busy", cooling: "Cooling", steady: "Keeping pace", too_small: "Too few to tell" };
+  const STATUS = { emerging: "Emerging", concentrated: "Mostly one team", cooling: "Cooling", steady: "Keeping pace", too_small: "Too few to tell" };
   const isEmerging = t => t.status === "emerging";
   // Ranked by how many more (or fewer) new repositories a theme had than keeping pace with the index
   // would give, so a large theme's shift outranks a small theme's noisy swing.
@@ -159,6 +159,9 @@
   const risers = () => byStatus("emerging");
   const cooling = () => byStatus("cooling", 1);
   const oneTeam = () => byStatus("concentrated");
+  // Every rising theme in one list; a one-team rise is flagged on its row rather than given its own card,
+  // so a theme crossing the 50% line gains or loses a label instead of moving between cards.
+  const rising = () => tags().filter(t => t.status === "emerging" || t.status === "concentrated").sort((a, b) => excess(b) - excess(a));
   function paceText(p, long) {
     if (p == null) return "–";
     const d = Math.round((p - 1) * 100);
@@ -248,7 +251,7 @@
   }
   function momentumRow(t) {
     const who = t.status === "concentrated"
-      ? `<span class="who warn">${esc(t.top_account)} ${t.top_account_share}%</span>`
+      ? `<span class="who warn">Mostly ${esc(t.top_account)}: ${Math.round(t.top_account_share / 100 * t.new_window)} of ${num(t.new_window)}</span>`
       : `<span class="who">${num(t.accounts_window)} accounts · ${num(t.countries_window)} countries</span>`;
     return `<li><a href="${themeHref(t.id)}">${esc(t.name)}</a><span class="${t.status === "cooling" ? "cool" : "hot"}">${paceText(t.pace)}</span>${trendLine(t.trend || [], t.status)}<small>${who}${num(t.new_window)} new in 12 months, ${num(t.new_prior)} the year before</small></li>`;
   }
@@ -271,7 +274,7 @@
     ax.append(txt({ x: W - M.r, y: H - 4, "text-anchor": "end" }, "accounts creating new repositories in the last 12 months (log scale)"));
     ax.append(txt({ x: M.l - 8, y: M.t - 10, "text-anchor": "end" }, "pace"));
     svg.append(txt({ x: W - M.r - 10, y: M.t + 16, class: "quad hot", "text-anchor": "end" }, "Spreading"));
-    svg.append(txt({ x: M.l + 10, y: M.t + 16, class: "quad" }, "One team busy"));
+    svg.append(txt({ x: M.l + 10, y: M.t + 16, class: "quad" }, "Mostly one team"));
     svg.append(txt({ x: W - M.r - 10, y: H - M.b - 10, class: "quad", "text-anchor": "end" }, "Cooling"));
     // Label emerging, one-team and cooling themes first, then the largest, skipping any label that would collide.
     // A label goes right of its dot, else left, else nudged below; skipped if every spot collides.
@@ -445,14 +448,13 @@
 
     <section class="sec pad"><div class="in">
       <h2>Momentum</h2>
-      <p class="sub">Which themes are picking up and which are slowing. Pace compares new repositories in the last 12 complete months with the 12 before, against the index as a whole (${indexPaceText()}). Trend lines show new repositories a month over two years, with the last 12 months shaded.</p>
+      <p class="sub">Which themes are picking up and which are slowing. Pace compares new repositories in the last 12 complete months with the 12 before, against every classified repository (${indexPaceText()}). Trend lines show new repositories a month over two years, with the last 12 months shaded.</p>
       <div class="dig mom">
-        <div class="card"><h3>Emerging</h3><p class="cap">Faster than the index with confidence, and spread across at least five accounts.</p><ul class="rows">${em.slice(0, 6).map(momentumRow).join("") || "<li><small>No theme is clearly picking up right now.</small></li>"}</ul></div>
-        <div class="card"><h3>Cooling</h3><p class="cap">Slower than the index with confidence.</p><ul class="rows">${cooling().slice(0, 6).map(momentumRow).join("") || "<li><small>No theme is clearly slowing.</small></li>"}</ul></div>
-        <div class="card"><h3>One team busy</h3><p class="cap">Rising, but most of the new work comes from one account. Worth a look, not yet a trend.</p><ul class="rows">${oneTeam().slice(0, 6).map(momentumRow).join("") || "<li><small>No single-team spikes right now.</small></li>"}</ul></div>
+        <div class="card"><h3>Growing</h3><p class="cap">At least 20% faster than the index with confidence. Where one account made most of the new work, the row says so.</p><ul class="rows">${rising().slice(0, 8).map(momentumRow).join("") || "<li><small>No theme is clearly picking up right now.</small></li>"}</ul></div>
+        <div class="card"><h3>Cooling</h3><p class="cap">Clearly slower than the index, with confidence.</p><ul class="rows">${cooling().slice(0, 8).map(momentumRow).join("") || "<li><small>No theme is clearly slowing.</small></li>"}</ul></div>
       </div>
       <div class="card" style="margin-top:16px"><h3>Spreading, or one team?</h3><p class="cap">Across is how many accounts created new repositories in the theme in the last 12 months; up is pace. Circle size is new repositories. The shaded area is where emerging themes sit.</p>
-        <svg class="fill" id="mm" viewBox="0 0 1000 420" role="img" aria-label="Scatter chart of themes by breadth and pace"></svg>
+        <div class="wide"><svg class="fill" id="mm" viewBox="0 0 1000 420" role="img" aria-label="Scatter chart of themes by breadth and pace"></svg></div>
         ${chartTable("Theme momentum", ["Theme", "Status", "Pace against the index", "80% interval", "New, last 12 months", "New, 12 months before", "Accounts", "Busiest account"], tags().filter(t => t.pace != null).sort((a, b) => b.pace - a.pace).map(t => [`<a href="${themeHref(t.id)}">${esc(t.name)}</a>`, STATUS[t.status] || "", paceText(t.pace), `×${t.pace_low.toFixed(2)} to ×${t.pace_high.toFixed(2)}`, num(t.new_window), num(t.new_prior), num(t.accounts_window), t.top_account ? `${esc(t.top_account)} ${t.top_account_share}%` : "–"]))}</div>
     </div></section>
 
@@ -460,7 +462,7 @@
       <h2>Dig in</h2>
       <p class="sub">Starting points for a closer look.</p>
       <div class="dig">
-        <div class="card"><h3>${tracked.length ? "Themes you track" : "Picking up"}</h3><p class="cap">${tracked.length ? "Saved in this browser." : "Emerging themes, then single-team rises."}</p><ul class="rows">${(tracked.length ? tracked : watch).map(x => `<li><a href="${themeHref(x.id)}">${esc(x.name)}</a><span>${paceText(x.pace)}</span><small>${num(x.repos)} repositories · ${x.countries} countries${x.status === "emerging" || x.status === "cooling" ? ` · <span class="sig">${STATUS[x.status]}</span>` : ""}</small></li>`).join("") || "<li><small>No theme is clearly picking up right now.</small></li>"}</ul><a class="more" href="#/themes">All themes →</a></div>
+        <div class="card"><h3>${tracked.length ? "Themes you track" : "Picking up"}</h3><p class="cap">${tracked.length ? "Saved in this browser." : "Emerging themes, then rises that are mostly one team."}</p><ul class="rows">${(tracked.length ? tracked : watch).map(x => `<li><a href="${themeHref(x.id)}">${esc(x.name)}</a><span>${paceText(x.pace)}</span><small>${num(x.repos)} repositories · ${x.countries} countries${x.status === "emerging" || x.status === "cooling" ? ` · <span class="sig">${STATUS[x.status]}</span>` : ""}</small></li>`).join("") || "<li><small>No theme is clearly picking up right now.</small></li>"}</ul><a class="more" href="#/themes">All themes →</a></div>
         <div class="card"><h3>Countries</h3><p class="cap">Maintained repositories, with share licensed.</p><ul class="rows">${o.countries.map(c => `<li><a href="${placeHref(c.country)}">${esc(c.country)}</a><span>${num(c.maintained)} · ${Math.round(c.licensed_share)}%</span><div class="bar"><i style="width:${c.maintained / Math.max(1, o.countries[0].maintained) * 100}%"></i></div></li>`).join("")}</ul><a class="more" href="#/countries">All countries →</a></div>
         <div class="card"><h3>Newest</h3><p class="cap">Recently created, with a description and real content.</p><ul class="rows">${o.newest.map(r => `<li><a href="${repoHref(r)}"><code>${esc(r.full_name)}</code></a><span>${ago(r.created_at)}</span><small>${esc(r.country)}${r.domain && themeById(r.domain) ? " · " + esc(themeById(r.domain).name) : ""}</small></li>`).join("")}</ul><a class="more" href="#/week">This week →</a></div>
       </div>
@@ -743,8 +745,8 @@
         </div>` : "<p>No classification run is published yet, so theme figures on this site are examples.</p>"}
 
         <h2 id="growth">Pace and emerging themes</h2>
-        <p><b>Pace</b> is how fast new repositories are arriving in a theme compared with the index as a whole. It counts new original repositories in the last 12 complete months and in the 12 before, and divides that ratio by the same ratio for every repository in the index (currently ${indexPaceText()}). A pace of +40% means the theme sped up 40% more than government open source overall. Each pace comes with an 80% interval from the counts, so a theme that went from 3 repositories to 6 is not mistaken for a trend.</p>
-        <p>A theme is <b>emerging</b> when that interval is above the index's pace and at least 5 accounts created the new work, none of them more than half of it. A rise that fails that test is <b>one team busy</b>: worth a look, but not yet spreading. A theme is <b>cooling</b> when the interval is below the index's pace. Themes with fewer than 20 new repositories across the two years get no status.</p>
+        <p><b>Pace</b> is how fast new repositories are arriving in a theme compared with the index as a whole. It counts new original repositories in the last 12 complete months and in the 12 before, and divides that ratio by the same ratio for every classified repository (currently ${indexPaceText()}). Comparing with classified repositories only means a classification backlog, or sources that are not classified yet, slow every theme alike instead of making them all look like they are cooling. A pace of +40% means the theme sped up 40% more than government open source overall. Each pace comes with an 80% interval from the counts, so a theme that went from 3 repositories to 6 is not mistaken for a trend.</p>
+        <p>A theme is <b>emerging</b> when that interval is above the index's pace, the pace is at least 20% faster, and at least 5 accounts created the new work, none of them more than half of it. A rise that fails that test is flagged <b>mostly one team</b>, with the account and how many of the new repositories it made: worth a look, but not yet spreading. A theme is <b>cooling</b> when the interval is below the index's pace and the pace is at least a sixth slower. The size test stops large themes, whose intervals are narrow, from flagging small drifts. Themes with fewer than 20 new repositories across the two years get no status.</p>
         <p>Pace uses creation dates, so it cannot see repositories deleted or made private, and repositories still waiting for classification are missing from every theme alike. The theme API still reports <code>growth_12m</code>, repositories created in the last 12 months as a share of those before, but it mostly shows how young a theme is, so the site no longer uses it.</p>
 
         <h2 id="limits">Known limits</h2>
@@ -878,7 +880,7 @@
         ${w.notable.length ? w.notable.map(r => { const dom = r.domain && themeById(r.domain); return `<div class="newrow"><a href="${repoHref(r)}">${esc(r.full_name)}</a><span class="b">${esc(r.country)}</span><p>${esc(r.description)}</p><div class="meta">${dom ? `<a class="b co" href="${themeHref(dom.id)}">${esc(dom.name)}</a>` : ""}${r.language ? `<span class="b">${esc(r.language)}</span>` : ""}${licensed(r) ? `<span class="b ok">${esc(r.license)}</span>` : ""}<span class="b">${ago(r.created_at)}</span></div></div>`; }).join("") : '<p class="empty">Nothing notable was created this week.</p>'}
         ${hidden > 0 ? `<p class="cap" style="margin-top:10px">${num(hidden)} more new repositories had no description or code yet. <a href="#/repos?sort=newest&maintained=false">Show every new repository</a></p>` : ""}</div>
       <div class="stack">
-        <div class="card"><h3>Themes picking up</h3><p class="cap">Emerging and single-team rises, by pace against the index.</p>
+        <div class="card"><h3>Themes picking up</h3><p class="cap">Emerging themes and rises that are mostly one team, by pace against the index.</p>
           <ul class="rows">${w.fastest_themes.map(t => `<li><a href="${themeHref(t.id)}">${esc(t.name)}</a><span>${paceText(t.pace)}</span><small>${esc(STATUS[t.status] || "")}</small><div class="bar"><i class="h" style="width:${Math.max(0, t.pace - 1) / Math.max(.01, w.fastest_themes[0].pace - 1) * 100}%"></i></div></li>`).join("") || "<li><small>No theme is clearly picking up right now.</small></li>"}</ul></div>
         <div class="card"><h3>Star movers</h3><p class="cap">${w.star_movers.since ? `Stars gained since the snapshot of ${date(w.star_movers.since)}.` : "Needs two weekly snapshots."}</p>
           <ul class="rows">${w.star_movers.items.map(r => `<li><a href="${repoHref(r)}"><code>${esc(r.full_name)}</code></a><span>+${num(r.gained)}</span><small>${esc(r.country)} · ${num(r.stars)} stars</small></li>`).join("") || "<li><small>No movers this week.</small></li>"}</ul></div>

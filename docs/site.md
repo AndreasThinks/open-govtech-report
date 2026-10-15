@@ -49,9 +49,13 @@ overview's headline numbers and in About's Supporters section.
 - **Growth** is repos created in the last 12 months as a share of those created before. It
   mostly shows how young a theme is, so the site uses pace for momentum.
 - **Pace** is new repos in the last 12 complete months against the 12 before, divided by the
-  same ratio for the whole index, with an 80% interval. **Emerging** means the interval is above
-  1.0 and at least 5 accounts made the new work, none more than half of it. A rise that fails the
-  breadth test is **one team busy** (`concentrated`); an interval below 1.0 is **cooling**.
+  same ratio for all classified repos (so a classification backlog or unclassified forge repos
+  slow every theme alike), with an 80% interval. **Emerging** means the interval is above 1.0,
+  pace is at least 1.2, and at least 5 accounts made the new work, none more than half of it. A
+  rise that fails the breadth test is **mostly one team** (`concentrated`): the homepage lists it
+  with the emerging themes under "Growing", flagged with the account and its share; an interval below 1.0
+  with pace at most 0.83 is **cooling**. The windows are complete months, so statuses move
+  monthly; weekly changes come only from newly classified repos.
 - **Notable** means a description, some content and a push after the creation day. Lists of new
   repos, the week page and feeds show only notable repos, which hides empty placeholders.
 - **Countries** split each registry label into country and level of government

@@ -90,11 +90,13 @@ svg.fill{display:block;width:100%;height:auto}
 .rows li span{font:600 13px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
 .rows li span.lbl{font:600 14.5px var(--body);color:var(--ink)}
 .rows li small{grid-column:1/-1;color:var(--muted);font-size:12.5px}
+.wide{overflow-x:auto}.wide svg{min-width:680px}
 .rows li span.hot{color:var(--hot)}.rows li span.cool{color:var(--cool)}
 .rows li .trend{grid-column:1/-1;display:block;width:100%;height:30px}
 .rows .who{font:600 11.5px var(--mono);color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 5px;margin-right:6px;white-space:nowrap}
 .rows .who.warn{border-style:dashed;border-color:var(--hot)}
 .mom .rows{gap:14px}
+.dig.mom{grid-template-columns:repeat(2,minmax(0,1fr))}
 .rows li .bar{grid-column:1/-1;height:6px;background:var(--tint);border-radius:3px;overflow:hidden}
 .rows li .bar i{display:block;height:100%;background:var(--cobalt)}
 .more{display:inline-block;margin-top:12px;font-weight:700;font-size:14px;text-decoration:none}
@@ -240,7 +242,7 @@ table.cmp{min-width:480px}
 .cmp th[scope="row"]{text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--line);text-transform:none;letter-spacing:0;font-size:14px;white-space:normal}
 [hidden]{display:none!important}
 .domgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-@media (max-width:980px){.ov,.two{grid-template-columns:1fr}.dig{grid-template-columns:1fr}.about{grid-template-columns:1fr;gap:16px}.toc{position:static;display:flex;flex-wrap:wrap;gap:6px 14px}.toc a{border-left:0;padding:0}.toc .grp{display:none}}
+@media (max-width:980px){.ov,.two{grid-template-columns:1fr}.dig,.dig.mom{grid-template-columns:1fr}.about{grid-template-columns:1fr;gap:16px}.toc{position:static;display:flex;flex-wrap:wrap;gap:6px 14px}.toc a{border-left:0;padding:0}.toc .grp{display:none}}
 @media (max-width:720px){.def{grid-template-columns:1fr}.mixrow{grid-template-columns:minmax(0,120px) minmax(0,1fr) 52px}.kpis{grid-template-columns:1fr 1fr}.kpi:nth-child(2){border-right:0}.kpi:nth-child(-n+2){border-bottom:1px solid var(--line)}.mini{flex-basis:100%}}
 @media (prefers-reduced-motion:reduce){.tip{transition:none}}
 

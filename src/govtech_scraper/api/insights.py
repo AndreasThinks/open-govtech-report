@@ -10,7 +10,8 @@ cannot see repositories deleted or made private during the year.
 
 Growth mostly reflects how young a theme is, so momentum uses pace instead: the rate of new
 repositories in the last 12 complete months against the 12 before, divided by the same ratio for
-the whole index. Pace comes with an 80% interval and with breadth (how many accounts created the
+every classified repository, so a classification backlog or unclassified sources (other forges)
+slow every theme alike and cancel out. Pace comes with an 80% interval and with breadth (how many accounts created the
 new work), and together they give each theme a status: emerging, concentrated, cooling or steady.
 """
 
@@ -33,6 +34,7 @@ YEAR = timedelta(days=365)
 PACE_MONTHS = 12  # complete months in each pace window
 PACE_MIN = 20  # new repositories across both windows before a theme gets a status
 PACE_Z = 1.2816  # two-sided 80% interval
+PACE_EFFECT = 1.2  # a status also needs pace at least 20% above the index (or 1/1.2 below)
 BREADTH_MIN = 5  # accounts creating new work before a rise counts as emerging
 CONCENTRATED_SHARE = 50  # top account's share of new work, in percent, above which a rise is one team's
 PRACTICE_MIN = 25  # maintained repositories a label needs to appear on the practice table
@@ -94,9 +96,11 @@ def pace_status(new: int, prior: int, stats: dict, accounts: int, top_share: flo
     """emerging, concentrated (rising but one team's work), cooling, steady, or too_small."""
     if stats["pace"] is None or new + prior < PACE_MIN:
         return "too_small"
-    if stats["pace_low"] > 1:
+    # The interval says a change is real; the effect size says it is big enough to notice. Large
+    # themes have narrow intervals, so without it a +8% drift would count as emerging.
+    if stats["pace_low"] > 1 and stats["pace"] >= PACE_EFFECT:
         return "concentrated" if accounts < BREADTH_MIN or top_share > CONCENTRATED_SHARE else "emerging"
-    if stats["pace_high"] < 1:
+    if stats["pace_high"] < 1 and stats["pace"] <= 1 / PACE_EFFECT:
         return "cooling"
     return "steady"
 
@@ -391,14 +395,14 @@ class Insights:
             "growth_definition": "Repositories created in the last 12 months as a percentage of "
             "those created before then. Original repositories only.",
             "pace_definition": f"New original repositories in the last {PACE_MONTHS} complete months "
-            f"against the {PACE_MONTHS} before, divided by the same ratio for the whole index. "
+            f"against the {PACE_MONTHS} before, divided by the same ratio for every classified repository. "
             "1.0 keeps pace with the index; pace_low and pace_high are an 80% interval.",
             "status_definition": {
-                "emerging": f"80% interval above 1.0, at least {BREADTH_MIN} accounts created new work, "
-                f"none more than {CONCENTRATED_SHARE}% of it.",
+                "emerging": f"80% interval above 1.0, pace at least {PACE_EFFECT}, at least {BREADTH_MIN} "
+                f"accounts created new work, none more than {CONCENTRATED_SHARE}% of it.",
                 "concentrated": "Rising like an emerging theme, but one account created most of the new work "
                 f"or fewer than {BREADTH_MIN} accounts did.",
-                "cooling": "80% interval below 1.0.",
+                "cooling": f"80% interval below 1.0 and pace at most {round(1 / PACE_EFFECT, 2)}.",
                 "steady": "Pace not clearly different from the index.",
                 "too_small": f"Fewer than {PACE_MIN} new repositories across both windows.",
             },
@@ -434,19 +438,8 @@ class Insights:
                 prior, window = set(months[:PACE_MONTHS]), set(months[PACE_MONTHS:])
                 start, end = months[0], _months_back(ref, 1)[0]
                 cur = cat.current_predicate("r")
-                index = dict(
-                    conn.execute(
-                        f"""SELECT substr(r.created_at, 1, 7), COUNT(*) FROM repositories r
-                            WHERE {cur} AND r.fork = 0 AND r.created_at >= ? AND r.created_at < ?
-                            GROUP BY 1""",
-                        (start, end),
-                    ).fetchall()
-                )
-                i_new = sum(index.get(m, 0) for m in window)
-                i_prior = sum(index.get(m, 0) for m in prior)
-                index_ratio = i_new / i_prior if i_new and i_prior else None
                 if not cat.decision_model:
-                    return {"months": months, "index_ratio": index_ratio, "themes": {}}
+                    return {"months": months, "index_ratio": None, "themes": {}}
                 members, params = self._members_sql()
                 rows = conn.execute(
                     f"""WITH m AS ({members})
@@ -464,6 +457,16 @@ class Insights:
                 if r["month"] in window:
                     owners.setdefault(r["theme"], Counter())[r["owner"]] += r["n"]
                     countries.setdefault(r["theme"], set()).add(r["country"])
+            # The index is every classified repository (each has exactly one domain), not every
+            # repository: recent repos wait longest for classification and other forges are never
+            # classified, so comparing themes with the raw total would make every theme look slower.
+            index = Counter()
+            for theme, counts in per_month.items():
+                if theme in self._domains:
+                    index.update(counts)
+            i_new = sum(index[m] for m in window)
+            i_prior = sum(index[m] for m in prior)
+            index_ratio = i_new / i_prior if i_new and i_prior else None
             out = {}
             for theme, counts in per_month.items():
                 new = sum(counts[m] for m in window)

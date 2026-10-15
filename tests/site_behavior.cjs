@@ -38,7 +38,7 @@ async function setup(mode = 'classified') {
   const source = fs.readFileSync(path.join(site, 'app.js'), 'utf8');
   assert.ok(source.includes('boot().then(route);'));
   vm.runInContext(source.replace('boot().then(route);',
-    'window.harness = {boot, data, pageRepo, pageRepos, pageTheme, pageAbout, pageOverview, isEmerging, risers, cooling, oneTeam, paceText, pageSubmit};'), ctx);
+    'window.harness = {boot, data, pageRepo, pageRepos, pageTheme, pageAbout, pageOverview, isEmerging, risers, cooling, oneTeam, rising, paceText, pageSubmit};'), ctx);
   await sandbox.harness.boot();
   return {...sandbox.harness, response, nodes, html: () => nodes.get('app').innerHTML};
 }
@@ -94,11 +94,14 @@ test('momentum lists follow the API status, not size', async () => {
   assert.ok(h.risers().some(t => t.repos > 200));
   assert.ok(h.cooling().every(t => t.status === 'cooling' && t.pace < 1));
   assert.ok(h.oneTeam().every(t => t.status === 'concentrated'));
+  assert.deepEqual(new Set(h.rising().map(t => t.status)), new Set(h.oneTeam().length ? ['emerging', 'concentrated'] : ['emerging']));
   assert.equal(h.paceText(1.55), '+55%'); assert.equal(h.paceText(0.7), '−30%');
   assert.equal(h.paceText(1.2, true), '20% faster than the index');
   h.pageOverview();
   assert.match(h.html(), /Leading emerging theme/);
-  assert.match(h.html(), /One team busy/);
+  assert.match(h.html(), /<h3>Growing<\/h3>/);
+  assert.doesNotMatch(h.html(), /One team busy/);
+  if (h.oneTeam().length) assert.match(h.html(), /Mostly [^:<]+: \d+ of \d+/);
   assert.match(h.html(), /Spreading, or one team\?/);
   assert.match(h.html(), /Show as a table/);
   assert.doesNotMatch(h.html(), /growth_12m|Fastest-growing/);
