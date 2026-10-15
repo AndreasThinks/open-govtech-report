@@ -172,6 +172,10 @@ uv run streamlit run app.py
 
 `src/govtech_scraper/decision/` scores repos against a fixed, reviewed taxonomy (`decision/taxonomy.yaml`: COFOG domains, tags with definitions, kinds) using a System One decision model (hosted Jev, or open-weight Kev on our ZeroGPU Space in `spaces/decision-scorer/`). Results live in `decision_results` / `decision_probabilities`, keyed by taxonomy version and model; `repository_tags` is untouched. CLI: `uv run govtech-scraper decide --help`. Gold-set evaluation: `decide sample`, `decide label-gold`, `decide eval`. See `docs/decision-tagging.md`.
 
+## Government forges outside GitHub (experimental)
+
+`src/govtech_scraper/forges.py` fetches repos from government GitLab servers (OpenCoDE, code.europa.eu, ADULLACT, US agencies) through ecosyste.ms, configured in `forge_hosts.yaml`. CLI: `uv run govtech-scraper forges`. Data is CC BY-SA 4.0. Not in the weekly pipeline yet. See `docs/forges.md`.
+
 ## Public API and MCP
 
 `src/govtech_scraper/api/` serves a read-only REST API (`/v1/...`) and MCP tools (`/mcp/`) from one query layer (`queries.py`). Needs `uv sync --extra api`. Run with `govtech-scraper serve-api` or `serve-mcp` (stdio). Free hosting: `spaces/api/` Docker Space. See `docs/api.md`.

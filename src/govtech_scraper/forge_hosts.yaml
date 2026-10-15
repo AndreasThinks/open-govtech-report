@@ -1,0 +1,39 @@
+# Government-run code forges outside GitHub, fetched through ecosyste.ms.
+#
+# Each entry is one host as ecosyste.ms names it. `country` uses the same
+# labels as the government.github.com registry so the two sources line up.
+# `owners` (optional) limits the fetch to those top-level groups, for shared
+# hosts such as gitlab.com. `level` is informational for now.
+#
+# See docs/forges.md for how hosts were chosen.
+
+hosts:
+  - host: gitlab.opencode.de
+    country: Germany
+    level: national
+    description: OpenCoDE, the German public administration's code platform (ZenDiS)
+
+  - host: code.europa.eu
+    country: European Union
+    level: international
+    description: European Commission code platform for EU institutions (EC OSPO)
+
+  - host: gitlab.adullact.net
+    country: France
+    level: mixed
+    description: ADULLACT, association of French public bodies sharing software
+
+  - host: repo1.dso.mil
+    country: U.S. Military and Intelligence
+    level: national
+    description: US Department of Defense Platform One
+
+  - host: code.usgs.gov
+    country: U.S. Federal
+    level: national
+    description: US Geological Survey
+
+  - host: code.ornl.gov
+    country: U.S. Federal
+    level: research
+    description: Oak Ridge National Laboratory (US Department of Energy)

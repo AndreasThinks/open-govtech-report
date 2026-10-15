@@ -1,0 +1,67 @@
+name: Forge probe (temporary)
+
+# Live test of the ecosyste.ms forge fetcher. Writes to a throwaway DB only.
+on:
+  pull_request:
+    paths:
+      - 'src/govtech_scraper/forges.py'
+      - 'src/govtech_scraper/forge_hosts.yaml'
+      - '.github/workflows/forge-probe.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.11.7"
+      - run: uv python install 3.11
+      - run: uv sync --frozen
+      - name: Fetch all configured forges
+        run: uv run --frozen govtech-scraper --db probe.db forges
+      - name: Summarise
+        if: always()
+        run: |
+          uv run --frozen python - <<'EOF' | tee forge-summary.txt
+          import json, sqlite3
+          c = sqlite3.connect("probe.db")
+          q = lambda s: c.execute(s).fetchall()
+          host = "substr(html_url, 9, instr(substr(html_url, 9), '/') - 1)"
+          print("== repos per host (total, original, archived, pushed in last year, distinct owners)")
+          for r in q(f"""SELECT {host} h, country, COUNT(*), SUM(fork=0), SUM(archived),
+                         SUM(pushed_at >= date('now','-365 days')), COUNT(DISTINCT owner)
+                         FROM repositories GROUP BY h ORDER BY 3 DESC"""):
+              print(r)
+          print("\n== field coverage (share non-empty)")
+          for col in ["description", "language", "license", "pushed_at", "created_at"]:
+              print(col, q(f"SELECT ROUND(AVG({col} IS NOT NULL AND {col} != ''), 3) FROM repositories")[0][0])
+          print("topics", q("SELECT ROUND(AVG(topics != '[]'), 3) FROM repositories")[0][0])
+          print("stars>0", q("SELECT ROUND(AVG(stars > 0), 3) FROM repositories")[0][0])
+          print("\n== top licences")
+          for r in q("SELECT license, COUNT(*) FROM repositories GROUP BY 1 ORDER BY 2 DESC LIMIT 15"):
+              print(r)
+          print("\n== top languages")
+          for r in q("SELECT language, COUNT(*) FROM repositories GROUP BY 1 ORDER BY 2 DESC LIMIT 15"):
+              print(r)
+          print("\n== top owners per host")
+          for r in q(f"""SELECT h, owner, n FROM (SELECT {host} h, owner, COUNT(*) n,
+                         ROW_NUMBER() OVER (PARTITION BY {host} ORDER BY COUNT(*) DESC) rk
+                         FROM repositories GROUP BY h, owner) WHERE rk <= 5"""):
+              print(r)
+          print("\n== most starred")
+          for r in q("SELECT html_url, stars, language, pushed_at FROM repositories ORDER BY stars DESC LIMIT 20"):
+              print(r)
+          print("\n== newest")
+          for r in q("SELECT html_url, created_at FROM repositories ORDER BY created_at DESC LIMIT 10"):
+              print(r)
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-probe
+          path: |
+            probe.db
+            forge-summary.txt
