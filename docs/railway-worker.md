@@ -106,7 +106,7 @@ Acquisition sends at most `source-limit` requests, with no automatic retries or
 REST fanout. Only successfully fetched public README evidence enters the cache;
 missing/private/unsupported README responses stay pending. Instructions in README
 text are never executed. The core decides meaningful changes and literal-proof
-reuse; unchanged failures remain failed and abstentions remain assessed.
+reuse; unchanged failures are retried weekly (`RETRY_FAILED_AFTER`) and abstentions remain assessed.
 
 Concurrency is 1–2, default 2. The async work deadline reserves checkpoint time;
 a parent process kills a stuck SDK/thread at the absolute deadline, exiting 124.

@@ -30,8 +30,9 @@ rebinds reuse, counts quarantines as pending and reports missing acquisitions in
 calling it. Duplicate repository/source URLs are rejected.
 
 The original classification's hashes, model, prompt, taxonomy, status, date, cost,
-usage, tags and abstentions are not changed by reuse. Failed inputs remain failed;
-abstentions remain assessed. `evidence_reuse` records original input hash, current
+usage, tags and abstentions are not changed by reuse. A failed classification of
+unchanged evidence is retried once its last attempt is six days old (so once per weekly
+run, within the period budget); abstentions remain assessed. `evidence_reuse` records original input hash, current
 metadata/source hashes, meaningful hash and verification time. The read-only API
 accepts exact metadata or an applicable proof, including coverage and filters.
 Proofs do not apply to a different inference input or later changed metadata.

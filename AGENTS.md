@@ -129,7 +129,7 @@ Requires `OPENROUTER_API_KEY` in .env for both LLM calls and embeddings.
 
 ## Open GovTech Index site
 
-The replacement for the Streamlit dashboard lives in `src/govtech_scraper/site/` (static HTML/JS, no build step) and is served at `/` by the API app. See `docs/site.md`.
+The replacement for the Streamlit dashboard lives in `src/govtech_scraper/site/` (static HTML/JS, no build step) and is served at `/` by the API app, which also gives every page a real path, feeds, badges and a sitemap (`api/pages.py`). Sponsor credit and contact address live in `site/config.js`. See `docs/site.md`.
 
 ## Dashboard (HuggingFace Space)
 
