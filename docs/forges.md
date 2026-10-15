@@ -22,4 +22,4 @@ uv run govtech-scraper forges --limit 20              # test run; marks nothing 
   100 repos.
 - **Licence:** ecosyste.ms data is CC BY-SA 4.0. Exports that include these rows need
   attribution and share-alike.
-- Not yet part of the weekly pipeline, the site copy, or the exports.
+- The weekly pipeline does not run it yet, so published data and the site have no forge rows.
