@@ -81,6 +81,9 @@ class Catalogue:
             self._has_current = any(
                 row["name"] == "current" for row in conn.execute("PRAGMA table_info(repositories)")
             )
+            self._has_reuse = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_reuse'"
+            ).fetchone() is not None
         self.decision_model = os.getenv("DECISION_MODEL") or self._default_decision_model()
         self.confidence_mode = self._model_mode(self.decision_model)
 
@@ -169,7 +172,7 @@ class Catalogue:
                          AND e.status IN ('labelled', 'abstained', 'failed')
                        GROUP BY model ORDER BY SUM(CASE
                          WHEN e.status IN ('labelled', 'abstained')
-                           AND e.metadata_hash = {self._metadata_hash_sql("r")}
+                           AND {self._evidence_fresh_sql("e", "r")}
                            AND COALESCE(r.fork, 0) = 0 THEN 1 ELSE 0 END) DESC,
                          COUNT(*) DESC, model LIMIT 1""",
                     (self.taxonomy.version,),
@@ -201,6 +204,19 @@ class Catalogue:
         return "probability"
 
     # ------------------------------------------------------------------ helpers
+
+    def _evidence_fresh_sql(self, evidence: str, repo: str) -> str:
+        current = self._metadata_hash_sql(repo)
+        exact = f"{evidence}.metadata_hash = {current}"
+        if not self._has_reuse:
+            return exact
+        return f"""({exact} OR EXISTS (
+            SELECT 1 FROM evidence_reuse reuse
+            WHERE reuse.html_url={evidence}.html_url
+              AND reuse.taxonomy_version={evidence}.taxonomy_version
+              AND reuse.model={evidence}.model
+              AND reuse.input_hash={evidence}.input_hash
+              AND reuse.metadata_hash={current}))"""
 
     @staticmethod
     def _metadata_hash_sql(alias: str) -> str:
@@ -236,7 +252,7 @@ class Catalogue:
                 f"""LEFT JOIN evidence_classifications d ON d.html_url = r.html_url
                      AND d.taxonomy_version = ? AND d.model = ?
                      AND d.status IN ('labelled', 'abstained')
-                     AND d.metadata_hash = {self._metadata_hash_sql("r")}""",
+                     AND {self._evidence_fresh_sql("d", "r")}""",
                 [self.taxonomy.version, self.decision_model],
             )
         return (
@@ -393,7 +409,7 @@ class Catalogue:
                    JOIN repositories r ON r.html_url = d.html_url
                    WHERE d.html_url=? AND d.taxonomy_version=? AND d.model=?
                      AND d.status IN ('labelled', 'abstained')
-                     AND d.metadata_hash = {self._metadata_hash_sql("r")}""",
+                     AND {self._evidence_fresh_sql("d", "r")}""",
                 (html_url, self.taxonomy.version, self.decision_model),
             ).fetchone()
             if result is None:
@@ -479,7 +495,7 @@ class Catalogue:
                                JOIN repositories r ON r.html_url = d.html_url
                                WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=?
                                  AND status IN ('labelled', 'abstained') AND domain IS NOT NULL
-                                 AND d.metadata_hash = {self._metadata_hash_sql("r")}
+                                 AND {self._evidence_fresh_sql("d", "r")}
                                GROUP BY domain""",
                             key,
                         )
@@ -492,7 +508,7 @@ class Catalogue:
                                JOIN repositories r ON r.html_url = p.html_url
                                WHERE {self.current_predicate("r")} AND p.taxonomy_version=? AND p.model=?
                                  AND d.status IN ('labelled', 'abstained')
-                                 AND d.metadata_hash = {self._metadata_hash_sql("r")}
+                                 AND {self._evidence_fresh_sql("d", "r")}
                                GROUP BY tag_id""",
                             key,
                         )
@@ -555,7 +571,7 @@ class Catalogue:
                            JOIN repositories r ON r.html_url = d.html_url
                            WHERE {self.current_predicate("r")} AND taxonomy_version=? AND model=?
                              AND status='labelled'
-                             AND d.metadata_hash = {self._metadata_hash_sql("r")}""",
+                             AND {self._evidence_fresh_sql("d", "r")}""",
                         (self.taxonomy.version, self.decision_model),
                     ).fetchone()[0]
                 else:

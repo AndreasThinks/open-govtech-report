@@ -4,7 +4,8 @@ import json
 import os
 from pathlib import Path
 from huggingface_hub import HfApi
-from govtech_scraper.operations import update_index, write_json
+from govtech_scraper.operations import write_json
+from govtech_scraper.railway_rollout import update_public_index as update_index
 
 
 def main():

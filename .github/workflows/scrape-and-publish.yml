@@ -95,6 +95,12 @@ jobs:
 
       - name: Update and verify separately hosted Index
         env:
+          GOVTECH_RAILWAY_ROLLOUT_ENABLED: ${{ vars.GOVTECH_RAILWAY_ROLLOUT_ENABLED }}
+          GOVTECH_RAILWAY_PROJECT_ID: ${{ vars.GOVTECH_RAILWAY_PROJECT_ID }}
+          GOVTECH_RAILWAY_ENVIRONMENT_ID: ${{ vars.GOVTECH_RAILWAY_ENVIRONMENT_ID }}
+          GOVTECH_RAILWAY_WEB_SERVICE_ID: ${{ vars.GOVTECH_RAILWAY_WEB_SERVICE_ID }}
+          GOVTECH_RAILWAY_WEB_URL: ${{ vars.GOVTECH_RAILWAY_WEB_URL }}
+          GOVTECH_RAILWAY_API_TOKEN: ${{ secrets.GOVTECH_RAILWAY_API_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: uv run --frozen python scripts/update_index.py
 

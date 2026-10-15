@@ -83,14 +83,14 @@ class Insights:
                              WHERE d.taxonomy_version=? AND d.model=?
                                AND d.status IN ('labelled', 'abstained')
                                AND d.domain IS NOT NULL
-                               AND d.metadata_hash = {self.catalogue._metadata_hash_sql("r")}"""
+                               AND {self.catalogue._evidence_fresh_sql("d", "r")}"""
             tag_sql = f"""SELECT p.tag_id AS theme, p.html_url FROM evidence_classification_tags p
                           JOIN evidence_classifications d ON d.html_url = p.html_url
                            AND d.taxonomy_version = p.taxonomy_version AND d.model = p.model
                           JOIN repositories r ON r.html_url = p.html_url
                           WHERE p.taxonomy_version=? AND p.model=?
                             AND d.status IN ('labelled', 'abstained')
-                            AND d.metadata_hash = {self.catalogue._metadata_hash_sql("r")}"""
+                            AND {self.catalogue._evidence_fresh_sql("d", "r")}"""
             if theme is None:
                 return f"{domain_sql} UNION ALL {tag_sql}", [version, model, version, model]
             if theme in self._domains:
@@ -270,7 +270,7 @@ class Insights:
                             JOIN repositories r ON r.html_url = d.html_url
                             WHERE d.taxonomy_version=? AND d.model=?
                               AND {self.catalogue.current_predicate("r")} AND r.fork = 0
-                              AND d.metadata_hash = {self.catalogue._metadata_hash_sql("r")}""",
+                              AND {self.catalogue._evidence_fresh_sql("d", "r")}""",
                         (self.taxonomy.version, cat.decision_model),
                     ).fetchone()
                     assessed = row["assessed"] or 0

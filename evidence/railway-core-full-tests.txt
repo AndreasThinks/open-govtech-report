@@ -1,0 +1,156 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/avery/.hermes/cache/scratch/govtech-railway
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 281 items
+
+tests/api/test_api.py .............                                      [  4%]
+tests/api/test_evidence_api.py .....                                     [  6%]
+tests/api/test_evidence_review.py ...                                    [  7%]
+tests/api/test_pr3_regressions.py ...................................    [ 19%]
+tests/api/test_theme_plan.py .                                           [ 20%]
+tests/decision/test_billing_reconciliation.py ...                        [ 21%]
+tests/decision/test_decision.py .............FF                          [ 26%]
+tests/decision/test_evidence_classification.py .............             [ 31%]
+tests/decision/test_field_abstention.py ...                              [ 32%]
+tests/decision/test_incremental.py ...............                       [ 37%]
+tests/decision/test_luna_route.py .                                      [ 38%]
+tests/decision/test_period_budget.py ..........                          [ 41%]
+tests/decision/test_provider_receipt_recovery.py .....                   [ 43%]
+tests/decision/test_quota_guard.py ...........                           [ 47%]
+tests/decision/test_readme_graphql.py ....                               [ 48%]
+tests/decision/test_source_worker_recovery.py .....                      [ 50%]
+tests/decision/test_source_worker_rest_fallback.py .                     [ 50%]
+tests/decision/test_tag_controls.py ..                                   [ 51%]
+tests/decision/test_uncertain_request_quarantine.py ......               [ 53%]
+tests/decision/test_worker_status.py ...                                 [ 54%]
+tests/reliability/test_apex_redirect.py ..                               [ 55%]
+tests/reliability/test_auth.py .                                         [ 55%]
+tests/reliability/test_classification_publication.py .....               [ 57%]
+tests/reliability/test_coverage_migration.py ...                         [ 58%]
+tests/reliability/test_dashboard.py .............                        [ 63%]
+tests/reliability/test_dataset_card_evidence.py .                        [ 63%]
+tests/reliability/test_dedup_parse.py .                                  [ 64%]
+tests/reliability/test_grouping.py ...                                   [ 65%]
+tests/reliability/test_http.py ...                                       [ 66%]
+tests/reliability/test_index_operations.py ................              [ 71%]
+tests/reliability/test_legacy_dashboard.py .                             [ 72%]
+tests/reliability/test_monitor_publish.py ....                           [ 73%]
+tests/reliability/test_provider_failures.py ..                           [ 74%]
+tests/reliability/test_publication.py .......                            [ 76%]
+tests/reliability/test_regressions.py ........                           [ 79%]
+tests/reliability/test_watch_publication.py ...                          [ 80%]
+tests/reliability/test_workflows.py ...                                  [ 81%]
+tests/tagger/test_context.py .........                                   [ 85%]
+tests/tagger/test_dedup.py ..                                            [ 85%]
+tests/tagger/test_embeddings.py .....                                    [ 87%]
+tests/tagger/test_schemas.py ......                                      [ 89%]
+tests/tagger/test_suggest.py ...                                         [ 90%]
+tests/tagger/test_taxonomy.py ...........                                [ 94%]
+tests/test_db.py ............                                            [ 98%]
+tests/test_models.py ...                                                 [100%]
+
+=================================== FAILURES ===================================
+____________________ test_http_client_retries_then_succeeds ____________________
+
+    async def test_http_client_retries_then_succeeds():
+        attempts = {"n": 0}
+
+        async def handler(request):
+            body = await request.json()
+            assert body["model"] == "kev-latest"
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                return web.Response(status=529)
+            return web.json_response({"answers": {"q": {"type": "noul", "noul": 0.8}}})
+
+        app = web.Application()
+        app.router.add_post("/v1/systemone", handler)
+>       async with TestServer(app) as server:
+
+tests/decision/test_decision.py:253:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:226: in __aenter__
+    await self.start_server(loop=self._loop)
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:151: in start_server
+    _sock = self.socket_factory(self.host, self.port, family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:89: in get_port_socket
+    s = socket.socket(family, socket.SOCK_STREAM)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <socket.socket fd=-1, family=0, type=0, proto=0>
+family = <AddressFamily.AF_INET: 2>, type = <SocketKind.SOCK_STREAM: 1>
+proto = 0, fileno = None
+
+    def __init__(self, family=-1, type=-1, proto=-1, fileno=None):
+        # For user code address family and type values are IntEnum members, but
+        # for the underlying _socket.socket they're just integers. The
+        # constructor of _socket.socket converts the given argument to an
+        # integer automatically.
+        if fileno is None:
+            if family == -1:
+                family = AF_INET
+            if type == -1:
+                type = SOCK_STREAM
+            if proto == -1:
+                proto = 0
+>       _socket.socket.__init__(self, family, type, proto, fileno)
+E       PermissionError: [Errno 1] Operation not permitted
+
+/home/avery/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/socket.py:232: PermissionError
+_________________ test_http_client_raises_on_payment_required __________________
+
+    async def test_http_client_raises_on_payment_required():
+        async def handler(request):
+            return web.Response(status=402)
+
+        app = web.Application()
+        app.router.add_post("/v1/systemone", handler)
+>       async with TestServer(app) as server:
+
+tests/decision/test_decision.py:268:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:226: in __aenter__
+    await self.start_server(loop=self._loop)
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:151: in start_server
+    _sock = self.socket_factory(self.host, self.port, family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:89: in get_port_socket
+    s = socket.socket(family, socket.SOCK_STREAM)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <socket.socket fd=-1, family=0, type=0, proto=0>
+family = <AddressFamily.AF_INET: 2>, type = <SocketKind.SOCK_STREAM: 1>
+proto = 0, fileno = None
+
+    def __init__(self, family=-1, type=-1, proto=-1, fileno=None):
+        # For user code address family and type values are IntEnum members, but
+        # for the underlying _socket.socket they're just integers. The
+        # constructor of _socket.socket converts the given argument to an
+        # integer automatically.
+        if fileno is None:
+            if family == -1:
+                family = AF_INET
+            if type == -1:
+                type = SOCK_STREAM
+            if proto == -1:
+                proto = 0
+>       _socket.socket.__init__(self, family, type, proto, fileno)
+E       PermissionError: [Errno 1] Operation not permitted
+
+/home/avery/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/socket.py:232: PermissionError
+=============================== warnings summary ===============================
+tests/reliability/test_http.py::test_later_page_404_is_failure
+  /home/avery/.hermes/cache/scratch/govtech-railway/.venv/lib/python3.11/site-packages/aiolimiter/leakybucket.py:102: RuntimeWarning: This AsyncLimiter instance is being re-used across loops. Please create a new limiter per event loop as re-use can lead to undefined behaviour.
+    _warn_reuse()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/decision/test_decision.py::test_http_client_retries_then_succeeds
+FAILED tests/decision/test_decision.py::test_http_client_raises_on_payment_required
+================== 2 failed, 279 passed, 1 warning in 40.43s ===================

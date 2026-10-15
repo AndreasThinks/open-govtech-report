@@ -1,0 +1,107 @@
+........................................................................ [ 20%]
+.FF..................................................................... [ 41%]
+........................................................................ [ 62%]
+........................................................................ [ 83%]
+........................................................                 [100%]
+=================================== FAILURES ===================================
+____________________ test_http_client_retries_then_succeeds ____________________
+
+    async def test_http_client_retries_then_succeeds():
+        attempts = {"n": 0}
+    
+        async def handler(request):
+            body = await request.json()
+            assert body["model"] == "kev-latest"
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                return web.Response(status=529)
+            return web.json_response({"answers": {"q": {"type": "noul", "noul": 0.8}}})
+    
+        app = web.Application()
+        app.router.add_post("/v1/systemone", handler)
+>       async with TestServer(app) as server:
+
+tests/decision/test_decision.py:253: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:226: in __aenter__
+    await self.start_server(loop=self._loop)
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:151: in start_server
+    _sock = self.socket_factory(self.host, self.port, family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:89: in get_port_socket
+    s = socket.socket(family, socket.SOCK_STREAM)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <socket.socket fd=-1, family=0, type=0, proto=0>
+family = <AddressFamily.AF_INET: 2>, type = <SocketKind.SOCK_STREAM: 1>
+proto = 0, fileno = None
+
+    def __init__(self, family=-1, type=-1, proto=-1, fileno=None):
+        # For user code address family and type values are IntEnum members, but
+        # for the underlying _socket.socket they're just integers. The
+        # constructor of _socket.socket converts the given argument to an
+        # integer automatically.
+        if fileno is None:
+            if family == -1:
+                family = AF_INET
+            if type == -1:
+                type = SOCK_STREAM
+            if proto == -1:
+                proto = 0
+>       _socket.socket.__init__(self, family, type, proto, fileno)
+E       PermissionError: [Errno 1] Operation not permitted
+
+/home/avery/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/socket.py:232: PermissionError
+_________________ test_http_client_raises_on_payment_required __________________
+
+    async def test_http_client_raises_on_payment_required():
+        async def handler(request):
+            return web.Response(status=402)
+    
+        app = web.Application()
+        app.router.add_post("/v1/systemone", handler)
+>       async with TestServer(app) as server:
+
+tests/decision/test_decision.py:268: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:226: in __aenter__
+    await self.start_server(loop=self._loop)
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:151: in start_server
+    _sock = self.socket_factory(self.host, self.port, family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/aiohttp/test_utils.py:89: in get_port_socket
+    s = socket.socket(family, socket.SOCK_STREAM)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <socket.socket fd=-1, family=0, type=0, proto=0>
+family = <AddressFamily.AF_INET: 2>, type = <SocketKind.SOCK_STREAM: 1>
+proto = 0, fileno = None
+
+    def __init__(self, family=-1, type=-1, proto=-1, fileno=None):
+        # For user code address family and type values are IntEnum members, but
+        # for the underlying _socket.socket they're just integers. The
+        # constructor of _socket.socket converts the given argument to an
+        # integer automatically.
+        if fileno is None:
+            if family == -1:
+                family = AF_INET
+            if type == -1:
+                type = SOCK_STREAM
+            if proto == -1:
+                proto = 0
+>       _socket.socket.__init__(self, family, type, proto, fileno)
+E       PermissionError: [Errno 1] Operation not permitted
+
+/home/avery/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/socket.py:232: PermissionError
+=============================== warnings summary ===============================
+tests/reliability/test_http.py::test_later_page_404_is_failure
+  /home/avery/.hermes/cache/scratch/govtech-railway-worker/.venv/lib/python3.11/site-packages/aiolimiter/leakybucket.py:102: RuntimeWarning: This AsyncLimiter instance is being re-used across loops. Please create a new limiter per event loop as re-use can lead to undefined behaviour.
+    _warn_reuse()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/decision/test_decision.py::test_http_client_retries_then_succeeds
+FAILED tests/decision/test_decision.py::test_http_client_raises_on_payment_required
+2 failed, 342 passed, 1 warning in 50.63s

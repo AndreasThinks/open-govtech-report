@@ -1,0 +1,16 @@
+✔ offline boot labels sample details (118.627722ms)
+✔ live 404 does not invent sample repository (9.645394ms)
+✔ context failure is unavailable and navigation recovers (15.025073ms)
+✔ unclassified filtered URL domain=00 cannot show sample results (8.878923ms)
+✔ unclassified filtered URL tag=ai-and-machine-learning cannot show sample results (8.471658ms)
+✔ unclassified filtered URL kind=tool cannot show sample results (8.54831ms)
+✔ sample theme snippets are explicitly examples and missing linked repos stay absent (29.803883ms)
+✔ healthy classified details and genuinely empty context (11.302364ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 240.156533

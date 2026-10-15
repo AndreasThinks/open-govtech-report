@@ -1,0 +1,15 @@
+# Explicit allowlist excludes local state, credentials, tests, reports and caches.
+**
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!src/**
+**/__pycache__/
+**/*.pyc
+**/.env*
+**/*.pem
+**/*.key
+**/*.db
+**/*.db-*
+**/*.sqlite*

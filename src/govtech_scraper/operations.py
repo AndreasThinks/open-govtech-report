@@ -109,7 +109,9 @@ def read_stats(url):
 
 
 def update_index(receipt, api, *, fetch=read_stats, attempts=30, sleep=time.sleep,
-                 allow_native_fallback=False):
+                 allow_native_fallback=False, endpoint=STATS_URL):
+    if endpoint not in (STATS_URL, NATIVE_STATS_URL):
+        raise ValueError('Unexpected Index verification endpoint')
     if not 1 <= attempts <= 60:
         raise ValueError('Poll attempts must be between 1 and 60')
     if receipt.get('dataset') != DATASET:
@@ -146,11 +148,11 @@ def update_index(receipt, api, *, fetch=read_stats, attempts=30, sleep=time.slee
     keys = ('repos', 'last_scraped', 'classified_repos')
     for attempt in range(attempts):
         try:
-            actual = fetch(STATS_URL)
+            actual = fetch(endpoint)
             if all(actual.get(key) == expected[key] for key in keys):
                 if state.get('phase') != 'verified' or not same:
                     record('verified')
-                return {'dataset_sha': sha, 'endpoint': STATS_URL, 'stats': actual}
+                return {'dataset_sha': sha, 'endpoint': endpoint, 'stats': actual}
         except Exception:
             pass  # Transport errors can contain credentials; do not log them.
         if attempt + 1 < attempts:

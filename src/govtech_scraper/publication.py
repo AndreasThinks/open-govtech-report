@@ -126,6 +126,8 @@ def prepare_publication(db_path, directory, source_commit):
     validate_database(db_path)
     with closing(connect_readonly(db_path)) as source, closing(sqlite3.connect(snapshot)) as dest:
         source.backup(dest)
+        from .decision.incremental import apply_review_exclusions
+        apply_review_exclusions(dest)
         # Keep the authoritative paid-run ledger private. Public snapshots retain
         # evidence provenance, never operator billing/receipt/quarantine state.
         dest.execute('PRAGMA secure_delete=ON')
@@ -191,6 +193,12 @@ def prepare_classification_publication(db_path, directory, source_commit, *, all
                     (*key, item['tag_id'])).fetchone()
                 if not found or not item.get('reason'):
                     raise ValueError('Review exclusion must identify an existing exact tag and reason')
+                conn.execute("""CREATE TABLE IF NOT EXISTS evidence_review_exclusions (
+                    html_url TEXT NOT NULL, taxonomy_version INTEGER NOT NULL,
+                    model TEXT NOT NULL, tag_id TEXT NOT NULL, reason TEXT NOT NULL,
+                    PRIMARY KEY(html_url, taxonomy_version, model, tag_id))""")
+                conn.execute('INSERT OR IGNORE INTO evidence_review_exclusions VALUES (?, ?, ?, ?, ?)',
+                    (*key, item['tag_id'], item['reason']))
                 conn.execute('DELETE FROM evidence_classification_tags WHERE '
                     'html_url=? AND taxonomy_version=? AND model=? AND tag_id=?',
                     (*key, item['tag_id']))
