@@ -17,8 +17,9 @@ uv run govtech-scraper forges --no-details            # skip language and licenc
   gitlab.com to named groups; `include_personal: true` keeps projects in personal
   namespaces, which are skipped by default.
 - The project list gives stars, forks, topics, archived state and last activity
-  (stored as `pushed_at`, since GitLab has no push timestamp). Language and licence
-  cost one extra call each per project; a failed lookup leaves the field empty.
+  (stored as `pushed_at`, since GitLab has no push timestamp). Language, licence and
+  the fork parent (which anonymous project lists leave out) cost two extra calls per
+  project; a failed lookup leaves those fields empty.
 - Requests are held to 2 a second per server, and a 429 pauses that whole server for its
   Retry-After. Servers are fetched side by side. Projects with no activity since the last
   run keep their stored language and licence, so only the first run makes every call.

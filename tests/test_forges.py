@@ -44,8 +44,9 @@ def project(path, host=HOST, kind="group", **extra):
 class FakeGitLab:
     """Serves project list pages via next links, plus per-project details."""
 
-    def __init__(self, pages, languages=None, licences=None, fail_details=()):
+    def __init__(self, pages, languages=None, licences=None, fail_details=(), parents=None):
         self.pages = pages
+        self.parents = parents or {}
         self.languages = languages or {}
         self.licences = licences or {}
         self.fail_details = set(fail_details)
@@ -60,7 +61,8 @@ class FakeGitLab:
             return self.languages.get(pid, {}), None
         if "/projects/" in url and url.rsplit("/", 1)[-1].isdigit():
             pid = int(url.rsplit("/", 1)[-1])
-            return {"license": self.licences.get(pid)}, None
+            return {"license": self.licences.get(pid),
+                    "forked_from_project": self.parents.get(pid)}, None
         index = int(url.split("#page=")[1]) if "#page=" in url else 0
         nxt = f"{API}/projects#page={index + 1}" if index + 1 < len(self.pages) else None
         return self.pages[index], nxt
@@ -197,3 +199,13 @@ async def test_new_activity_refetches_details(tmp_db):
     second = FakeGitLab([[moved]], languages={a["id"]: {"Rust": 100}})
     await scrape_forges(tmp_db, [FORGE], get=second)
     assert tmp_db.conn.execute("SELECT language FROM repositories").fetchone()[0] == "Rust"
+
+
+async def test_fork_parent_comes_from_detail_call_and_survives_reuse(tmp_db):
+    a = project("g/a")
+    await scrape_forges(tmp_db, [FORGE], get=FakeGitLab(
+        [[a]], languages={a["id"]: {"Go": 100}},
+        parents={a["id"]: {"web_url": "https://gitlab.com/up/a"}}))
+    await scrape_forges(tmp_db, [FORGE], get=FakeGitLab([[dict(a)]]))
+    row = tmp_db.conn.execute("SELECT fork, fork_source FROM repositories").fetchone()
+    assert tuple(row) == (1, "https://gitlab.com/up/a")

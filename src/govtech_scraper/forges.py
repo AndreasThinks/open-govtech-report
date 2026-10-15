@@ -215,13 +215,13 @@ async def _list_projects(get: Getter, forge: ForgeHost, limit: int | None,
     return found
 
 
-# html_url -> (pushed_at, language, license) from the last stored run
-Known = dict[str, tuple[str | None, str | None, str | None]]
+# html_url -> (pushed_at, language, license, fork_source) from the last stored run
+Known = dict[str, tuple[str | None, str | None, str | None, str | None]]
 
 
 async def _add_details(get: Getter, forge: ForgeHost, projects: list[tuple[int, Repository]],
                        result: HostResult, known: Known | None = None) -> None:
-    """Language and licence, one call each. A failure leaves the field empty.
+    """Language, licence and fork parent: two calls. A failure leaves the fields empty.
 
     Projects with no activity since the last stored run keep their stored values,
     so only the first run pays for every project.
@@ -234,6 +234,8 @@ async def _add_details(get: Getter, forge: ForgeHost, projects: list[tuple[int, 
         previous = known.get(repo.html_url)
         if previous and previous[0] == repo.pushed_at and (previous[1] or previous[2]):
             repo.language, repo.license = previous[1], previous[2]
+            if previous[3]:
+                repo.fork, repo.fork_source = True, previous[3]
             result.details_reused += 1
             return
         async with semaphore:
@@ -241,8 +243,12 @@ async def _add_details(get: Getter, forge: ForgeHost, projects: list[tuple[int, 
                 languages, _ = await get(f"{api}/projects/{project_id}/languages", None)
                 repo.language = main_language(languages)
                 detail, _ = await get(f"{api}/projects/{project_id}", {"license": "true"})
-                licence = (detail or {}).get("license") if isinstance(detail, dict) else None
-                repo.license = (licence or {}).get("key")
+                detail = detail if isinstance(detail, dict) else {}
+                repo.license = (detail.get("license") or {}).get("key")
+                # Anonymous project lists omit the fork parent; the single record has it.
+                parent = detail.get("forked_from_project") or {}
+                if parent.get("web_url"):
+                    repo.fork, repo.fork_source = True, parent["web_url"]
             except Exception:  # noqa: BLE001 - details are best effort
                 result.detail_failures += 1
 
@@ -262,9 +268,9 @@ def _save_host(db: Database, forge: ForgeHost, repos: list[Repository], complete
 
 def _known_details(db: Database, forge: ForgeHost) -> Known:
     rows = db.conn.execute(
-        "SELECT html_url, pushed_at, language, license FROM repositories WHERE html_url LIKE ?",
-        (f"https://{forge.host}/%",)).fetchall()
-    return {r[0]: (r[1], r[2], r[3]) for r in rows}
+        "SELECT html_url, pushed_at, language, license, fork_source FROM repositories "
+        "WHERE html_url LIKE ?", (f"https://{forge.host}/%",)).fetchall()
+    return {r[0]: (r[1], r[2], r[3], r[4]) for r in rows}
 
 
 async def fetch_forge(get: Getter, forge: ForgeHost, limit: int | None = None,
