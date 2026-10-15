@@ -52,7 +52,8 @@ overview's headline numbers and in About's Supporters section.
   same ratio for all classified repos (so a classification backlog or unclassified forge repos
   slow every theme alike), with an 80% interval. **Emerging** means the interval is above 1.0,
   pace is at least 1.2, and at least 5 accounts made the new work, none more than half of it. A
-  rise that fails the breadth test is **one team busy** (`concentrated`); an interval below 1.0
+  rise that fails the breadth test is **mostly one team** (`concentrated`): the homepage lists it
+  with the emerging themes under "Growing", flagged with the account and its share; an interval below 1.0
   with pace at most 0.83 is **cooling**. The windows are complete months, so statuses move
   monthly; weekly changes come only from newly classified repos.
 - **Notable** means a description, some content and a push after the creation day. Lists of new
