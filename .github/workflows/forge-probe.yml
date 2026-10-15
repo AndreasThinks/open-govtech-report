@@ -20,6 +20,20 @@ jobs:
           version: "0.11.7"
       - run: uv python install 3.11
       - run: uv sync --frozen
+      - name: Raw samples (ecosyste.ms list vs single record vs GitLab API)
+        continue-on-error: true
+        run: |
+          for h in gitlab.opencode.de code.europa.eu code.usgs.gov; do
+            echo "=== $h ecosyste.ms list record"
+            curl -sS "https://repos.ecosyste.ms/api/v1/hosts/$h/repositories?per_page=1&sort=stargazers_count&order=desc" | jq '.[0] | del(.metadata, .commit_stats, .scorecard)'
+            name=$(curl -sS "https://repos.ecosyste.ms/api/v1/hosts/$h/repositories?per_page=1&sort=stargazers_count&order=desc" | jq -r '.[0].full_name')
+            echo "=== $h ecosyste.ms single record ($name)"
+            curl -sS "https://repos.ecosyste.ms/api/v1/hosts/$h/repositories/$(jq -rn --arg n "$name" '$n|@uri')" | jq '{language, pushed_at, archived, updated_at, last_synced_at, status, topics, license, keys: keys}'
+            echo "=== $h GitLab API"
+            curl -sS "https://$h/api/v4/projects/$(jq -rn --arg n "$name" '$n|@uri')" | jq '{archived, last_activity_at, star_count, topics, visibility, namespace: .namespace.kind}'
+            curl -sS "https://$h/api/v4/projects/$(jq -rn --arg n "$name" '$n|@uri')/languages"
+            echo
+          done
       - name: Fetch all configured forges
         run: uv run --frozen govtech-scraper --db probe.db forges
       - name: Summarise
