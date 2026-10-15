@@ -1,16 +1,24 @@
-/* Open GovTech Index: a static, hash-routed site over the /v1 API.
+/* Open GovTech Index: a static site over the /v1 API.
  *
  * Data comes from the API configured in config.js (same origin by default). When the API is
  * unreachable, everything falls back to sample.js; when the API is up but no decision-model run
  * is stored, only the theme views fall back. A banner says which.
+ *
+ * Routing: when the API serves the site it sets window.OGI_PATHS, and pages live at real paths
+ * (/theme/geospatial) that can be shared and indexed. Copied elsewhere as static files, the site
+ * routes by hash (#/theme/geospatial). Templates always write "#/..." links; fixLinks() and the
+ * click handler turn them into paths.
  */
 (function () {
   "use strict";
-  const API = ((window.OGI_CONFIG || {}).api || "").replace(/\/$/, "");
+  const CONFIG = window.OGI_CONFIG || {};
+  const API = (CONFIG.api || "").replace(/\/$/, "");
+  const PATHS = !!window.OGI_PATHS;
+  const CONTACT = CONFIG.contact || "contact@andreasthinks.me";
   const SAMPLE = window.OGI_SAMPLE;
   const app = document.getElementById("app");
   const tip = document.getElementById("tip");
-  const state = { live: null, sampleThemes: false, overview: null, themes: null, countries: null, taxonomy: null };
+  const state = { live: null, sampleThemes: false, overview: null, themes: null, countries: null, taxonomy: null, places: null };
 
   // ------------------------------------------------------------------ utilities
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -32,6 +40,20 @@
   }
   const repoHref = r => `#/repo/${r.full_name.split("/").map(enc).join("/")}`;
   const themeHref = id => `#/theme/${enc(id)}`;
+  const countryHref = slug => `#/country/${enc(slug)}`;
+  const accountHref = owner => `#/account/${enc(owner)}`;
+  const ownerOf = r => r.full_name.split("/")[0];
+  // Site pages, as opposed to API, feed and badge paths that the browser should load itself.
+  const SERVER_PATH = /^\/(v1|docs|redoc|openapi|mcp|feeds|badge|api|healthz|sitemap|robots)\b|\.[a-z0-9]+$/i;
+  function nav(href) {
+    if (!PATHS) { location.hash = href; return; }
+    window.history.pushState(null, "", href.replace(/^#/, ""));
+    route();
+  }
+  function fixLinks(root) {
+    if (!PATHS) return;
+    root.querySelectorAll('a[href^="#/"]').forEach(a => a.setAttribute("href", a.getAttribute("href").slice(1)));
+  }
 
   function showTip(html, e) {
     tip.innerHTML = html; tip.style.opacity = 1;
@@ -46,8 +68,8 @@
   }
   function linkify(node, href, label) {
     node.setAttribute("tabindex", 0); node.setAttribute("role", "link"); node.setAttribute("aria-label", label);
-    node.addEventListener("click", () => { location.hash = href; });
-    node.addEventListener("keydown", e => { if (e.key === "Enter") location.hash = href; });
+    node.addEventListener("click", () => nav(href));
+    node.addEventListener("keydown", e => { if (e.key === "Enter") nav(href); });
   }
 
   // ------------------------------------------------------------------ data
@@ -73,12 +95,17 @@
     } else if (state.sampleThemes) {
       banner.innerHTML = "Repository search and details are live. Theme views, including their repository lists, are examples until the classification run is published. <a href=\"#/method\">Why?</a>";
       banner.hidden = false;
-    } else if (state.overview.classification && state.overview.classification.confidence_mode === "evidence" && state.overview.classification.coverage < 100) {
-      const c = state.overview.classification;
-      banner.innerHTML = `Evidence-backed classification is partially published: ${num(c.labelled_repos)} labelled, ${num(c.unclassified_repos)} unclassified, ${num(c.failed_repos)} failed.`;
-      banner.hidden = false;
     }
+    // Partial classification coverage is normal; it is reported quietly in the footer, not a banner.
+    const c = state.overview.classification, status = document.getElementById("status");
+    if (status && state.live && c && c.model && !state.sampleThemes) {
+      status.innerHTML = `Themes cover ${c.coverage}% of original repositories. <a href="#/about" data-scroll="themes">How themes work</a>`;
+      status.hidden = false;
+    }
+    renderSponsor();
+    fixLinks(document);
   }
+  const needsLive = () => { const e = new Error("This page needs the live index API, which could not be reached."); e.status = 503; return Promise.reject(e); };
   const data = {
     theme: id => state.sampleThemes ? Promise.resolve(SAMPLE.theme(id)) : get(`/v1/themes/${enc(id)}`).catch(e => e.status === 404 ? null : Promise.reject(e)),
     repos: params => {
@@ -96,6 +123,13 @@
       try { return await get(`/v1/repos/${enc(o)}/${enc(n)}/context`); } catch (e) { return null; }
     },
     countries: async () => state.countries ||= state.live ? await get("/v1/countries") : SAMPLE.countries,
+    places: async () => state.places ||= state.live ? await get("/v1/places") : needsLive(),
+    country: slug => state.live ? get(`/v1/countries/${enc(slug)}`).catch(e => e.status === 404 ? null : Promise.reject(e)) : needsLive(),
+    account: owner => state.live ? get(`/v1/accounts/${enc(owner)}`).catch(e => e.status === 404 ? null : Promise.reject(e)) : needsLive(),
+    week: () => state.live ? get("/v1/week") : needsLive(),
+    reuse: () => state.live ? get("/v1/reuse") : needsLive(),
+    practice: () => state.live ? get("/v1/practice") : needsLive(),
+    blocks: () => state.live ? get("/v1/building-blocks") : needsLive(),
   };
 
   // ------------------------------------------------------------------ theme maths
@@ -107,12 +141,14 @@
     return then && then.total ? (now.total - then.total) / then.total * 100 : 0;
   }
   function quantile(vals, q) { const s = vals.slice().sort((a, b) => a - b); return s.length ? s[Math.min(s.length - 1, Math.floor(q * s.length))] : 0; }
-  // Emerging: smaller than most themes, growing at least twice as fast as the index overall.
+  // Emerging: still small (5 to 200 repositories) and growing at least twice as fast as the index.
+  // Fastest growing: big enough (50 or more) that the growth rate is not noise, ranked by growth.
+  const EMERGING_MAX = 200, FASTEST_MIN = 50;
   function emergingRule() {
-    const ts = tags();
-    return { maxRepos: quantile(ts.map(t => t.repos), .75), minGrowth: Math.max(20, overallGrowth() * 2) };
+    return { maxRepos: EMERGING_MAX, minGrowth: Math.max(10, Math.round(overallGrowth() * 2 * 10) / 10) };
   }
   function isEmerging(t, rule = emergingRule()) { return t.repos >= 5 && t.repos <= rule.maxRepos && (t.growth_12m ?? 0) >= rule.minGrowth; }
+  const fastestGrowing = () => tags().filter(x => x.repos >= FASTEST_MIN && x.growth_12m != null).sort((a, b) => b.growth_12m - a.growth_12m);
   function growthColour(g, gmax) {
     if (g == null) return `color-mix(in srgb,var(--hot) 60%,var(--bg))`;
     if (g < 0) return `color-mix(in srgb,var(--cool) ${Math.round(20 + Math.min(1, -g / 25) * 45)}%,var(--bg))`;
@@ -286,9 +322,57 @@
     if (!items.length) return `<p class="empty">${esc(emptyText)}</p>`;
     return `<div class="card tbl"><table class="list"><thead><tr><th>Repository</th><th>Government</th><th class="r">Stars</th><th class="r">Last push</th><th>Openness</th></tr></thead><tbody>${items.map(r => {
       const dom = r.domain && themeById(r.domain);
-      return `<tr><td><a href="${repoHref(r)}">${esc(r.full_name)}</a><small>${esc(r.description || "No description")}</small></td><td>${esc(r.country)}${dom ? `<small><a class="plain" href="${themeHref(dom.id)}">${esc(dom.name)}</a></small>` : ""}</td><td class="r">${num(r.stars)}</td><td class="r">${ago(r.pushed_at)}</td><td>${openness(r)}</td></tr>`;
+      return `<tr><td><a href="${repoHref(r)}">${esc(r.full_name)}</a><small>${esc(r.description || "No description")}</small></td><td><a class="plain" href="${accountHref(ownerOf(r))}">${esc(ownerOf(r))}</a><small>${esc(r.country)}</small>${dom ? `<small><a class="plain" href="${themeHref(dom.id)}">${esc(dom.name)}</a></small>` : ""}</td><td class="r">${num(r.stars)}</td><td class="r">${ago(r.pushed_at)}</td><td>${openness(r)}</td></tr>`;
     }).join("")}</tbody></table></div>`;
   }
+  // A collapsible table version of a chart, for keyboard and screen-reader users.
+  function chartTable(caption, head, rows) {
+    return `<details class="astable"><summary>Show as a table</summary><div class="tbl"><table class="list"><caption class="vh">${esc(caption)}</caption><thead><tr>${head.map((h, i) => `<th${i ? ' class="r"' : ""}>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map((c, i) => `<td${i ? ' class="r"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>`;
+  }
+  function csvDownload(filename, rows) {
+    const cell = v => { const t = Array.isArray(v) ? v.join(" ") : String(v ?? ""); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const cols = ["full_name", "html_url", "country", "description", "language", "stars", "forks", "license", "topics", "archived", "fork", "created_at", "pushed_at", "domain", "kind"];
+    const text = [cols.join(","), ...rows.map(r => cols.map(c => cell(r[c])).join(","))].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+    a.download = filename; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  // Theme shares for a country or account, with the whole index as a marker.
+  function mixRows(mix, max = 10) {
+    if (!mix || !mix.labelled) return '<p class="empty">No classified repositories yet.</p>';
+    const items = mix.tags.slice(0, max), top = Math.max(...items.map(t => Math.max(t.share, t.index_share)), 1);
+    return `<div class="legend"><span><i></i>Here</span><span><em></em>Whole index</span></div>${items.map(t => `<div class="mixrow"><a class="lbl" href="${themeHref(t.id)}" title="${esc(t.name)}">${esc(t.name)}</a><div class="bars"><i style="width:${t.share / top * 100}%"></i><em style="left:${t.index_share / top * 100}%"></em></div><span class="${(t.ratio || 0) >= 1.5 ? "up" : ""}">${t.share.toFixed(1)}%</span></div>`).join("")}
+      ${chartTable("Theme shares", ["Theme", "Share here", "Whole index"], items.map(t => [esc(t.name), t.share.toFixed(1) + "%", t.index_share.toFixed(1) + "%"]))}`;
+  }
+  const countRows = (items, href, label, value, small) => items.length ? `<ul class="rows">${items.map(x => { const v = value(x); return `<li>${href ? `<a href="${href(x)}">${esc(label(x))}</a>` : `<span class="lbl">${esc(label(x))}</span>`}<span>${num(v)}</span>${small ? `<small>${small(x)}</small>` : ""}<div class="bar"><i style="width:${v / Math.max(1, value(items[0])) * 100}%"></i></div></li>`; }).join("")}</ul>` : "";
+  const placeHref = label => { const p = (state.places && state.places.items.find(c => c.label === label)); return countryHref(p ? p.slug : label.toLowerCase().replace(/\./g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")); };
+  function copyButton(id, label) {
+    return `<button class="btn ghost" type="button" data-copy="${id}">${label}</button>`;
+  }
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-copy]");
+    if (!b) return;
+    const box = document.getElementById(b.dataset.copy), text = box.value ?? box.textContent, label = b.textContent;
+    const done = () => { b.textContent = "Copied"; setTimeout(() => { b.textContent = label; }, 1500); };
+    const pick = () => { if (box.select) box.select(); };
+    try { navigator.clipboard.writeText(text).then(done, pick); } catch (err) { pick(); }
+  });
+
+  // ------------------------------------------------------------------ sponsor slot
+  const LOGO_FALLBACK = name => `<span class="spmark" aria-hidden="true">${esc(name.slice(0, 1))}</span>`;
+  function sponsorMark(sp) {
+    return `<a class="lg" href="${esc(sp.url)}" rel="noopener sponsored">${sp.logo ? `<img src="${esc(sp.logo)}" alt="" width="26" height="26">` : LOGO_FALLBACK(sp.name)}<span>${esc(sp.name)}</span></a>`;
+  }
+  const mailto = subject => `mailto:${CONTACT}?subject=${enc(subject)}`;
+  function renderSponsor() {
+    const strip = document.getElementById("sponsor");
+    if (!strip) return;
+    const sp = CONFIG.sponsor;
+    strip.innerHTML = `<div class="in">${sp ? `<div class="spon">The Open GovTech Index is proudly supported by ${sponsorMark(sp)}</div><div class="spon"><a href="#/about" data-scroll="supporters">Why we have sponsors</a></div>` : `<div class="spon">The Open GovTech Index is free and independent. Interested in sponsoring it? <a href="${mailto("Sponsoring the Open GovTech Index")}">Get in touch</a> at <span class="mono">${esc(CONTACT)}</span></div>`}</div>`;
+    strip.hidden = false;
+  }
+
   const watched = new Set(); try { JSON.parse(localStorage.getItem("ogi-watch") || "[]").forEach(k => watched.add(k)); } catch (e) { /* storage blocked */ }
   const saveWatched = () => { try { localStorage.setItem("ogi-watch", JSON.stringify([...watched])); } catch (e) { /* storage blocked */ } };
 
@@ -296,7 +380,8 @@
   function pageOverview() {
     const o = state.overview, t = o.totals, ts = tags(), rule = emergingRule();
     const em = ts.filter(x => isEmerging(x, rule)).sort((a, b) => b.growth_12m - a.growth_12m);
-    const fastest = ts.filter(x => x.repos >= 5 && x.growth_12m != null).sort((a, b) => b.growth_12m - a.growth_12m).slice(0, 6);
+    const fastest = fastestGrowing().slice(0, 6), lead = fastest[0];
+    const sp = CONFIG.sponsor;
     const tl = o.timeline, yearAgo = tl[tl.length - 13] || tl[0], growth = overallGrowth();
     const asOf = o.as_of ? date(o.as_of) : "unknown";
     const tracked = [...watched].map(themeById).filter(Boolean);
@@ -310,17 +395,19 @@
       <div class="kpis">
         <div class="kpi"><div class="k">Maintained repositories</div><div class="v">${num(t.maintained)}</div><div class="d up">+${num(t.new_7d)} new this week</div>${spark(tl.slice(-24).map(m => m.total), css("--cobalt"))}</div>
         <div class="kpi"><div class="k">Government accounts</div><div class="v">${num(t.accounts)}</div><div class="d up">${num(t.countries)} countries and labels</div></div>
-        <div class="kpi"><div class="k">Emerging themes</div><div class="v">${em.length} <small>of ${ts.length}</small></div><div class="d hot">${em[0] ? `${esc(em[0].name)} fastest, ${pct(em[0].growth_12m)}` : "None above the threshold"}</div></div>
+        <div class="kpi"><div class="k">Fastest-growing theme</div><div class="v kname">${lead ? `<a href="${themeHref(lead.id)}">${esc(lead.name)}</a>` : "–"}</div><div class="d hot">${lead ? `${pct(lead.growth_12m, 1)} in 12 months` : ""}${em.length ? ` · ${em.length} emerging` : ""}</div></div>
         <div class="kpi"><div class="k">Licensed for reuse</div><div class="v">${t.licensed_share == null ? "–" : Math.round(t.licensed_share) + "%"}</div><div class="d">of maintained repositories</div></div>
       </div>
     </div></section>
+    ${sp ? `<div class="pad"><div class="in herocredit"><div class="spon">Supported by ${sponsorMark(sp)}</div></div></div>` : ""}
 
     <section class="sec pad"><div class="in">
       <h2>Everything in the index</h2>
       <p class="sub">Each block is a theme, sized by original repositories and coloured by 12-month growth. Select one to open its page.</p>
       <div class="ov">
         <div class="card"><svg class="fill" id="tm" viewBox="0 0 720 470" role="img" aria-label="Treemap of themes"></svg>
-          <div class="dlegend"><span>Shrinking</span><span class="bar" id="dbar"></span><span>Growing fast</span><span style="margin-left:auto">Area = original repositories</span></div></div>
+          <div class="dlegend"><span>Shrinking</span><span class="bar" id="dbar"></span><span>Growing fast</span><span style="margin-left:auto">Area = original repositories</span></div>
+          ${chartTable("Themes by size and growth", ["Theme", "Repositories", "12-month growth", "Countries"], ts.slice().sort((a, b) => b.repos - a.repos).map(t => [`<a href="${themeHref(t.id)}">${esc(t.name)}</a>`, num(t.repos), pct(t.growth_12m, 1), num(t.countries)]))}</div>
         <div class="stack">
           <div class="card"><h3>Original repositories over time</h3><p class="cap">By creation date, last three years. ${pct(growth, 1)} in 12 months.</p><svg class="fill" id="tot" viewBox="0 0 440 210" role="img" aria-label="Line chart of original repositories over three years"></svg></div>
           <div class="card"><h3>Where things stand</h3><p class="cap">Original repositories by status.</p><ul class="rows" id="flow"></ul></div>
@@ -330,18 +417,26 @@
 
     <section class="sec pad"><div class="in">
       <h2>Momentum</h2>
-      <p class="sub">Which themes are growing, and how big they already are. Further right is more repositories; higher is faster growth. Circle size is the number of countries. The shaded corner holds emerging themes: smaller than three quarters of themes, growing at least ${pct(rule.minGrowth)} a year, twice the index overall.</p>
-      <div class="card"><svg class="fill" id="mm" viewBox="0 0 1000 420" role="img" aria-label="Scatter chart of themes by size and growth"></svg></div>
+      <p class="sub">Which themes are growing, and how big they already are. Further right is more repositories; higher is faster growth. Circle size is the number of countries. The shaded corner holds emerging themes: ${num(rule.maxRepos)} repositories or fewer, growing at least ${pct(rule.minGrowth, 1)} a year, twice the index overall.</p>
+      <div class="card"><svg class="fill" id="mm" viewBox="0 0 1000 420" role="img" aria-label="Scatter chart of themes by size and growth"></svg>
+        ${chartTable("Theme momentum", ["Theme", "Repositories", "12-month growth", "Status"], ts.slice().sort((a, b) => (b.growth_12m ?? 0) - (a.growth_12m ?? 0)).map(t => [`<a href="${themeHref(t.id)}">${esc(t.name)}</a>`, num(t.repos), pct(t.growth_12m, 1), isEmerging(t, rule) ? "Emerging" : t.repos >= FASTEST_MIN && fastest.includes(t) ? "Fastest growing" : ""]))}</div>
     </div></section>
 
     <section class="sec pad"><div class="in">
       <h2>Dig in</h2>
       <p class="sub">Starting points for a closer look.</p>
       <div class="dig">
-        <div class="card"><h3>${tracked.length ? "Themes you track" : "Fastest growing"}</h3><p class="cap">${tracked.length ? "Saved in this browser." : "Themes with at least five repositories."}</p><ul class="rows">${(tracked.length ? tracked : fastest).map(x => `<li><a href="${themeHref(x.id)}">${esc(x.name)}</a><span>${pct(x.growth_12m)}</span><small>${num(x.repos)} repositories · ${x.countries} countries${isEmerging(x, rule) ? ' · <span class="sig">Emerging</span>' : ""}</small></li>`).join("")}</ul><a class="more" href="#/themes">All themes →</a></div>
-        <div class="card"><h3>Countries</h3><p class="cap">Maintained repositories, with share licensed.</p><ul class="rows">${o.countries.map(c => `<li><a href="#/repos?country=${enc(c.country)}">${esc(c.country)}</a><span>${num(c.maintained)} · ${Math.round(c.licensed_share)}%</span><div class="bar"><i style="width:${c.maintained / Math.max(1, o.countries[0].maintained) * 100}%"></i></div></li>`).join("")}</ul><a class="more" href="#/repos">Browse by country →</a></div>
-        <div class="card"><h3>Newest</h3><p class="cap">Most recently created original repositories.</p><ul class="rows">${o.newest.map(r => `<li><a href="${repoHref(r)}"><code>${esc(r.full_name)}</code></a><span>${ago(r.created_at)}</span><small>${esc(r.country)}${r.domain && themeById(r.domain) ? " · " + esc(themeById(r.domain).name) : ""}</small></li>`).join("")}</ul><a class="more" href="#/repos?sort=newest">All new repositories →</a></div>
+        <div class="card"><h3>${tracked.length ? "Themes you track" : "Fastest growing"}</h3><p class="cap">${tracked.length ? "Saved in this browser." : `Themes with at least ${FASTEST_MIN} repositories.`}</p><ul class="rows">${(tracked.length ? tracked : fastest).map(x => `<li><a href="${themeHref(x.id)}">${esc(x.name)}</a><span>${pct(x.growth_12m)}</span><small>${num(x.repos)} repositories · ${x.countries} countries${isEmerging(x, rule) ? ' · <span class="sig">Emerging</span>' : ""}</small></li>`).join("") || "<li><small>No theme is big enough to rank yet.</small></li>"}</ul><a class="more" href="#/themes">All themes →</a></div>
+        <div class="card"><h3>Countries</h3><p class="cap">Maintained repositories, with share licensed.</p><ul class="rows">${o.countries.map(c => `<li><a href="${placeHref(c.country)}">${esc(c.country)}</a><span>${num(c.maintained)} · ${Math.round(c.licensed_share)}%</span><div class="bar"><i style="width:${c.maintained / Math.max(1, o.countries[0].maintained) * 100}%"></i></div></li>`).join("")}</ul><a class="more" href="#/countries">All countries →</a></div>
+        <div class="card"><h3>Newest</h3><p class="cap">Recently created, with a description and real content.</p><ul class="rows">${o.newest.map(r => `<li><a href="${repoHref(r)}"><code>${esc(r.full_name)}</code></a><span>${ago(r.created_at)}</span><small>${esc(r.country)}${r.domain && themeById(r.domain) ? " · " + esc(themeById(r.domain).name) : ""}</small></li>`).join("")}</ul><a class="more" href="#/week">This week →</a></div>
       </div>
+      <nav class="ways" aria-label="More ways into the index">
+        <a href="#/week"><b>This week</b><span>New repositories and themes on the move</span></a>
+        <a href="#/reuse"><b>Reuse</b><span>Who forks whose code</span></a>
+        <a href="#/building-blocks"><b>Building blocks</b><span>Components worth adopting</span></a>
+        <a href="#/compare"><b>Compare</b><span>Two countries or themes side by side</span></a>
+        <a href="#/practice"><b>Open-source practice</b><span>Licences, descriptions and topics</span></a>
+      </nav>
     </div></section>`;
     document.getElementById("dbar").innerHTML = treemap(document.getElementById("tm"));
     lineChart(document.getElementById("tot"), tl.map(m => ({ label: monthLabel(m.month), value: m.total, n: m.new })), { tip: p => `<b>${num(p.value)} repositories</b>${p.label} · ${num(p.n)} created` });
@@ -388,17 +483,25 @@
     </div></section>
     ${t.repos ? `
     <section class="sec pad"><div class="in"><div class="two">
-      <div class="card"><h3>New repositories per month</h3><p class="cap">Last 24 months, by creation date. Line shows the 3-month average.</p><svg class="fill" id="cols" viewBox="0 0 600 230" role="img" aria-label="New repositories per month"></svg></div>
+      <div class="card"><h3>New repositories per month</h3><p class="cap">Last 24 months, by creation date. Line shows the 3-month average.</p><svg class="fill" id="cols" viewBox="0 0 600 230" role="img" aria-label="New repositories per month"></svg>
+        ${chartTable("New repositories per month", ["Month", "New"], t.monthly_new.map(m => [monthLabel(m.month), num(m.new)]))}</div>
       <div class="card"><h3>Where it is happening</h3><p class="cap">Original repositories by country or registry label.</p><ul class="rows">${t.by_country.map(c => `<li><a href="#/repos?${filter}&country=${enc(c.country)}">${esc(c.country)}</a><span>${num(c.repos)}</span><div class="bar"><i style="width:${c.repos / Math.max(1, t.by_country[0].repos) * 100}%"></i></div></li>`).join("")}</ul></div>
     </div></div></section>
     <section class="sec pad"><div class="in"><div class="two">
-      <div class="card"><h3>Who picked it up, and when</h3><p class="cap">First repository on this theme from the most recent ${t.adopters.length} accounts to adopt it.</p><svg class="fill" id="adopt" viewBox="0 0 600 300" role="img" aria-label="Adoption timeline"></svg></div>
+      <div class="card"><h3>Who picked it up, and when</h3><p class="cap">First repository on this theme from the most recent ${t.adopters.length} accounts to adopt it.</p><svg class="fill" id="adopt" viewBox="0 0 600 300" role="img" aria-label="Adoption timeline"></svg>
+        ${chartTable("Adopters", ["Account", "Country", "First repository"], t.adopters.map(a => [`<a href="${accountHref(a.owner)}">${esc(a.owner)}</a>`, esc(a.country), date(a.first_repo)]))}</div>
       <div class="card"><h3>How repositories get this theme</h3><p class="cap">A decision model reads each repository's name, description, topics and language, and scores it against this definition. No text is generated.</p>
         <ul class="why"><li><b>Definition the model reads</b>${esc(t.definition)}</li><li><b>Rule</b>${t.type === "domain" ? "The most likely of the 11 domains." : "Probability of at least 0.5."} Model <code>${esc(t.model || state.themes.model || "not run yet")}</code>, taxonomy v${state.themes.taxonomy_version}.</li></ul>
         ${kids.length ? `<h3 style="margin-top:18px">Tags in this domain</h3><p class="cap">Repositories per tag.</p><div class="chips">${kids.map(k => `<a href="${themeHref(k.id)}">${esc(k.name)}<span>${num(k.repos)}</span></a>`).join("")}</div>` : ""}
         ${t.related && t.related.length ? `<h3 style="margin-top:18px">Often appears with</h3><p class="cap">Share of this theme's repositories that also carry the tag.</p><div class="chips">${t.related.map(r => `<a href="${themeHref(r.id)}">${esc(r.name)}<span>${Math.round(r.share)}%</span></a>`).join("")}</div>` : ""}
       </div>
     </div></div></section>
+    ${t.teams && t.teams.length ? `<section class="sec pad"><div class="in"><div class="two">
+      <div class="card"><h3>Teams to talk to</h3><p class="cap">Accounts with the most maintained repositories on this ${t.type === "domain" ? "domain" : "theme"}.</p>${countRows(t.teams, x => accountHref(x.owner), x => x.owner, x => x.maintained, x => `${esc(x.country)} · ${num(x.repos)} repositories in total`)}</div>
+      <div class="card"><h3>Follow this ${t.type === "domain" ? "domain" : "theme"}</h3><p class="cap">New repositories with a description and real content, as an RSS feed you can read anywhere.</p>
+        <div class="feedbox"><input id="feedurl" readonly value="${esc((API || location.origin) + "/feeds/theme/" + enc(id) + ".xml")}" aria-label="Feed address">${copyButton("feedurl", "Copy feed")}</div>
+        <p class="cap" style="margin-top:12px">Or <a href="#/compare?a=theme:${enc(id)}">compare it with another theme</a>.</p></div>
+    </div></div></section>` : ""}
     <section class="sec pad"><div class="in">
       ${state.sampleThemes ? '<p class="sub"><strong>Example repositories</strong>: these theme lists are sample data. Repository links open live details when the API is available.</p>' : ""}
       <h2>Most starred</h2><p class="sub">Original repositories with this ${t.type === "domain" ? "domain" : "tag"}. <a href="#/repos?${filter}">Browse all ${num(t.repos)}</a>.</p>
@@ -416,6 +519,7 @@
     const p = new URLSearchParams(params);
     if (!p.has("include_forks")) p.set("include_forks", "false");
     if (!p.has("include_archived")) p.set("include_archived", "false");
+    if (!p.has("maintained")) p.set("maintained", "true");
     p.set("limit", "25");
     const [res, countries] = await Promise.all([data.repos(p), data.countries().catch(() => [])]);
     const off = +p.get("offset") || 0, total = res.total;
@@ -423,28 +527,47 @@
     const opt = (v, label, cur) => `<option value="${esc(v)}"${v === (cur || "") ? " selected" : ""}>${esc(label)}</option>`;
     app.innerHTML = `
     <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / Repositories</div>
-      <h1>Repositories</h1><p>${res.unavailable ? "Classification filters are unavailable until a classification run is published. Clear these filters to search live repositories." : `${num(total)} match. Original, unarchived repositories unless you include the rest.`}</p></div></section>
+      <h1>Repositories</h1><p>${res.unavailable ? "Classification filters are unavailable until a classification run is published. Clear these filters to search live repositories." : `${num(total)} match. ${p.get("maintained") === "true" ? "Maintained" : "Unarchived"} originals unless you include the rest.`}</p></div></section>
     <section class="sec pad"><div class="in">
       <form class="filters" id="ff">
         <label>Search<input name="q" value="${esc(p.get("q") || "")}" placeholder="Name, description or topic"></label>
         <label>Country<select name="country">${opt("", "Any")}${countries.map(c => opt(c.country, c.country, p.get("country"))).join("")}</select></label>
         <label>Domain<select name="domain"${classificationDisabled}>${opt("", "Any")}${domains().map(d => opt(d.id, d.name, p.get("domain"))).join("")}</select></label>
         <label>Tag<select name="tag"${classificationDisabled}>${opt("", "Any")}${tags().slice().sort((a, b) => a.name.localeCompare(b.name)).map(t => opt(t.id, t.name, p.get("tag"))).join("")}</select></label>
+        <label>Language<input name="language" value="${esc(p.get("language") || "")}" placeholder="Any" size="10"></label>
         <label>Sort<select name="sort">${[["stars", "Most stars"], ["recently_pushed", "Recently pushed"], ["newest", "Newest"], ["name", "Name"]].map(([v, l]) => opt(v, l, p.get("sort") || "stars")).join("")}</select></label>
+        <label class="chk"><input type="checkbox" name="maintained" value="true"${p.get("maintained") === "true" ? " checked" : ""}> Maintained only</label>
         <label class="chk"><input type="checkbox" name="include_forks" value="true"${p.get("include_forks") === "true" ? " checked" : ""}> Forks</label>
         <label class="chk"><input type="checkbox" name="include_archived" value="true"${p.get("include_archived") === "true" ? " checked" : ""}> Archived</label>
         <button class="btn" type="submit">Apply</button>
       </form>
       ${res.unavailable ? '<p class="empty">Apply the available filters above to search live repositories.</p>' : repoTable(res.items, "Nothing matches these filters.")}
-      <div class="pager">${off > 0 ? `<a class="btn ghost" href="#/repos?${pageParams(p, off - 25)}">Previous</a>` : ""}<span>${total ? `${num(off + 1)}–${num(Math.min(total, off + 25))} of ${num(total)}` : ""}</span>${off + 25 < total ? `<a class="btn ghost" href="#/repos?${pageParams(p, off + 25)}">Next</a>` : ""}</div>
+      <div class="pager">${off > 0 ? `<a class="btn ghost" href="#/repos?${pageParams(p, off - 25)}">Previous</a>` : ""}<span>${total ? `${num(off + 1)}–${num(Math.min(total, off + 25))} of ${num(total)}` : ""}</span>${off + 25 < total ? `<a class="btn ghost" href="#/repos?${pageParams(p, off + 25)}">Next</a>` : ""}
+        ${total && state.live ? `<button class="btn ghost" type="button" id="csv" style="margin-left:auto">Download CSV${total > CSV_MAX ? ` (first ${num(CSV_MAX)})` : ""}</button>` : ""}</div>
     </div></section>`;
     document.getElementById("ff").addEventListener("submit", e => {
       e.preventDefault();
       const q = new URLSearchParams();
       for (const [k, v] of new FormData(e.target)) if (v) q.set(k, v);
-      location.hash = "#/repos?" + q;
+      if (!q.has("maintained")) q.set("maintained", "false");
+      nav("#/repos?" + q);
+    });
+    const csv = document.getElementById("csv");
+    if (csv) csv.addEventListener("click", async () => {
+      csv.disabled = true; csv.textContent = "Preparing…";
+      const rows = [];
+      try {
+        for (let o = 0; o < Math.min(total, CSV_MAX); o += 100) {
+          const q = new URLSearchParams(p); q.set("limit", "100"); q.set("offset", o);
+          rows.push(...(await data.repos(q)).items);
+        }
+        csvDownload("govtech-index-repositories.csv", rows);
+        csv.textContent = "Downloaded";
+      } catch (err) { csv.textContent = "Download failed, try again"; }
+      csv.disabled = false;
     });
   }
+  const CSV_MAX = 1000;
   function pageParams(p, offset) { const q = new URLSearchParams(p); q.delete("limit"); q.set("offset", Math.max(0, offset)); return q; }
 
   async function pageRepo(owner, name) {
@@ -456,7 +579,7 @@
     <section class="phead pad"><div class="in">
       <div class="crumb"><a href="#/">Overview</a> / ${dom ? `<a href="${themeHref(dom.id)}">${esc(dom.name)}</a>` : `<a href="#/repos">Repositories</a>`} / Repository</div>
       <div class="row">
-        <div><h1 style="font-family:var(--mono);font-weight:600;font-size:clamp(22px,3.4vw,36px);letter-spacing:-.01em;overflow-wrap:anywhere">${esc(r.full_name)}</h1><p>${esc((r.description || "No description").trim().replace(/([^.!?])$/, "$1."))} Published by ${esc(r.full_name.split("/")[0])}, ${esc(r.country)}.</p></div>
+        <div><h1 style="font-family:var(--mono);font-weight:600;font-size:clamp(22px,3.4vw,36px);letter-spacing:-.01em;overflow-wrap:anywhere">${esc(r.full_name)}</h1><p>${esc((r.description || "No description").trim().replace(/([^.!?])$/, "$1."))} Published by <a href="${accountHref(ownerOf(r))}">${esc(ownerOf(r))}</a>, <a href="${placeHref(r.country)}">${esc(r.country)}</a>.</p></div>
         <div class="acts"><a class="btn" href="${esc(r.html_url)}" rel="noopener">View on GitHub</a></div>
       </div>
       <div class="badges" style="margin-top:14px">${dom ? `<a class="b hot" href="${themeHref(dom.id)}">${esc(dom.name)}</a>` : ""}${(cls ? cls.tags : []).map(t => `<a class="b co" href="${themeHref(t.id)}">${esc((themeById(t.id) || { name: t.id }).name)}</a>`).join("")}${licensed(r) ? `<span class="b ok">${esc(r.license)}</span>` : '<span class="b no">No licence</span>'}${r.fork ? `<span class="b">Fork${r.fork_source ? " of " + esc(r.fork_source) : ""}</span>` : '<span class="b">Original, not a fork</span>'}${r.archived ? '<span class="b no">Archived</span>' : ""}${cls && cls.kind ? `<span class="b">${esc(cls.kind)}</span>` : ""}</div>
@@ -479,30 +602,376 @@
       <div class="card"><h3>Reused by</h3><p class="cap">Government accounts in the index that forked it.</p><ul class="rows">${ctx && ctx.reused_by.length ? ctx.reused_by.map(f => `<li><a href="${repoHref(f)}">${esc(f.owner)}</a><span>${ago(f.created_at)}</span><small>${esc(f.country)}</small></li>`).join("") : ctx ? "<li><small>No government forks yet.</small></li>" : "<li><small>Government forks unavailable. Try again later.</small></li>"}</ul></div>
       <div class="card"><h3>Similar repositories</h3><p class="cap">Same theme, other accounts.</p><ul class="rows">${ctx && ctx.similar.length ? ctx.similar.map(x => `<li><a href="${repoHref(x)}"><code>${esc(x.full_name)}</code></a><span>${num(x.stars)} ★</span><small>${esc(x.country)}</small></li>`).join("") : ctx ? "<li><small>None yet.</small></li>" : "<li><small>Similar repositories unavailable. Try again later.</small></li>"}</ul></div>
       <div class="card"><h3>Details</h3><p class="cap">From the GitHub API, refreshed weekly.</p><ul class="rows"><li><span class="lbl">Open issues</span><span>${num(r.open_issues)}</span></li><li><span class="lbl">Size</span><span>${num(Math.round((r.size_kb || 0) / 1024))} MB</span></li><li><span class="lbl">Default branch</span><span>${esc(r.default_branch || "–")}</span></li><li><span class="lbl">Data</span><span><a href="${esc(API)}/v1/repos/${r.full_name.split("/").map(enc).join("/")}">JSON</a></span></li></ul></div>
+    </div></div></section>
+    <section class="sec pad"><div class="in"><div class="two">
+      <div class="card"><h3>From the README</h3>${r.readme_excerpt ? `<p class="readme">${esc(r.readme_excerpt)}</p><a class="more" href="${esc(r.html_url)}#readme" rel="noopener">Read it on GitHub →</a>` : '<p class="empty">No README text in this publication.</p>'}</div>
+      <div class="card"><h3>Show it is listed</h3><p class="cap">Add this badge to the repository's README. It links back to this page.</p>
+        <p><img src="${esc(API)}/badge/${r.full_name.split("/").map(enc).join("/")}.svg" alt="Open GovTech Index badge" height="20"></p>
+        <textarea id="badgemd" class="snippet" readonly rows="3">[![Open GovTech Index](${esc((API || location.origin) + "/badge/" + r.full_name + ".svg")})](${esc((API || location.origin) + "/repo/" + r.full_name)})</textarea>
+        ${copyButton("badgemd", "Copy Markdown")}</div>
     </div></div></section>`;
     if (ctx) history(document.getElementById("hist"), ctx.history, r.created_at);
   }
 
-  function pageMethod() {
-    const c = state.overview.classification, rule = emergingRule();
+  // ------------------------------------------------------------------ about (was "method")
+  function pageAbout() {
+    const o = state.overview, t = o.totals, c = o.classification || {}, rule = emergingRule(), sp = CONFIG.sponsor;
+    const nt = state.themes.themes, nd = nt.filter(x => x.type === "domain").length, ntag = nt.filter(x => x.type === "tag").length;
+    const covered = c.current_total_repos || t.original || 0, w = n => covered ? (n || 0) / covered * 100 : 0;
+    const askBox = `<div class="sponsorbox"><b>Sponsor the index</b>
+      <p>Sponsorship keeps the site, API and dataset free for everyone. In return your organisation gets a small credit, with its logo, on every page and on this page. Sponsors have no say in the method, the taxonomy or what is published.</p>
+      <p><a class="btn" href="${mailto("Sponsoring the Open GovTech Index")}">Get in touch</a> <span class="mono">${esc(CONTACT)}</span></p></div>`;
     app.innerHTML = `
-    <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / Method</div><h1>Method</h1>
-      <p>What is counted, how themes are assigned, and what the numbers can and cannot tell you.</p></div></section>
-    <section class="sec pad"><div class="in prose">
-      <h2>Coverage</h2>
-      <p>The index covers public repositories owned by accounts listed in the <a href="https://github.com/github/government.github.com">government.github.com registry</a>, plus community submissions that have been reviewed. It is not a census of all government code: an account missing from the registry is missing here. A weekly job scrapes every account through the GitHub API and keeps a snapshot of each repository.</p>
-      <h2>Which repositories count</h2>
-      <p><b>Original</b> repositories are those that are not forks. <b>Maintained</b> means original, not archived, and pushed to in the 12 months before the latest scrape. Themes and growth use original repositories only, so a government forking a popular project does not inflate a theme.</p>
-      <h2>Themes</h2>
-      <p>The taxonomy is fixed and reviewed. Its top level is the ten divisions of the UN Classification of the Functions of Government (COFOG), plus a domain for cross-government capabilities such as identity, payments and design systems. Each domain has tags, each with a one-line definition. The full list is at <a href="${esc(API)}/v1/taxonomy">/v1/taxonomy</a>.</p>
-      <p>Evidence-backed runs read bounded repository metadata and README text, then store only fixed taxonomy IDs supported by literal source quotes. Legacy probability runs can still be served from older databases.</p>
-      <p>Current run: ${c.model ? `<code>${esc(c.model)}</code>, ${num(c.labelled_repos ?? c.classified_original_repos)} labelled of ${num(c.current_total_repos ?? c.classified_original_repos)} original repositories (${c.coverage}% coverage), taxonomy v${c.taxonomy_version}.` : "not published yet, so theme figures on this site are examples."}</p>
-      <h2>Growth and emerging themes</h2>
-      <p>Growth is the number of repositories created in the last 12 months as a share of those created before then. It uses creation dates, so it works from the first scrape, but it cannot see repositories deleted or made private during the year. As weekly snapshots build up, growth will move to snapshot-to-snapshot change.</p>
-      <p>A theme is <b>emerging</b> when it has at least five repositories, is smaller than three quarters of themes (currently ${num(rule.maxRepos)} repositories or fewer), and grew at least twice as fast as the index overall (currently ${pct(rule.minGrowth)}).</p>
-      <h2>Known limits</h2>
-      <p>Evidence classification uses bounded metadata and README text, which may be missing or truncated. Labelled means at least one domain, kind or tag was assigned, not a complete tag set. Missing tags are unknown, not verified negatives. Labels are AI-assisted, not human-certified; literal quote validation does not establish semantic accuracy. Registry labels mix countries with international bodies and sub-national governments.</p>
+    <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / About</div><h1>About the index</h1>
+      <p>Why the Open GovTech Index exists, who runs it, and exactly how every number on the site is made.</p></div></section>
+    <div class="pad"><div class="in about">
+      <nav class="toc" aria-label="On this page">
+        <span class="grp">The project</span>
+        ${[["why", "Why it exists"], ["who", "Who runs it"], ["supporters", "Supporters"]].map(([id, l]) => `<a href="#/about" data-scroll="${id}">${l}</a>`).join("")}
+        <span class="grp">Method</span>
+        ${[["coverage", "Coverage"], ["counting", "Which repositories count"], ["themes", "Themes"], ["growth", "Growth and emerging"], ["limits", "Known limits"]].map(([id, l]) => `<a href="#/about" data-scroll="${id}">${l}</a>`).join("")}
+        <span class="grp">Get involved</span>
+        <a href="#/about" data-scroll="corrections">Corrections and submissions</a>
+      </nav>
+      <article class="prose">
+        <h2 id="why">Why it exists</h2>
+        <p class="lede">Governments publish a remarkable amount of open code, but almost nobody can see it as a whole.</p>
+        <p>There are ${num(t.repos)} public repositories across the ${num(t.accounts)} government accounts the index tracks. They are spread across hundreds of GitHub organisations, written in dozens of languages and named in ways that only make sense inside the team that built them. A digital team in Oslo building a benefits calculator has no easy way to learn that teams in Ottawa and Leeds have already built one.</p>
+        <p class="pull">The result is that the same problems get solved again and again, in parallel, with public money.</p>
+        <p>The index exists to make that work findable. It sorts every repository into the functions of government it serves, shows which themes are growing and where, and points to the teams worth learning from. It is meant for people who build and buy public services: developers, architects, service owners, and the people who fund them.</p>
+        <p>It is deliberately cheap to run. Nothing on the page you are reading calls an AI model, the API is free, and the full dataset is open for anyone to reuse.</p>
+
+        <h2 id="who">Who runs it</h2>
+        <p>The Open GovTech Index is an independent project. It is not affiliated with GitHub or any government.</p>
+        <div class="author"><div class="avatar" aria-hidden="true">AV</div><div>
+          <b>Andreas Varotsis</b>
+          <p>Data scientist and public safety researcher working on how government uses data and evidence. Previously police analytics, including at the Metropolitan Police. Teaches public sector innovation at Newspeak House.</p>
+          <div class="links"><a href="https://andreasthinks.me">andreasthinks.me</a><a href="https://andreasthinks.me/about.html">About Andreas</a><a href="https://andreasthinks.me/index.html">Blog</a><a href="https://github.com/AndreasThinks">GitHub</a></div>
+        </div></div>
+        <p>Writing about the index, including what it has found, is published on <a href="https://andreasthinks.me">andreasthinks.me</a>. The code is open source on <a href="https://github.com/AndreasThinks/open-govtech-report">GitHub</a>. To get in touch, email <a href="${mailto("Open GovTech Index")}">${esc(CONTACT)}</a>.</p>
+
+        <h2 id="supporters">Supporters</h2>
+        ${sp ? `<p>Running the index costs money: hosting, the weekly scrape and the classification of new repositories. Sponsors cover those costs so the site, API and dataset stay free.</p>
+          <div class="sponsorbox"><div class="who">${sp.logo ? `<img src="${esc(sp.logo)}" alt="" width="44" height="44">` : LOGO_FALLBACK(sp.name)}<div><b>${esc(sp.name)}</b>${sp.since ? `<small>Supporting the index since ${esc(sp.since)}</small>` : ""}</div></div>
+          ${sp.blurb ? `<p>${esc(sp.blurb)} <a href="${esc(sp.url)}" rel="noopener sponsored">${esc(sp.url.replace(/^https?:\/\//, "").replace(/\/$/, ""))}</a></p>` : ""}</div>
+          <p class="cap">Sponsors get a credit on the site. They do not get any say in the method, the taxonomy, what is published or how repositories are ranked.</p>
+          <p>Want to support the index too? <a href="${mailto("Sponsoring the Open GovTech Index")}">Get in touch</a>.</p>`
+        : `<p>Running the index costs money: hosting, the weekly scrape and the classification of new repositories. It is currently funded by its author.</p>${askBox}`}
+
+        <h2 id="coverage">Coverage</h2>
+        <p>The index covers public repositories owned by accounts in the <a href="https://github.com/github/government.github.com">government.github.com registry</a>, plus community submissions that have been reviewed. It is not a census of all government code: an account missing from the registry is missing here. A weekly job scrapes every account through the GitHub API and keeps a snapshot of each repository.</p>
+        <div class="facts">
+          <div class="stat"><b>${num(t.repos)}</b><small>repositories</small></div>
+          <div class="stat"><b>${num(t.accounts)}</b><small>accounts</small></div>
+          <div class="stat"><b>${num(t.countries)}</b><small>registry labels</small></div>
+          <div class="stat"><b>Weekly</b><small>last scrape ${esc(o.as_of ? date(o.as_of) : "unknown")}</small></div>
+        </div>
+        <p>Registry labels mix countries with parts of a government and international bodies. The <a href="#/countries">countries page</a> groups each label by country and level of government: national, regional, local, tribal or international.</p>
+
+        <h2 id="counting">Which repositories count</h2>
+        <dl class="def">
+          <dt>Original</dt><dd>Not a fork. ${num(t.original)} repositories. Themes and growth use original repositories only, so a government forking a popular project does not inflate a theme.</dd>
+          <dt>Maintained</dt><dd>Original, not archived, and pushed to in the 12 months before the latest scrape. ${num(t.maintained)} repositories.</dd>
+          <dt>Licensed</dt><dd>Has an open licence GitHub can detect. ${t.licensed_share == null ? "–" : t.licensed_share + "%"} of maintained repositories.</dd>
+          <dt>Notable</dt><dd>Has a description, some content, and a push after the day it was created. Lists of new repositories show only these, which hides empty placeholders.</dd>
+        </dl>
+
+        <h2 id="themes">Themes</h2>
+        <p>The taxonomy is fixed and reviewed. Its top level is the ten divisions of the UN Classification of the Functions of Government (COFOG), plus a domain for cross-government capabilities such as identity, payments and design systems. Each domain has tags, each with a one-line definition: ${nd} domains and ${ntag} tags in taxonomy v${esc(state.themes.taxonomy_version ?? c.taxonomy_version ?? 1)}. The full list is at <a href="${esc(API)}/v1/taxonomy">/v1/taxonomy</a>.</p>
+        <p>Evidence-backed runs read bounded repository metadata and README text, then store only fixed taxonomy IDs supported by literal quotes from the source. A repository is classified once and again only when it changes, so the weekly cost stays small.</p>
+        ${c.model ? `<p>Current run: <code>${esc(c.model)}</code>, ${num(c.labelled_repos ?? c.classified_original_repos)} labelled of ${num(covered)} original repositories (${c.coverage}% coverage), taxonomy v${esc(c.taxonomy_version)}.</p>
+        <div class="cov" role="img" aria-label="Classification coverage of original repositories">
+          <div class="track"><i style="width:${w(c.labelled_repos)}%;background:var(--cobalt)"></i><i style="width:${w(c.abstained_repos)}%;background:var(--faint)"></i><i style="width:${w(c.pending_repos)}%;background:var(--line)"></i><i style="width:${w(c.failed_repos)}%;background:var(--hot)"></i></div>
+          <div class="key"><span style="--c:var(--cobalt)">Labelled ${num(c.labelled_repos)}</span><span style="--c:var(--faint)">Abstained ${num(c.abstained_repos)}</span><span style="--c:var(--line)">Waiting ${num(c.pending_repos)}</span><span style="--c:var(--hot)">Failed ${num(c.failed_repos)}</span></div>
+        </div>` : "<p>No classification run is published yet, so theme figures on this site are examples.</p>"}
+
+        <h2 id="growth">Growth and emerging themes</h2>
+        <p>Growth is the number of repositories created in the last 12 months as a share of those created before then. It uses creation dates, so it worked from the first scrape, but it cannot see repositories deleted or made private during the year. As weekly snapshots build up, growth will move to snapshot-to-snapshot change.</p>
+        <p><b>Fastest growing</b> themes have at least ${FASTEST_MIN} repositories, so the rate is not noise, and are ranked by growth. A theme is <b>emerging</b> when it has between 5 and ${num(rule.maxRepos)} repositories and grew at least twice as fast as the index overall (currently ${pct(rule.minGrowth, 1)} a year or more).</p>
+
+        <h2 id="limits">Known limits</h2>
+        <ul>
+          <li>Labels are AI-assisted, not human-certified. Quote validation proves the evidence exists, not that the label is right.</li>
+          <li>Labelled means at least one domain, kind or tag was assigned, not a complete tag set. A missing tag is unknown, not a verified negative.</li>
+          <li>Registry labels mix countries with international bodies and sub-national governments, such as "U.S. City" and "U.K. Councils".</li>
+          <li>Stars are a weak signal of value in government: a few very large projects hold most of them. Government forks are a better one, and the <a href="#/reuse">reuse page</a> counts them.</li>
+        </ul>
+
+        <h2 id="corrections">Corrections and submissions</h2>
+        <p>If your organisation is missing, <a href="#/submit">suggest it</a>. If a repository is in the wrong theme or something else is wrong, open an issue on <a href="https://github.com/AndreasThinks/open-govtech-report/issues">GitHub</a> or email <a href="${mailto("Open GovTech Index correction")}">${esc(CONTACT)}</a>.</p>
+      </article>
+    </div></div>`;
+  }
+
+  // ------------------------------------------------------------------ countries
+  const LEVEL_NAMES = { national: "National", regional: "Regional and state", local: "Local", tribal: "Tribal nations", international: "International bodies" };
+  async function pageCountries(params) {
+    const p = new URLSearchParams(params), level = p.get("level") || "";
+    const places = await data.places();
+    const items = places.items.filter(c => !level || c.level === level);
+    app.innerHTML = `
+    <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / Countries</div><h1>Countries</h1>
+      <p>Each registry label, with the country and level of government it belongs to. Select one for its profile.</p>
+      <div class="chips" style="margin-top:16px"><a href="#/countries"${!level ? ' aria-current="page"' : ""}>All<span>${places.items.length}</span></a>${places.levels.map(l => `<a href="#/countries?level=${l}"${l === level ? ' aria-current="page"' : ""}>${LEVEL_NAMES[l]}<span>${places.items.filter(c => c.level === l).length}</span></a>`).join("")}</div>
+    </div></section>
+    <section class="sec pad"><div class="in"><div class="card tbl"><table class="list"><thead><tr><th>Label</th><th>Country and level</th><th class="r">Maintained</th><th class="r">New in 12 months</th><th class="r">Accounts</th><th class="r">Licensed</th></tr></thead><tbody>
+      ${items.map(c => `<tr><td><a class="plain" href="${countryHref(c.slug)}">${esc(c.label)}</a></td><td>${esc(c.country)}<small>${LEVEL_NAMES[c.level]}</small></td><td class="r">${num(c.maintained)}</td><td class="r">${num(c.new_12m)}</td><td class="r">${num(c.accounts)}</td><td class="r">${c.licensed_share == null ? "–" : Math.round(c.licensed_share) + "%"}</td></tr>`).join("")}
+    </tbody></table></div></div></section>`;
+  }
+
+  async function pageCountry(slug) {
+    const [c] = await Promise.all([data.country(slug), data.places().catch(() => null)]);
+    if (!c) { app.innerHTML = notFound("There is no registry label with that name."); return; }
+    const index = state.overview.totals, mix = c.theme_mix;
+    app.innerHTML = `
+    <section class="phead pad"><div class="in">
+      <div class="crumb"><a href="#/">Overview</a> / <a href="#/countries">Countries</a> / ${esc(c.label)}</div>
+      <div class="row">
+        <div><div class="eyebrow">${esc(LEVEL_NAMES[c.level])}${c.country !== c.label ? ` · ${esc(c.country)}` : ""}</div><h1>${esc(c.label)}</h1>
+          <p>Public repositories from ${num(c.accounts)} accounts under this registry label.</p></div>
+        <div class="acts"><a class="btn ghost" href="#/compare?a=country:${enc(c.slug)}">Compare with…</a><a class="btn ghost" href="#/repos?country=${enc(c.label)}">Browse all</a><a class="btn ghost" href="${esc(API)}/v1/countries/${enc(c.slug)}">JSON</a></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><b>${num(c.maintained)}</b><small>maintained originals</small></div>
+        <div class="stat"><b>${num(c.new_12m)}</b><small>new in 12 months</small></div>
+        <div class="stat"><b>${num(c.accounts)}</b><small>accounts</small></div>
+        <div class="stat"><b>${c.licensed_share == null ? "–" : c.licensed_share + "%"}</b><small>openly licensed (index ${index.licensed_share}%)</small></div>
+        <div class="stat"><b>${num(c.stars)}</b><small>stars</small></div>
+      </div>
+    </div></section>
+    <section class="sec pad"><div class="in"><div class="two">
+      <div class="card"><h3>What it builds, compared with everyone else</h3><p class="cap">Share of this label's classified repositories in each theme. The black mark is the share across the whole index, so bars past the mark are specialisms.</p>${mixRows(mix)}</div>
+      <div class="stack">
+        <div class="card"><h3>Most active accounts</h3><p class="cap">Maintained original repositories.</p>${countRows(c.accounts_top.slice(0, 8), x => accountHref(x.owner), x => x.owner, x => x.maintained, x => `${num(x.repos)} originals · ${num(x.stars)} stars`) || '<p class="empty">None yet.</p>'}</div>
+        <div class="card"><h3>Main languages</h3><p class="cap">Maintained original repositories.</p><div class="chips">${c.languages.map(l => `<a href="#/repos?country=${enc(c.label)}&language=${enc(l.language)}">${esc(l.language)}<span>${num(l.repos)}</span></a>`).join("") || '<span class="empty">None yet.</span>'}</div></div>
+      </div>
+    </div></div></section>
+    <section class="sec pad"><div class="in"><div class="dig">
+      <div class="card"><h3>Reused by other governments</h3><p class="cap">Government forks of this label's code, by the forking label.</p>${countRows(c.reused_by, x => placeHref(x.label), x => x.label, x => x.forks) || '<p class="empty">No government forks yet.</p>'}
+        ${c.most_reused.length ? `<p class="cap" style="margin-top:12px">Most reused: <a href="${repoHref(c.most_reused[0])}"><code>${esc(c.most_reused[0].full_name)}</code></a>, by ${num(c.most_reused[0].reused_by_accounts)} accounts.</p>` : ""}</div>
+      <div class="card"><h3>Reuses from</h3><p class="cap">Other labels whose code this label has forked.</p>${countRows(c.reuses_from, x => placeHref(x.label), x => x.label, x => x.forks) || '<p class="empty">No forks of other governments’ code.</p>'}</div>
+      <div class="card"><h3>New repositories per month</h3><p class="cap">Original repositories, last 24 months.</p><svg class="fill" id="cols" viewBox="0 0 600 230" role="img" aria-label="New repositories per month"></svg>
+        ${chartTable("New repositories per month", ["Month", "New"], c.monthly_new.map(m => [monthLabel(m.month), num(m.new)]))}</div>
+    </div></div></section>
+    <section class="sec pad"><div class="in">
+      <h2>Most starred maintained repositories</h2><p class="sub"><a href="#/repos?country=${enc(c.label)}">Browse all</a>.</p>${repoTable(c.top_repos, "None yet.")}
+      <h2 style="margin-top:32px">New and worth a look</h2><p class="sub">Recently created, with a description and real content. <a href="${esc((API || location.origin) + "/feeds/country/" + enc(c.slug) + ".xml")}">RSS feed</a>.</p>${repoTable(c.newest_repos, "Nothing new yet.")}
     </div></section>`;
+    columns(document.getElementById("cols"), c.monthly_new);
+  }
+
+  // ------------------------------------------------------------------ accounts
+  async function pageAccount(owner) {
+    const a = await data.account(owner);
+    if (!a) { app.innerHTML = notFound("That account is not in the index."); return; }
+    app.innerHTML = `
+    <section class="phead pad"><div class="in">
+      <div class="crumb"><a href="#/">Overview</a> / <a href="${placeHref(a.label)}">${esc(a.label)}</a> / Account</div>
+      <div class="row">
+        <div><div class="eyebrow">${a.account_type === "user" ? "User account" : "Organisation"} · ${esc(LEVEL_NAMES[a.level] || "")}</div><h1 class="mono-h">${esc(a.owner)}</h1>
+          <p>${num(a.repos)} public repositories under <a href="${placeHref(a.label)}">${esc(a.label)}</a>. First repository ${date(a.first_repo)}, last push ${ago(a.last_push)}.</p></div>
+        <div class="acts"><a class="btn" href="${esc(a.github_url)}" rel="noopener">View on GitHub</a><a class="btn ghost" href="#/repos?q=${enc(a.owner)}&maintained=false">Browse all</a></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><b>${num(a.maintained)}</b><small>maintained originals</small></div>
+        <div class="stat"><b>${num(a.original)}</b><small>original repositories</small></div>
+        <div class="stat"><b>${a.licensed_share == null ? "–" : Math.round(a.licensed_share) + "%"}</b><small>originals licensed</small></div>
+        <div class="stat"><b>${num(a.reused_by.reduce((n, x) => n + x.forks, 0))}</b><small>forks by other governments</small></div>
+        <div class="stat"><b>${num(a.stars)}</b><small>stars</small></div>
+      </div>
+    </div></section>
+    <section class="sec pad"><div class="in"><div class="two">
+      <div class="card"><h3>What it works on</h3><p class="cap">Share of this account's classified repositories in each theme, against the whole index.</p>${mixRows(a.theme_mix, 8)}</div>
+      <div class="stack">
+        <div class="card"><h3>New repositories per month</h3><p class="cap">Original repositories, last 24 months.</p><svg class="fill" id="cols" viewBox="0 0 600 230" role="img" aria-label="New repositories per month"></svg></div>
+        <div class="card"><h3>Languages</h3><div class="chips">${a.languages.map(l => `<span class="chip">${esc(l.language)}<span>${num(l.repos)}</span></span>`).join("") || '<span class="empty">None recorded.</span>'}</div></div>
+      </div>
+    </div></div></section>
+    <section class="sec pad"><div class="in"><div class="two">
+      <div class="card"><h3>Who reuses its code</h3><p class="cap">Other government accounts that forked its repositories.</p>${countRows(a.reused_by, x => accountHref(x.owner), x => x.owner, x => x.forks, x => esc(x.country)) || '<p class="empty">No government forks yet.</p>'}</div>
+      <div class="card"><h3>Whose code it reuses</h3><p class="cap">Government accounts it has forked from.</p>${countRows(a.reuses_from, x => accountHref(x.owner), x => x.owner, x => x.forks, x => esc(x.country)) || '<p class="empty">No forks of other governments’ code.</p>'}</div>
+    </div></div></section>
+    <section class="sec pad"><div class="in">
+      <h2>Most starred</h2><p class="sub">Original repositories.</p>${repoTable(a.top_repos, "None yet.")}
+      <h2 style="margin-top:32px">Recently pushed</h2><p class="sub">Unarchived originals.</p>${repoTable(a.recent_repos, "None yet.")}
+    </div></section>`;
+    columns(document.getElementById("cols"), a.monthly_new);
+  }
+
+  // ------------------------------------------------------------------ this week
+  async function pageWeek() {
+    const w = await data.week(), end = date(w.as_of), hidden = w.new - w.new_notable;
+    app.innerHTML = `
+    <section class="phead pad"><div class="in">
+      <div class="crumb"><a href="#/">Overview</a> / This week</div>
+      <div class="eyebrow">Week to ${esc(end)}</div><h1 style="margin-top:6px">This week in government code</h1>
+      <p>New repositories worth a look, themes on the move and projects that changed, rebuilt from each weekly scrape.</p>
+      <div class="stats">
+        <div class="stat"><b>${num(w.new)}</b><small>new original repositories in 7 days</small></div>
+        <div class="stat"><b>${num(w.new_notable)}</b><small>with a description and real content</small></div>
+        <div class="stat"><b>${num(w.archived.count)}</b><small>archived this week</small></div>
+        <div class="stat"><b>${num(state.overview.totals.new_30d)}</b><small>new in 30 days</small></div>
+      </div>
+    </div></section>
+    <section class="sec pad"><div class="in"><div class="two">
+      <div class="card"><h3>New and worth a look</h3><p class="cap">${esc(w.definitions.notable)} Empty placeholders are hidden.</p>
+        ${w.notable.length ? w.notable.map(r => { const dom = r.domain && themeById(r.domain); return `<div class="newrow"><a href="${repoHref(r)}">${esc(r.full_name)}</a><span class="b">${esc(r.country)}</span><p>${esc(r.description)}</p><div class="meta">${dom ? `<a class="b co" href="${themeHref(dom.id)}">${esc(dom.name)}</a>` : ""}${r.language ? `<span class="b">${esc(r.language)}</span>` : ""}${licensed(r) ? `<span class="b ok">${esc(r.license)}</span>` : ""}<span class="b">${ago(r.created_at)}</span></div></div>`; }).join("") : '<p class="empty">Nothing notable was created this week.</p>'}
+        ${hidden > 0 ? `<p class="cap" style="margin-top:10px">${num(hidden)} more new repositories had no description or code yet. <a href="#/repos?sort=newest&maintained=false">Show every new repository</a></p>` : ""}</div>
+      <div class="stack">
+        <div class="card"><h3>Fastest-growing themes</h3><p class="cap">Repositories created in the last 12 months as a share of those before. Themes with at least ${FASTEST_MIN} repositories.</p>
+          <ul class="rows">${w.fastest_themes.map(t => `<li><a href="${themeHref(t.id)}">${esc(t.name)}</a><span>${pct(t.growth_12m, 1)}</span><div class="bar"><i class="h" style="width:${Math.max(0, t.growth_12m) / Math.max(1, w.fastest_themes[0].growth_12m) * 100}%"></i></div></li>`).join("") || "<li><small>No themes yet.</small></li>"}</ul></div>
+        <div class="card"><h3>Star movers</h3><p class="cap">${w.star_movers.since ? `Stars gained since the snapshot of ${date(w.star_movers.since)}.` : "Needs two weekly snapshots."}</p>
+          <ul class="rows">${w.star_movers.items.map(r => `<li><a href="${repoHref(r)}"><code>${esc(r.full_name)}</code></a><span>+${num(r.gained)}</span><small>${esc(r.country)} · ${num(r.stars)} stars</small></li>`).join("") || "<li><small>No movers this week.</small></li>"}</ul></div>
+        <div class="card"><h3>Archived this week</h3><p class="cap">${esc(w.definitions.archived)}</p>
+          <ul class="rows">${w.archived.items.map(r => `<li><a href="${repoHref(r)}"><code>${esc(r.full_name)}</code></a><span>${num(r.stars)} ★</span><small>${esc(r.country)}</small></li>`).join("") || "<li><small>None this week.</small></li>"}</ul></div>
+        <div class="card"><h3>Follow it</h3><p class="cap">One feed for the whole index; every theme and country page has its own.</p>
+          <div class="feedbox"><input id="feedurl" readonly value="${esc((API || location.origin) + "/feeds/week.xml")}" aria-label="Weekly feed address">${copyButton("feedurl", "Copy feed")}</div></div>
+      </div>
+    </div></div></section>`;
+  }
+
+  // ------------------------------------------------------------------ reuse
+  async function pageReuse() {
+    const [r] = await Promise.all([data.reuse(), data.places().catch(() => null)]);
+    const fmax = Math.max(1, ...r.flows.map(f => f.forks));
+    app.innerHTML = `
+    <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / Reuse</div><h1>Reuse between governments</h1>
+      <p>${esc(r.definition)} Reuse is the strongest public sign that code is useful beyond the team that wrote it.</p>
+      <div class="stats">
+        <div class="stat"><b>${num(r.forks)}</b><small>government forks of government code</small></div>
+        <div class="stat"><b>${num(r.cross_border_forks)}</b><small>across registry labels</small></div>
+        <div class="stat"><b>${num(r.accounts_reusing)}</b><small>accounts reusing others' code</small></div>
+      </div>
+    </div></section>
+    <section class="sec pad"><div class="in"><div class="two">
+      <div class="card"><h3>Biggest flows</h3><p class="cap">From the label that wrote the code to the label that forked it.</p>
+        <ul class="rows">${r.flows.slice(0, 15).map(f => `<li><span class="lbl"><a href="${placeHref(f.from)}">${esc(f.from)}</a> → <a href="${placeHref(f.to)}">${esc(f.to)}</a></span><span>${num(f.forks)}</span><div class="bar"><i style="width:${f.forks / fmax * 100}%"></i></div></li>`).join("") || "<li><small>No flows yet.</small></li>"}</ul></div>
+      <div class="card"><h3>Most reused across borders</h3><p class="cap">Repositories forked by accounts under other labels.</p>
+        <ul class="rows">${r.most_reused_across_borders.map(x => `<li><a href="${repoHref(x)}"><code>${esc(x.full_name)}</code></a><span>${num(x.reused_by_accounts)}</span><small>${esc(x.country)} · reused in ${num(x.reused_in_labels)} labels</small></li>`).join("") || "<li><small>None yet.</small></li>"}</ul></div>
+    </div></div></section>
+    <section class="sec pad"><div class="in"><div class="two">
+      <div class="card"><h3>Most reused overall</h3><p class="cap">By the number of other government accounts that forked it.</p>
+        <ul class="rows">${r.most_reused.map(x => `<li><a href="${repoHref(x)}"><code>${esc(x.full_name)}</code></a><span>${num(x.reused_by_accounts)}</span><small>${esc(x.country)}</small></li>`).join("")}</ul></div>
+      <div class="card"><h3>Biggest reusers</h3><p class="cap">Accounts that forked the most government code.</p>${countRows(r.top_reusers, x => accountHref(x.owner), x => x.owner, x => x.forks, x => esc(x.country)) || '<p class="empty">None yet.</p>'}</div>
+    </div></div></section>`;
+  }
+
+  // ------------------------------------------------------------------ compare
+  async function pageCompare(params) {
+    const p = new URLSearchParams(params), places = await data.places().catch(() => null);
+    const options = (cur) => `<option value="">Choose…</option>${places ? `<optgroup label="Countries and labels">${places.items.map(c => `<option value="country:${esc(c.slug)}"${cur === "country:" + c.slug ? " selected" : ""}>${esc(c.label)}</option>`).join("")}</optgroup>` : ""}<optgroup label="Themes">${state.themes.themes.slice().sort((x, y) => x.name.localeCompare(y.name)).map(t => `<option value="theme:${esc(t.id)}"${cur === "theme:" + t.id ? " selected" : ""}>${esc(t.name)}</option>`).join("")}</optgroup>`;
+    const a = p.get("a") || "", b = p.get("b") || "";
+    app.innerHTML = `
+    <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / Compare</div><h1>Compare</h1>
+      <p>Two countries or two themes, side by side.</p>
+      <form class="filters" id="cf" style="margin-top:18px"><label>First<select name="a">${options(a)}</select></label><label>Second<select name="b">${options(b)}</select></label><button class="btn" type="submit">Compare</button></form>
+    </div></section><section class="sec pad"><div class="in" id="cmp"></div></section>`;
+    document.getElementById("cf").addEventListener("submit", e => {
+      e.preventDefault();
+      const q = new URLSearchParams();
+      for (const [k, v] of new FormData(e.target)) if (v) q.set(k, v);
+      nav("#/compare?" + q);
+    });
+    const out = document.getElementById("cmp");
+    if (!a || !b) { out.innerHTML = '<p class="empty">Choose two countries or two themes.</p>'; return; }
+    const [ta, ida] = a.split(":"), [tb, idb] = b.split(":");
+    if (ta !== tb) { out.innerHTML = '<p class="empty">Pick two countries, or two themes. A country and a theme measure different things.</p>'; return; }
+    if (ta === "country") {
+      const [x, y] = await Promise.all([data.country(ida), data.country(idb)]);
+      if (!x || !y) { out.innerHTML = '<p class="empty">One of those labels is not in the index.</p>'; return; }
+      const row = (l, f) => `<tr><th scope="row">${l}</th><td class="r">${f(x)}</td><td class="r">${f(y)}</td></tr>`;
+      const spec = c => (c.theme_mix && c.theme_mix.specialisms || []).slice(0, 4).map(t => `<a href="${themeHref(t.id)}">${esc(t.name)}</a>`).join(", ") || "–";
+      out.innerHTML = `<div class="card tbl"><table class="list cmp"><thead><tr><th></th><th class="r"><a href="${countryHref(x.slug)}">${esc(x.label)}</a></th><th class="r"><a href="${countryHref(y.slug)}">${esc(y.label)}</a></th></tr></thead><tbody>
+        ${row("Level", c => esc(LEVEL_NAMES[c.level]))}${row("Maintained originals", c => num(c.maintained))}${row("New in 12 months", c => num(c.new_12m))}${row("Accounts", c => num(c.accounts))}
+        ${row("Openly licensed", c => c.licensed_share == null ? "–" : c.licensed_share + "%")}${row("Stars", c => num(c.stars))}
+        ${row("Forked by other labels", c => num(c.reused_by.reduce((n, r) => n + r.forks, 0)))}${row("Specialisms", spec)}${row("Main languages", c => c.languages.slice(0, 3).map(l => esc(l.language)).join(", ") || "–")}
+      </tbody></table></div>
+      <div class="two" style="margin-top:16px"><div class="card"><h3>${esc(x.label)}</h3>${mixRows(x.theme_mix, 8)}</div><div class="card"><h3>${esc(y.label)}</h3>${mixRows(y.theme_mix, 8)}</div></div>`;
+    } else {
+      const x = themeById(ida), y = themeById(idb);
+      if (!x || !y) { out.innerHTML = '<p class="empty">One of those themes is not in the taxonomy.</p>'; return; }
+      const row = (l, f) => `<tr><th scope="row">${l}</th><td class="r">${f(x)}</td><td class="r">${f(y)}</td></tr>`;
+      out.innerHTML = `<div class="card tbl"><table class="list cmp"><thead><tr><th></th><th class="r"><a href="${themeHref(x.id)}">${esc(x.name)}</a></th><th class="r"><a href="${themeHref(y.id)}">${esc(y.name)}</a></th></tr></thead><tbody>
+        ${row("Domain", t => esc(t.domain_name))}${row("Original repositories", t => num(t.repos))}${row("Maintained", t => num(t.maintained))}${row("New in 12 months", t => num(t.new_12m))}
+        ${row("Growth in 12 months", t => pct(t.growth_12m, 1))}${row("Countries and labels", t => num(t.countries))}${row("Accounts", t => num(t.accounts))}${row("Licensed", t => t.licensed_share == null ? "–" : Math.round(t.licensed_share) + "%")}
+        ${row("Status", t => isEmerging(t) ? "Emerging" : fastestGrowing().slice(0, 10).includes(t) ? "Fastest growing" : "–")}
+      </tbody></table></div>`;
+    }
+    fixLinks(out);
+  }
+
+  // ------------------------------------------------------------------ building blocks
+  async function pageBlocks() {
+    const b = await data.blocks();
+    app.innerHTML = `
+    <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / Building blocks</div><h1>Building blocks</h1>
+      <p>Components that government teams have built and others can adopt. The picks are reviewed by hand${b.reviewed ? ` (last on ${esc(date(b.reviewed))})` : ""}; the figures are live from the index. <a href="https://github.com/AndreasThinks/open-govtech-report/blob/main/src/govtech_scraper/api/building_blocks.yaml">Suggest a pick</a>.</p>
+      <div class="chips" style="margin-top:16px">${b.groups.map(g => `<a href="#/building-blocks" data-scroll="bb-${esc(g.id)}">${esc(g.name)}<span>${g.picks.length}</span></a>`).join("")}</div>
+    </div></section>
+    ${b.groups.map(g => `<section class="sec pad" id="bb-${esc(g.id)}"><div class="in">
+      <h2>${esc(g.name)}</h2><p class="sub">${esc(g.summary)}${g.tag && themeById(g.tag) ? ` <a href="${themeHref(g.tag)}">See the ${esc(themeById(g.tag).name.toLowerCase())} theme</a>.` : ""}</p>
+      <div class="blocks">${g.picks.map(r => `<div class="card block"><a class="nm" href="${repoHref(r)}">${esc(r.full_name)}</a><p>${esc(r.note || r.description || "")}</p>
+        <div class="badges"><span class="b">${esc(r.country)}</span>${r.language ? `<span class="b">${esc(r.language)}</span>` : ""}${licensed(r) ? `<span class="b ok">${esc(r.license)}</span>` : '<span class="b no">No licence</span>'}${r.archived ? '<span class="b no">Archived</span>' : ""}</div>
+        <p class="cap">${num(r.stars)} stars · ${num(r.government_forks)} government forks · pushed ${ago(r.pushed_at)}</p></div>`).join("") || '<p class="empty">No picks are in the current publication.</p>'}</div>
+      ${g.also_popular.length ? `<p class="cap" style="margin-top:12px">Also popular in this theme: ${g.also_popular.map(r => `<a href="${repoHref(r)}">${esc(r.full_name)}</a>`).join(", ")}.</p>` : ""}
+    </div></section>`).join("")}`;
+  }
+
+  // ------------------------------------------------------------------ practice
+  async function pagePractice() {
+    const pr = await data.practice(), ix = pr.index;
+    const pc = v => v == null ? "–" : Math.round(v) + "%";
+    const bar = (v, ref) => `<span class="pbar"><i style="width:${v || 0}%"></i><em style="left:${ref || 0}%"></em></span>${pc(v)}`;
+    app.innerHTML = `
+    <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / Open-source practice</div><h1>Open-source practice</h1>
+      <p>Simple signs that code is ready for others to reuse: a licence, a description and topics that make it findable. Labels with at least ${num(pr.minimum_maintained)} maintained repositories, ranked by the average of the three. Stars play no part.</p>
+      <div class="stats">
+        <div class="stat"><b>${pc(ix.licensed_share)}</b><small>licensed, whole index</small></div>
+        <div class="stat"><b>${pc(ix.described_share)}</b><small>described</small></div>
+        <div class="stat"><b>${pc(ix.topics_share)}</b><small>with topics</small></div>
+        <div class="stat"><b>${pc(ix.archived_share)}</b><small>of originals archived</small></div>
+      </div>
+    </div></section>
+    <section class="sec pad"><div class="in">
+      <div class="card tbl"><table class="list"><thead><tr><th>Label</th><th class="r">Maintained</th><th>Licensed</th><th>Described</th><th>Topics</th><th class="r">Archived</th><th class="r">Score</th></tr></thead><tbody>
+        ${pr.items.map(c => `<tr><td><a class="plain" href="${countryHref(c.slug)}">${esc(c.label)}</a><small>${esc(LEVEL_NAMES[c.level])}</small></td><td class="r">${num(c.maintained)}</td><td>${bar(c.licensed_share, ix.licensed_share)}</td><td>${bar(c.described_share, ix.described_share)}</td><td>${bar(c.topics_share, ix.topics_share)}</td><td class="r">${pc(c.archived_share)}</td><td class="r"><b>${pc(c.score)}</b></td></tr>`).join("")}
+      </tbody></table></div>
+      <p class="cap" style="margin-top:12px">The black mark on each bar is the whole index. ${esc(pr.definitions.archived_share)} Coming next: README, contributing guide and security policy, from GitHub's community profile.</p>
+    </div></section>`;
+  }
+
+  // ------------------------------------------------------------------ submit an account
+  function pageSubmit() {
+    app.innerHTML = `
+    <section class="phead pad"><div class="in"><div class="crumb"><a href="#/">Overview</a> / Add an account</div><h1>Add an account</h1>
+      <p>Know a government GitHub account that is missing? Fill this in and we will open a prefilled submission on GitHub for you to propose. A maintainer reviews every submission.</p></div></section>
+    <section class="sec pad"><div class="in two">
+      <form class="card subform" id="sub">
+        <label>GitHub account<input name="org" required pattern="[A-Za-z0-9][A-Za-z0-9-]{0,38}" placeholder="for example nhsdigital"><small>The name in github.com/&lt;account&gt;</small></label>
+        <label>Country code<input name="country" required pattern="[A-Za-z]{2}" maxlength="2" placeholder="GB"><small>Two-letter ISO 3166 code</small></label>
+        <label>Account type<select name="account_type"><option value="org">Organisation</option><option value="user">User</option></select></label>
+        <label>What it is<input name="description" required maxlength="200" placeholder="One plain sentence"></label>
+        <label>Evidence it is government<textarea name="evidence" required rows="3" placeholder="One link per line: an official website, register or Wikipedia article"></textarea></label>
+        <label>Notes for the reviewer<textarea name="notes" rows="2" placeholder="Optional"></textarea></label>
+        <button class="btn" type="submit">Prepare submission</button>
+      </form>
+      <div class="card"><h3>Your submission</h3><p class="cap">This file goes in <code>submissions/pending/</code>. GitHub opens it ready to propose; you need a GitHub account.</p>
+        <textarea id="subyaml" class="snippet" readonly rows="14">Fill in the form to see the file.</textarea>
+        <div class="acts" style="margin-top:10px"><a class="btn" id="subgo" href="https://github.com/AndreasThinks/open-govtech-report/tree/main/submissions" rel="noopener" aria-disabled="true">Open on GitHub</a>${copyButton("subyaml", "Copy file")}</div>
+        <p class="cap" style="margin-top:12px">No GitHub account? Email the details to <a href="${mailto("Account for the Open GovTech Index")}">${esc(CONTACT)}</a>.</p></div>
+    </div></section>`;
+    const form = document.getElementById("sub"), out = document.getElementById("subyaml"), go = document.getElementById("subgo");
+    const q = v => JSON.stringify(v);
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(form)), cc = f.country.toUpperCase(), org = f.org.trim();
+      const evidence = f.evidence.split(/\s+/).filter(x => /^https?:\/\//.test(x));
+      if (!evidence.length) { out.value = "Add at least one evidence link starting with https://"; return; }
+      const yaml = `org: ${org}\ncountry: ${cc}\naccount_type: ${f.account_type}\ndescription: ${q(f.description.trim())}\nevidence:\n${evidence.map(x => `  - ${x}`).join("\n")}\nnotes: ${q(f.notes.trim())}\n`;
+      out.value = yaml;
+      go.href = `https://github.com/AndreasThinks/open-govtech-report/new/main/submissions/pending?filename=${enc(cc.toLowerCase() + "-" + org.toLowerCase() + ".yaml")}&value=${enc(yaml)}`;
+      go.removeAttribute("aria-disabled");
+    });
   }
 
   function pageData() {
@@ -518,8 +987,13 @@
         <li><code>/v1/themes</code> and <code>/v1/themes/{id}</code>: domains and tags with size, growth and adopters</li>
         <li><code>/v1/repos</code>: search and filter by text, country, language, topic, domain, tag or kind</li>
         <li><code>/v1/repos/{owner}/{name}</code> and <code>/context</code>: one repository, its classification, history and reuse</li>
-        <li><code>/v1/countries</code>, <code>/v1/taxonomy</code>, <code>/v1/stats</code></li>
+        <li><code>/v1/countries</code> and <code>/v1/places</code>: registry labels with country, level of government and activity; <code>/v1/countries/{id}</code> for one</li>
+        <li><code>/v1/accounts/{owner}</code>: one government GitHub account</li>
+        <li><code>/v1/week</code>, <code>/v1/reuse</code>, <code>/v1/practice</code>, <code>/v1/building-blocks</code>: the data behind those pages</li>
+        <li><code>/v1/taxonomy</code>, <code>/v1/stats</code></li>
       </ul>
+      <h2>Feeds and badges</h2>
+      <p>RSS feeds of new repositories worth a look: <a href="${esc(API)}/feeds/week.xml">/feeds/week.xml</a>, <code>/feeds/theme/{id}.xml</code> and <code>/feeds/country/{id}.xml</code>. Every repository has a README badge at <code>/badge/{owner}/{name}.svg</code>; copy it from the repository's page.</p>
       <h2>MCP</h2>
       <p>AI assistants that support the Model Context Protocol can query the index with the same answers as this site.</p>
       <pre>{ "mcpServers": { "govtech-index": { "url": "${esc(base)}/mcp/" } } }</pre>
@@ -533,36 +1007,70 @@
   // ------------------------------------------------------------------ router
   async function route() {
     hideTip();
-    const raw = location.hash.replace(/^#\/?/, ""), [path, query = ""] = raw.split("?");
+    const raw = PATHS ? (location.pathname + location.search).replace(/^\//, "") : location.hash.replace(/^#\/?/, "");
+    const [path, query = ""] = raw.split("?");
     const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
     const page = parts[0] || "overview";
-    document.querySelectorAll("[data-nav]").forEach(a => a.classList.toggle("on", a.dataset.nav === (page === "theme" ? "themes" : page === "repo" ? "repos" : page)));
+    const section = { theme: "themes", repo: "repos", country: "countries", account: "countries", method: "about" }[page] || page;
+    document.querySelectorAll("[data-nav]").forEach(a => a.classList.toggle("on", a.dataset.nav === section));
     try {
       if (page === "overview") pageOverview();
       else if (page === "themes") pageThemes();
       else if (page === "theme") await pageTheme(parts[1]);
       else if (page === "repos") await pageRepos(query);
       else if (page === "repo") await pageRepo(parts[1], parts[2]);
-      else if (page === "method") pageMethod();
+      else if (page === "about" || page === "method") pageAbout();
+      else if (page === "countries") await pageCountries(query);
+      else if (page === "country") await pageCountry(parts[1]);
+      else if (page === "account") await pageAccount(parts[1]);
+      else if (page === "week") await pageWeek();
+      else if (page === "reuse") await pageReuse();
+      else if (page === "compare") await pageCompare(query);
+      else if (page === "building-blocks") await pageBlocks();
+      else if (page === "practice") await pagePractice();
+      else if (page === "submit") pageSubmit();
       else if (page === "data") pageData();
       else app.innerHTML = notFound("There is no page at this address.");
     } catch (e) {
       console.error(e);
-      app.innerHTML = notFound("Something went wrong loading this page. The API may be waking up; try again in a minute.");
+      app.innerHTML = notFound(state.live === false && e.status === 503 ? e.message : "Something went wrong loading this page. The API may be waking up; try again in a minute.");
     }
+    fixLinks(app);
     const h1 = app.querySelector("h1");
     document.title = h1 && page !== "overview" ? `${h1.textContent} · Open GovTech Index` : "Open GovTech Index";
     window.scrollTo(0, 0);
   }
+  // In-page sections (About, Building blocks) use data-scroll so they never fight the router.
+  document.addEventListener("click", e => {
+    const s = e.target.closest("[data-scroll]");
+    if (s) {
+      const target = document.getElementById(s.dataset.scroll), here = PATHS ? location.pathname.replace(/^\//, "") : location.hash.replace(/^#\/?/, "");
+      const want = s.getAttribute("href").replace(/^#?\/?/, "");
+      if (target && here.split("?")[0] === want.split("?")[0]) { e.preventDefault(); target.scrollIntoView(); return; }
+      if (!target) { e.preventDefault(); nav("#/" + want); setTimeout(() => { const t = document.getElementById(s.dataset.scroll); if (t) t.scrollIntoView(); }, 150); return; }
+    }
+    if (!PATHS) return;
+    const a = e.target.closest("a[href]");
+    if (!a || a.target || a.hasAttribute("download") || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const href = a.getAttribute("href");
+    if (href.startsWith("#/")) { e.preventDefault(); nav(href); return; }
+    if (href.startsWith("/") && !href.startsWith("//") && !SERVER_PATH.test(href.split("?")[0])) { e.preventDefault(); nav(href); }
+  });
 
   document.getElementById("sf").addEventListener("submit", e => {
     e.preventDefault();
     const q = document.getElementById("sq").value.trim();
     if (!q) return;
     const lq = q.toLowerCase(), t = state.themes.themes.find(x => x.name.toLowerCase().includes(lq));
-    location.hash = t ? themeHref(t.id) : "#/repos?q=" + enc(q);
+    nav(t ? themeHref(t.id) : "#/repos?q=" + enc(q) + "&maintained=false");
   });
-  addEventListener("hashchange", route);
+  if (PATHS) {
+    // Old #/ links keep working: move them to the matching path.
+    const fromHash = () => { if (location.hash.startsWith("#/")) { window.history.replaceState(null, "", location.hash.slice(1)); return true; } };
+    fromHash();
+    addEventListener("hashchange", () => { if (fromHash()) route(); });
+    addEventListener("popstate", route);
+  } else addEventListener("hashchange", route);
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", route);
   boot().then(route);
 })();

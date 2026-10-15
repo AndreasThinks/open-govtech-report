@@ -1,0 +1,110 @@
+# Hand-picked reusable building blocks, shown on the site's Building blocks page.
+#
+# Editorial, not computed: each pick should be maintained, openly licensed and used beyond the
+# team that built it. Live figures (stars, last push, government forks) come from the index, and a
+# pick that is missing from the current publication is skipped. Edit through review.
+
+reviewed: 2026-10-15
+
+groups:
+  - id: design-systems
+    name: Design systems
+    tag: design-system
+    summary: Components and patterns for accessible government websites, ready to adopt or learn from.
+    repos:
+      - repo: alphagov/govuk-frontend
+        note: The GOV.UK Design System's code; widely copied by other governments.
+      - repo: uswds/uswds
+        note: The U.S. Web Design System used across federal websites.
+      - repo: navikt/aksel
+        note: Norway's labour and welfare administration design system, in React.
+      - repo: City-of-Helsinki/helsinki-design-system
+        note: A city-scale design system with components, principles and templates.
+      - repo: argob/poncho
+        note: Argentina's national front-end framework.
+      - repo: scottish-government-design-system/design-system
+        note: Shared by the Scottish Government and public bodies.
+
+  - id: notifications
+    name: Notifications
+    tag: notifications
+    summary: Sending email, text messages and letters to the public.
+    repos:
+      - repo: alphagov/notifications-api
+        note: GOV.UK Notify, used by thousands of UK public sector services.
+      - repo: alphagov/notifications-python-client
+        note: One of Notify's client libraries; others cover .NET, Ruby, PHP and more.
+      - repo: govau/notify
+        note: Australia's adaptation of GOV.UK Notify.
+      - repo: kartverket/skyline
+        note: A secure SMTP smarthost from Norway's mapping authority.
+
+  - id: forms
+    name: Online forms
+    tag: online-forms
+    summary: Building and running forms and collect-and-submit services.
+    repos:
+      - repo: govuk-forms/forms
+        note: GOV.UK Forms, for accessible forms without writing code.
+      - repo: dwp/govuk-casa
+        note: A framework for simple collect-and-submit services.
+      - repo: DEFRA/digital-form-builder
+        note: A configurable form builder used across UK departments.
+      - repo: GSA/pdf-filler
+        note: An API for filling existing PDF forms.
+
+  - id: identity
+    name: Digital identity
+    tag: digital-identity
+    summary: Sign-in, electronic identity and verifiable credentials.
+    repos:
+      - repo: open-eid/digidoc4j
+        note: Estonia's library for digitally signed documents.
+      - repo: eu-digital-identity-wallet/eudi-app-ios-wallet-ui
+        note: The EU Digital Identity Wallet reference app.
+      - repo: opengovsg/mockpass
+        note: A mock national login server for local development.
+      - repo: betagouv/django-magicauth
+        note: Passwordless sign-in by emailed link for Django services.
+      - repo: bcgov/aries-vcr
+        note: A verifiable credential registry from British Columbia.
+
+  - id: payments
+    name: Payments
+    tag: payments
+    summary: Taking fees and fines online and reconciling them.
+    repos:
+      - repo: alphagov/pay-frontend
+        note: GOV.UK Pay's payment pages.
+      - repo: bcgov/sbc-pay
+        note: Common payment services for British Columbia.
+      - repo: ministryofjustice/money-to-prisoners-send-money
+        note: A focused public payment service from the UK Ministry of Justice.
+
+  - id: open-data
+    name: Open data and APIs
+    tag: open-data-publishing
+    summary: Publishing data and APIs other people can build on.
+    repos:
+      - repo: GSA/api.data.gov
+        note: A shared service for API keys, analytics and proxying.
+      - repo: FDA/openfda
+        note: Open APIs and downloads for FDA datasets.
+      - repo: LibraryOfCongress/api.congress.gov
+        note: The Congress.gov API.
+      - repo: etalab/transport-site
+        note: France's national access point for transport data.
+      - repo: Geonovum/KP-APIs
+        note: Dutch API design rules for government.
+
+  - id: accessibility
+    name: Accessibility testing
+    tag: accessibility
+    summary: Checking services meet accessibility standards.
+    repos:
+      - repo: SSAgov/ANDI
+        note: A bookmarklet for testing web content against Section 508.
+      - repo: GSA/openacr
+        note: Machine-readable accessibility conformance reports.
+      - repo: alphagov/accessibility-tool-audit
+        note: Results from testing automated accessibility checkers.

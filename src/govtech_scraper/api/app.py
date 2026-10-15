@@ -17,6 +17,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from .insights import Insights
 from .mcp_tools import build_mcp
+from .pages import add_site_routes
 from .queries import MAX_LIMIT, SORTS, Catalogue
 
 SITE_DIR = Path(__file__).resolve().parent.parent / "site"
@@ -66,6 +67,9 @@ def create_app(catalogue: Catalogue | None = None, site_dir: Path | None = SITE_
         min_stars: int = Query(0, ge=0),
         include_forks: bool = True,
         include_archived: bool = True,
+        owner: str | None = Query(None, description="GitHub account that owns the repository"),
+        maintained: bool = Query(False, description="Only unarchived repos pushed in the last 12 months"),
+        notable: bool = Query(False, description="Hide placeholders: needs a description, content and a later push"),
         sort: str = Query("stars", enum=list(SORTS)),
         limit: int = Query(20, ge=1, le=MAX_LIMIT),
         offset: int = Query(0, ge=0),
@@ -82,6 +86,9 @@ def create_app(catalogue: Catalogue | None = None, site_dir: Path | None = SITE_
                 min_stars=min_stars,
                 include_forks=include_forks,
                 include_archived=include_archived,
+                owner=owner,
+                maintained=maintained,
+                notable=notable,
                 sort=sort,
                 limit=limit,
                 offset=offset,
@@ -118,9 +125,43 @@ def create_app(catalogue: Catalogue | None = None, site_dir: Path | None = SITE_
             raise HTTPException(status_code=404, detail="Not a domain or tag in the taxonomy")
         return detail
 
-    @app.get("/v1/countries", summary="Countries with repository counts")
+    @app.get("/v1/countries", summary="Registry labels with country, level and repository counts")
     def countries():
         return catalogue.list_countries()
+
+    @app.get("/v1/places", summary="Registry labels with activity, licence share and level of government")
+    def places():
+        return insights.countries()
+
+    @app.get("/v1/countries/{slug}", summary="One registry label: themes against the index, accounts, reuse")
+    def country(slug: str):
+        detail = insights.country(slug)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="No registry label with that id")
+        return detail
+
+    @app.get("/v1/accounts/{owner}", summary="One government GitHub account")
+    def account(owner: str):
+        detail = insights.account(owner)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Account not in the catalogue")
+        return detail
+
+    @app.get("/v1/reuse", summary="Government forks of other governments' code")
+    def reuse():
+        return insights.reuse()
+
+    @app.get("/v1/week", summary="What changed in the latest weekly scrape")
+    def week():
+        return insights.week()
+
+    @app.get("/v1/practice", summary="Open-source practice signals by registry label")
+    def practice():
+        return insights.practice()
+
+    @app.get("/v1/building-blocks", summary="Hand-picked reusable components with live figures")
+    def building_blocks():
+        return insights.building_blocks()
 
     @app.get("/v1/taxonomy", summary="COFOG domains, tags and kinds with counts")
     def taxonomy():
@@ -136,6 +177,8 @@ def create_app(catalogue: Catalogue | None = None, site_dir: Path | None = SITE_
 
     app.mount("/mcp", mcp_app)
     if site_dir and (site_dir / "index.html").exists():
+        # Page paths, feeds, badges and the sitemap come before the static mount at "/".
+        add_site_routes(app, catalogue, insights, site_dir)
         app.mount("/", StaticFiles(directory=site_dir, html=True), name="site")
     else:
 

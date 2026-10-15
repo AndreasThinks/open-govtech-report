@@ -10,11 +10,20 @@ cannot see repositories deleted or made private during the year.
 """
 
 import sqlite3
+from collections import Counter
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
-from .queries import TAG_THRESHOLD, Catalogue
+import yaml
+
+from .places import LEVELS, place, slug
+from .queries import NOTABLE_SQL, TAG_THRESHOLD, Catalogue
+
+BUILDING_BLOCKS = Path(__file__).with_name("building_blocks.yaml")
 
 YEAR = timedelta(days=365)
+FASTEST_MIN = 50  # repositories a tag needs before it can rank as fastest growing
+PRACTICE_MIN = 25  # maintained repositories a label needs to appear on the practice table
 UNLICENSED = ("", "NOASSERTION", "other", "Other")
 
 
@@ -64,6 +73,13 @@ class Insights:
         self.taxonomy = catalogue.taxonomy
         self._domains = {d.id: d for d in self.taxonomy.domains}
         self._tags = {t.id: (t, d) for d in self.taxonomy.domains for t in d.tags}
+        # The database never changes while the process runs, so heavy views are computed once.
+        self._cache: dict = {}
+
+    def _once(self, key, build):
+        if key not in self._cache:
+            self._cache[key] = build()
+        return self._cache[key]
 
     # ------------------------------------------------------------------ helpers
 
@@ -166,6 +182,10 @@ class Insights:
             "stars": row["stars"] or 0,
         }
 
+    def _licensed_sql(self, alias: str = "") -> str:
+        col = f"{alias}.license" if alias else "license"
+        return f"({col} IS NOT NULL AND {col} NOT IN ({','.join(repr(u) for u in UNLICENSED)}))"
+
     def _known(self, theme: str) -> bool:
         return theme in self._domains or theme in self._tags
 
@@ -223,7 +243,7 @@ class Insights:
         original = t["original"] or 0
         maintained = t["maintained"] or 0
         newest = cat.search_repos(
-            include_forks=False, include_archived=False, sort="newest", limit=6
+            include_forks=False, include_archived=False, notable=True, sort="newest", limit=6
         )
         return {
             "as_of": t["last_scraped"],
@@ -301,6 +321,9 @@ class Insights:
 
     def themes(self) -> dict:
         """Every domain and tag with size, growth and spread. Empty until a decision run exists."""
+        return self._once("themes", self._themes)
+
+    def _themes(self) -> dict:
         cat = self.catalogue
         items: list[dict] = []
         if cat.decision_model:
@@ -353,6 +376,13 @@ class Insights:
                 + " AND r.created_at IS NOT NULL GROUP BY r.owner ORDER BY first_repo DESC LIMIT 15",
                 params,
             ).fetchall()
+            teams = conn.execute(
+                base.format(
+                    cols="r.owner, r.country, COUNT(*) AS repos, SUM(r.archived = 0 AND r.pushed_at >= ?) AS maintained"
+                )
+                + " GROUP BY r.owner ORDER BY maintained DESC, repos DESC LIMIT 10",
+                [*params, _iso(ref - YEAR)],
+            ).fetchall()
             all_members, all_params = self._members_sql()
             related = conn.execute(
                 f"""WITH m AS MATERIALIZED ({members}), a AS MATERIALIZED ({all_members})
@@ -374,6 +404,7 @@ class Insights:
             "monthly_new": [{"month": m, "new": per_month.get(m, 0)} for m in months],
             "by_country": [dict(c) for c in countries],
             "adopters": [dict(a) for a in reversed(adopters)],
+            "teams": [{**dict(t), "maintained": t["maintained"] or 0} for t in teams],
             "related": [
                 {
                     **self._describe(r["theme"]),
@@ -426,3 +457,516 @@ class Insights:
             "reused_by": [dict(r) for r in reused_by],
             "similar": similar,
         }
+
+    # ------------------------------------------------------------------ reuse between governments
+
+    def _fork_edges(self) -> list[dict]:
+        """Every government fork of another account's government repository."""
+
+        def build() -> list[dict]:
+            cur = self.catalogue.current_predicate()
+            with self.catalogue._connect() as conn:
+                parents = {
+                    f"{r['owner']}/{r['name']}".lower(): r
+                    for r in conn.execute(
+                        f"SELECT owner, name, country FROM repositories WHERE {cur} AND fork = 0"
+                    )
+                }
+                forks = conn.execute(
+                    f"""SELECT owner, name, country, fork_source, created_at FROM repositories
+                        WHERE {cur} AND fork = 1 AND fork_source IS NOT NULL"""
+                ).fetchall()
+            edges = []
+            for f in forks:
+                p = parents.get(f["fork_source"].lower())
+                if p is None or p["owner"].lower() == f["owner"].lower():
+                    continue
+                edges.append(
+                    {
+                        "parent": f"{p['owner']}/{p['name']}",
+                        "parent_owner": p["owner"],
+                        "parent_country": p["country"],
+                        "child": f"{f['owner']}/{f['name']}",
+                        "child_owner": f["owner"],
+                        "child_country": f["country"],
+                        "created_at": f["created_at"],
+                    }
+                )
+            return edges
+
+        return self._once("edges", build)
+
+    @staticmethod
+    def _most_reused(edges: list[dict], limit: int) -> list[dict]:
+        by: dict[str, dict] = {}
+        for e in edges:
+            d = by.setdefault(
+                e["parent"],
+                {"full_name": e["parent"], "country": e["parent_country"], "a": set(), "c": set()},
+            )
+            d["a"].add(e["child_owner"].lower())
+            d["c"].add(e["child_country"])
+        ranked = sorted(by.values(), key=lambda d: (-len(d["a"]), -len(d["c"]), d["full_name"]))
+        return [
+            {
+                "full_name": d["full_name"],
+                "country": d["country"],
+                "reused_by_accounts": len(d["a"]),
+                "reused_in_labels": len(d["c"]),
+            }
+            for d in ranked[:limit]
+        ]
+
+    def reuse(self) -> dict:
+        """Which governments fork which governments' code, and the most reused repositories."""
+        edges = self._fork_edges()
+        cross = [e for e in edges if e["parent_country"] != e["child_country"]]
+        flows = Counter((e["parent_country"], e["child_country"]) for e in cross)
+        reusers = Counter((e["child_owner"], e["child_country"]) for e in edges)
+        return {
+            "definition": "A government fork of a repository owned by a different government account "
+            "in the index. Forks within one account are not counted.",
+            "forks": len(edges),
+            "cross_border_forks": len(cross),
+            "accounts_reusing": len({e["child_owner"].lower() for e in edges}),
+            "flows": [{"from": a, "to": b, "forks": n} for (a, b), n in flows.most_common(40)],
+            "most_reused": self._most_reused(edges, 20),
+            "most_reused_across_borders": self._most_reused(cross, 10),
+            "top_reusers": [
+                {"owner": o, "country": c, "forks": n} for (o, c), n in reusers.most_common(10)
+            ],
+        }
+
+    # ------------------------------------------------------------------ countries and accounts
+
+    def _labels(self) -> list[str]:
+        def build():
+            with self.catalogue._connect() as conn:
+                return [
+                    r[0]
+                    for r in conn.execute(
+                        f"SELECT DISTINCT country FROM repositories WHERE {self.catalogue.current_predicate()}"
+                    )
+                ]
+
+        return self._once("labels", build)
+
+    def label_for(self, slug_: str) -> str | None:
+        return next((label for label in self._labels() if slug(label) == slug_), None)
+
+    def _theme_split(self, conn: sqlite3.Connection, column: str, value: str) -> dict[str, tuple[int, int]]:
+        """{theme: (repos where column = value, repos everywhere)} over original repositories."""
+        members, params = self._members_sql()
+        rows = conn.execute(
+            f"""WITH m AS ({members})
+                SELECT m.theme, SUM(LOWER(r.{column}) = LOWER(?)) AS here, COUNT(*) AS everywhere
+                FROM m JOIN repositories r ON r.html_url = m.html_url
+                WHERE {self.catalogue.current_predicate("r")} AND r.fork = 0
+                GROUP BY m.theme""",
+            params + [value],
+        ).fetchall()
+        return {r["theme"]: (r["here"] or 0, r["everywhere"]) for r in rows if self._known(r["theme"])}
+
+    def _mix(self, split: dict[str, tuple[int, int]]) -> dict:
+        """Theme shares for one place against the whole index. Domains sum to 100%."""
+        here_total = sum(h for t, (h, _) in split.items() if t in self._domains)
+        all_total = sum(a for t, (_, a) in split.items() if t in self._domains)
+        if not here_total:
+            return {"labelled": 0, "domains": [], "tags": []}
+
+        def row(theme: str, here: int, everywhere: int) -> dict:
+            share = here / here_total * 100
+            index_share = everywhere / all_total * 100 if all_total else 0
+            return {
+                **{k: v for k, v in self._describe(theme).items() if k in ("id", "type", "name", "domain")},
+                "repos": here,
+                "share": round(share, 1),
+                "index_share": round(index_share, 1),
+                "ratio": round(share / index_share, 2) if index_share else None,
+            }
+
+        domains = [row(t, h, a) for t, (h, a) in split.items() if t in self._domains and h]
+        tags = [row(t, h, a) for t, (h, a) in split.items() if t in self._tags and h]
+        domains.sort(key=lambda r: -r["repos"])
+        tags.sort(key=lambda r: -r["repos"])
+        # Specialisms: tags this place has proportionally far more of than the index.
+        special = [t for t in tags if t["repos"] >= 5 and (t["ratio"] or 0) >= 1.5]
+        special.sort(key=lambda r: -(r["ratio"] or 0))
+        return {"labelled": here_total, "domains": domains, "tags": tags[:16], "specialisms": special[:8]}
+
+    def countries(self) -> dict:
+        """Every registry label with its country, level of government and activity."""
+
+        def build():
+            cat = self.catalogue
+            with cat._connect() as conn:
+                ref = self._ref_date(conn)
+                year_ago = _iso(ref - YEAR)
+                rows = conn.execute(
+                    f"""SELECT country AS label, COUNT(*) AS repos, SUM(fork = 0) AS original,
+                              SUM(fork = 0 AND archived = 0 AND pushed_at >= ?) AS maintained,
+                              SUM(fork = 0 AND created_at >= ?) AS new_12m,
+                              SUM(fork = 0 AND archived = 0 AND pushed_at >= ? AND {self._licensed_sql()}) AS maintained_licensed,
+                              COUNT(DISTINCT owner) AS accounts, SUM(stars) AS stars
+                       FROM repositories WHERE {cat.current_predicate()}
+                       GROUP BY country ORDER BY maintained DESC""",
+                    [year_ago, year_ago, year_ago],
+                ).fetchall()
+            items = []
+            for r in rows:
+                m = r["maintained"] or 0
+                items.append(
+                    {
+                        **place(r["label"]),
+                        "repos": r["repos"],
+                        "original": r["original"] or 0,
+                        "maintained": m,
+                        "new_12m": r["new_12m"] or 0,
+                        "accounts": r["accounts"],
+                        "stars": r["stars"] or 0,
+                        "licensed_share": round((r["maintained_licensed"] or 0) / m * 100, 1) if m else None,
+                    }
+                )
+            return {"levels": list(LEVELS), "as_of": _iso(ref), "items": items}
+
+        return self._once("countries", build)
+
+    def country(self, slug_: str) -> dict | None:
+        """One registry label: activity, theme mix against the index, accounts and reuse."""
+        label = self.label_for(slug_)
+        if label is None:
+            return None
+        return self._once(("country", label), lambda: self._country(label))
+
+    def _country(self, label: str) -> dict:
+        cat = self.catalogue
+        summary = next(c for c in self.countries()["items"] if c["label"] == label)
+        with cat._connect() as conn:
+            ref = self._ref_date(conn)
+            year_ago = _iso(ref - YEAR)
+            cur = cat.current_predicate()
+            per_month = dict(
+                conn.execute(
+                    f"""SELECT substr(created_at, 1, 7), COUNT(*) FROM repositories
+                        WHERE {cur} AND fork = 0 AND country = ? GROUP BY 1""",
+                    (label,),
+                ).fetchall()
+            )
+            accounts = conn.execute(
+                f"""SELECT owner, COUNT(*) AS repos, SUM(archived = 0 AND pushed_at >= ?) AS maintained,
+                          SUM(stars) AS stars
+                   FROM repositories WHERE {cur} AND fork = 0 AND country = ?
+                   GROUP BY owner ORDER BY maintained DESC, repos DESC LIMIT 12""",
+                (year_ago, label),
+            ).fetchall()
+            languages = conn.execute(
+                f"""SELECT language, COUNT(*) AS repos FROM repositories
+                   WHERE {cur} AND fork = 0 AND archived = 0 AND pushed_at >= ? AND country = ?
+                     AND language IS NOT NULL
+                   GROUP BY language ORDER BY repos DESC LIMIT 8""",
+                (year_ago, label),
+            ).fetchall()
+            mix = self._mix(self._theme_split(conn, "country", label)) if cat.decision_model else None
+        edges = self._fork_edges()
+        out = [e for e in edges if e["parent_country"] == label and e["child_country"] != label]
+        into = [e for e in edges if e["child_country"] == label and e["parent_country"] != label]
+        return {
+            **summary,
+            "as_of": _iso(ref),
+            "monthly_new": [{"month": m, "new": per_month.get(m, 0)} for m in _months_back(ref, 24)],
+            "accounts_top": [{**dict(a), "maintained": a["maintained"] or 0} for a in accounts],
+            "languages": [dict(x) for x in languages],
+            "theme_mix": mix,
+            "reused_by": [
+                {"label": c, "forks": n} for c, n in Counter(e["child_country"] for e in out).most_common(8)
+            ],
+            "reuses_from": [
+                {"label": c, "forks": n} for c, n in Counter(e["parent_country"] for e in into).most_common(8)
+            ],
+            "most_reused": self._most_reused(out, 6),
+            "top_repos": cat.search_repos(
+                country=label, include_forks=False, maintained=True, sort="stars", limit=8
+            )["items"],
+            "newest_repos": cat.search_repos(
+                country=label, include_forks=False, include_archived=False, notable=True, sort="newest", limit=6
+            )["items"],
+        }
+
+    def account(self, owner: str) -> dict | None:
+        """One government GitHub account: activity, themes, languages and reuse."""
+        cat = self.catalogue
+        with cat._connect() as conn:
+            ref = self._ref_date(conn)
+            year_ago = _iso(ref - YEAR)
+            cur = cat.current_predicate()
+            row = conn.execute(
+                f"""SELECT MIN(owner) AS owner, MIN(country) AS country, COUNT(*) AS repos,
+                          SUM(fork = 0) AS original,
+                          SUM(fork = 0 AND archived = 0 AND pushed_at >= ?) AS maintained,
+                          SUM(fork = 0 AND {self._licensed_sql()}) AS licensed,
+                          SUM(stars) AS stars, MIN(created_at) AS first_repo, MAX(pushed_at) AS last_push
+                   FROM repositories WHERE {cur} AND LOWER(owner) = LOWER(?)""",
+                (year_ago, owner),
+            ).fetchone()
+            if not row["repos"]:
+                return None
+            owner = row["owner"]
+            per_month = dict(
+                conn.execute(
+                    f"""SELECT substr(created_at, 1, 7), COUNT(*) FROM repositories
+                        WHERE {cur} AND fork = 0 AND owner = ? GROUP BY 1""",
+                    (owner,),
+                ).fetchall()
+            )
+            languages = conn.execute(
+                f"""SELECT language, COUNT(*) AS repos FROM repositories
+                   WHERE {cur} AND fork = 0 AND owner = ? AND language IS NOT NULL
+                   GROUP BY language ORDER BY repos DESC LIMIT 6""",
+                (owner,),
+            ).fetchall()
+            mix = self._mix(self._theme_split(conn, "owner", owner)) if cat.decision_model else None
+            kind = None
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='accounts'").fetchone():
+                k = conn.execute(
+                    "SELECT account_type FROM accounts WHERE LOWER(username) = LOWER(?)", (owner,)
+                ).fetchone()
+                kind = k[0] if k else None
+        edges = self._fork_edges()
+        lo = owner.lower()
+        out = [e for e in edges if e["parent_owner"].lower() == lo]
+        into = [e for e in edges if e["child_owner"].lower() == lo]
+        original = row["original"] or 0
+        return {
+            "owner": owner,
+            "account_type": kind,
+            "github_url": f"https://github.com/{owner}",
+            **{k: v for k, v in place(row["country"]).items() if k != "label"},
+            "label": row["country"],
+            "repos": row["repos"],
+            "original": original,
+            "maintained": row["maintained"] or 0,
+            "stars": row["stars"] or 0,
+            "licensed_share": round((row["licensed"] or 0) / original * 100, 1) if original else None,
+            "first_repo": row["first_repo"],
+            "last_push": row["last_push"],
+            "as_of": _iso(ref),
+            "monthly_new": [{"month": m, "new": per_month.get(m, 0)} for m in _months_back(ref, 24)],
+            "languages": [dict(x) for x in languages],
+            "theme_mix": mix,
+            "reused_by": [
+                {"owner": o, "country": c, "forks": n}
+                for (o, c), n in Counter((e["child_owner"], e["child_country"]) for e in out).most_common(10)
+            ],
+            "reuses_from": [
+                {"owner": o, "country": c, "forks": n}
+                for (o, c), n in Counter((e["parent_owner"], e["parent_country"]) for e in into).most_common(10)
+            ],
+            "most_reused": self._most_reused(out, 5),
+            "top_repos": cat.search_repos(owner=owner, include_forks=False, sort="stars", limit=10)["items"],
+            "recent_repos": cat.search_repos(
+                owner=owner, include_forks=False, include_archived=False, sort="recently_pushed", limit=6
+            )["items"],
+        }
+
+    # ------------------------------------------------------------------ this week
+
+    def week(self) -> dict:
+        """What changed in the latest weekly scrape."""
+        return self._once("week", self._week)
+
+    def _week(self) -> dict:
+        cat = self.catalogue
+        cur = cat.current_predicate("r")
+        with cat._connect() as conn:
+            ref = self._ref_date(conn)
+            week_ago = _iso(ref - timedelta(days=7))
+            counts = conn.execute(
+                f"""SELECT SUM(r.created_at >= ?) AS new, SUM(r.created_at >= ? AND {NOTABLE_SQL}) AS notable
+                    FROM repositories r WHERE {cur} AND r.fork = 0""",
+                (week_ago, week_ago),
+            ).fetchone()
+            archived = conn.execute(
+                f"""SELECT r.owner || '/' || r.name AS full_name, r.country, r.description, r.stars,
+                           r.updated_at
+                    FROM repositories r WHERE {cur} AND r.fork = 0 AND r.archived = 1 AND r.updated_at >= ?
+                    ORDER BY r.stars DESC LIMIT 10""",
+                (week_ago,),
+            ).fetchall()
+            archived_n = conn.execute(
+                f"""SELECT COUNT(*) FROM repositories r
+                    WHERE {cur} AND r.fork = 0 AND r.archived = 1 AND r.updated_at >= ?""",
+                (week_ago,),
+            ).fetchone()[0]
+            movers, since = self._star_movers(conn)
+        notable = [
+            r
+            for r in cat.search_repos(
+                include_forks=False, include_archived=False, notable=True, sort="newest", limit=40
+            )["items"]
+            if (r["created_at"] or "") >= week_ago
+        ]
+        fastest = [t for t in self.themes()["themes"] if t["type"] == "tag" and t["repos"] >= FASTEST_MIN]
+        fastest.sort(key=lambda t: -(t["growth_12m"] or 0))
+        return {
+            "as_of": _iso(ref),
+            "week_start": week_ago,
+            "new": counts["new"] or 0,
+            "new_notable": counts["notable"] or 0,
+            "notable": notable,
+            "archived": {"count": archived_n, "items": [dict(a) for a in archived]},
+            "star_movers": {"since": since, "items": movers},
+            "fastest_themes": fastest[:8],
+            "definitions": {
+                "notable": "Has a description, some content, and a push after the day it was created.",
+                "archived": "Archived and last updated on GitHub in the past seven days.",
+                "star_movers": "Stars gained between the latest weekly snapshot and the one before it.",
+            },
+        }
+
+    def _star_movers(self, conn: sqlite3.Connection) -> tuple[list[dict], str | None]:
+        if not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='repository_snapshots'"
+        ).fetchone():
+            return [], None
+        latest = conn.execute("SELECT MAX(scrape_timestamp) FROM repository_snapshots").fetchone()[0]
+        latest_dt = _parse(latest)
+        if latest_dt is None:
+            return [], None
+        latest_day = latest_dt.strftime("%Y-%m-%d")
+        prev = conn.execute(
+            "SELECT MAX(scrape_timestamp) FROM repository_snapshots WHERE scrape_timestamp < ?",
+            (_iso(latest_dt - timedelta(days=5)),),
+        ).fetchone()[0]
+        prev_dt = _parse(prev)
+        if prev_dt is None:
+            return [], None
+        prev_day = prev_dt.strftime("%Y-%m-%d")
+
+        def day(d: str) -> str:
+            return f"""SELECT html_url, MAX(stars) AS stars FROM repository_snapshots
+                       WHERE scrape_timestamp >= '{d}' AND scrape_timestamp < date('{d}', '+1 day')
+                       GROUP BY html_url"""
+
+        rows = conn.execute(
+            f"""SELECT r.owner || '/' || r.name AS full_name, r.country, r.description,
+                       a.stars AS stars, a.stars - b.stars AS gained
+                FROM ({day(latest_day)}) a JOIN ({day(prev_day)}) b ON a.html_url = b.html_url
+                JOIN repositories r ON r.html_url = a.html_url
+                WHERE {self.catalogue.current_predicate("r")} AND r.fork = 0 AND a.stars > b.stars
+                ORDER BY gained DESC LIMIT 10"""
+        ).fetchall()
+        return [dict(r) for r in rows], prev_day
+
+    # ------------------------------------------------------------------ open-source practice
+
+    def practice(self) -> dict:
+        """Signals of open-source practice by registry label, from metadata already scraped."""
+
+        def build():
+            cat = self.catalogue
+            with cat._connect() as conn:
+                ref = self._ref_date(conn)
+                year_ago = _iso(ref - YEAR)
+                maint = "archived = 0 AND pushed_at >= ?"
+                cols = f"""COUNT(*) AS original,
+                    SUM({maint}) AS maintained,
+                    SUM({maint} AND {self._licensed_sql()}) AS licensed,
+                    SUM({maint} AND TRIM(COALESCE(description, '')) != '') AS described,
+                    SUM({maint} AND topics IS NOT NULL AND topics NOT IN ('', '[]')) AS topics,
+                    SUM(archived = 1) AS archived"""
+                where = f"WHERE {cat.current_predicate()} AND fork = 0"
+                rows = conn.execute(
+                    f"SELECT country AS label, {cols} FROM repositories {where} GROUP BY country",
+                    [year_ago] * 4,
+                ).fetchall()
+                total = conn.execute(f"SELECT {cols} FROM repositories {where}", [year_ago] * 4).fetchone()
+
+            def shares(r) -> dict:
+                m = r["maintained"] or 0
+                pc = lambda n, d: round((n or 0) / d * 100, 1) if d else None  # noqa: E731
+                out = {
+                    "maintained": m,
+                    "licensed_share": pc(r["licensed"], m),
+                    "described_share": pc(r["described"], m),
+                    "topics_share": pc(r["topics"], m),
+                    "archived_share": pc(r["archived"], r["original"]),
+                }
+                parts = [out["licensed_share"], out["described_share"], out["topics_share"]]
+                out["score"] = round(sum(parts) / 3, 1) if None not in parts else None
+                return out
+
+            items = [{**place(r["label"]), **shares(r)} for r in rows if (r["maintained"] or 0) >= PRACTICE_MIN]
+            items.sort(key=lambda x: -(x["score"] or 0))
+            return {
+                "as_of": _iso(ref),
+                "minimum_maintained": PRACTICE_MIN,
+                "index": shares(total),
+                "items": items,
+                "definitions": {
+                    "licensed_share": "Maintained original repositories with a licence GitHub can detect.",
+                    "described_share": "Maintained original repositories with a description.",
+                    "topics_share": "Maintained original repositories with at least one GitHub topic.",
+                    "archived_share": "Original repositories archived by their owner, a sign of tidy retirement.",
+                    "score": "Average of the licensed, described and topics shares.",
+                },
+            }
+
+        return self._once("practice", build)
+
+    # ------------------------------------------------------------------ building blocks
+
+    def building_blocks(self) -> dict:
+        """Hand-picked reusable components per capability, with live figures from the index."""
+
+        def build():
+            spec = yaml.safe_load(BUILDING_BLOCKS.read_text())
+            cat = self.catalogue
+            reused = Counter()
+            for e in self._fork_edges():
+                reused[e["parent"].lower()] += 1
+            groups = []
+            for g in spec["groups"]:
+                picks = []
+                for item in g["repos"]:
+                    owner, name = item["repo"].split("/", 1)
+                    r = cat.get_repo(owner, name)
+                    if r is None:
+                        continue
+                    picks.append(
+                        {
+                            "full_name": r["full_name"],
+                            "html_url": r["html_url"],
+                            "country": r["country"],
+                            "description": r["description"],
+                            "note": item.get("note"),
+                            "language": r["language"],
+                            "stars": r["stars"],
+                            "license": r["license"],
+                            "archived": r["archived"],
+                            "pushed_at": r["pushed_at"],
+                            "government_forks": reused[r["full_name"].lower()],
+                        }
+                    )
+                more = []
+                if cat.decision_model and g.get("tag") in self._tags:
+                    picked = {p["full_name"].lower() for p in picks}
+                    more = [
+                        r
+                        for r in cat.search_repos(
+                            tag=g["tag"], include_forks=False, maintained=True, sort="stars", limit=10
+                        )["items"]
+                        if r["full_name"].lower() not in picked
+                    ][:5]
+                groups.append(
+                    {
+                        "id": g["id"],
+                        "name": g["name"],
+                        "summary": g["summary"],
+                        "tag": g.get("tag"),
+                        "picks": picks,
+                        "also_popular": more,
+                    }
+                )
+            return {"reviewed": spec.get("reviewed"), "groups": groups}
+
+        return self._once("blocks", build)

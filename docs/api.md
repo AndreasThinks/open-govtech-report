@@ -28,17 +28,26 @@ publication (`HfApi().restart_space(...)`).
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /v1/repos` | Search and filter: `q`, `country`, `language`, `topic`, `domain`, `tag`, `kind`, `min_stars`, `include_forks`, `include_archived`, `sort` (`stars`, `recently_pushed`, `newest`, `name`), `limit` (max 100), `offset` |
-| `GET /v1/repos/{owner}/{name}` | One repo, with its LLM tags and COFOG classification |
+| `GET /v1/repos` | Search and filter: `q`, `country`, `language`, `topic`, `domain`, `tag`, `kind`, `min_stars`, `include_forks`, `include_archived`, `owner`, `maintained`, `notable`, `sort` (`stars`, `recently_pushed`, `newest`, `name`), `limit` (max 100), `offset` |
+| `GET /v1/repos/{owner}/{name}` | One repo, with its LLM tags, COFOG classification and README excerpt (when published) |
 | `GET /v1/repos/{owner}/{name}/context` | Snapshot history, government forks and similar repos |
-| `GET /v1/overview` | Headline totals, monthly timeline, status breakdown, top countries, newest repos |
+| `GET /v1/overview` | Headline totals, monthly timeline, status breakdown, top countries, newest notable repos |
 | `GET /v1/themes` | Every domain and tag with size, 12-month growth and country spread |
-| `GET /v1/themes/{id}` | One domain or tag: monthly new repos, countries, adopters, related tags, top repos |
-| `GET /v1/countries` | Repo, account and star counts per country or registry label |
+| `GET /v1/themes/{id}` | One domain or tag: monthly new repos, countries, adopters, teams, related tags, top repos |
+| `GET /v1/countries` | Repo, account and star counts per registry label, with `slug`, `country_name` and `level` |
+| `GET /v1/places` | Every registry label with country, level of government, maintained repos and licence share |
+| `GET /v1/countries/{slug}` | One label: theme mix against the index, top accounts, languages, reuse both ways, repos |
+| `GET /v1/accounts/{owner}` | One GitHub account: themes, languages, reuse both ways, top and recent repos |
+| `GET /v1/reuse` | Government forks of other governments' code: flows between labels, most reused repos |
+| `GET /v1/week` | Latest scrape: notable new repos, archived repos, star movers, fastest-growing themes |
+| `GET /v1/practice` | Licence, description, topic and archive shares by label |
+| `GET /v1/building-blocks` | Hand-picked components with live figures |
 | `GET /v1/taxonomy` | Domains, tags and kinds, with repo counts |
 | `GET /v1/stats` | Headline numbers |
 
-CORS is open, so browser apps can call it directly.
+CORS is open, so browser apps can call it directly. The same app also serves RSS feeds
+(`/feeds/week.xml`, `/feeds/theme/{id}.xml`, `/feeds/country/{slug}.xml`), README badges
+(`/badge/{owner}/{name}.svg`), `/sitemap.xml` and the site's page paths; see [site.md](site.md).
 
 ## MCP
 

@@ -13,7 +13,7 @@ async function setup(mode = 'classified') {
     querySelector() {return null;}, querySelectorAll() {return [];}, classList: {toggle() {}}});
   const sandbox = {URLSearchParams, console, Set, Date, Math, location: {hash: ''},
     document: {getElementById(id) {if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id);},
-      createElementNS: node, querySelectorAll: () => [], documentElement: {}},
+      createElementNS: node, querySelectorAll: () => [], documentElement: {}, addEventListener() {}},
     getComputedStyle: () => ({getPropertyValue: () => '#000'}),
     addEventListener() {}, matchMedia: () => ({addEventListener() {}})};
   sandbox.window = sandbox;
@@ -38,7 +38,7 @@ async function setup(mode = 'classified') {
   const source = fs.readFileSync(path.join(site, 'app.js'), 'utf8');
   assert.ok(source.includes('boot().then(route);'));
   vm.runInContext(source.replace('boot().then(route);',
-    'window.harness = {boot, data, pageRepo, pageRepos, pageTheme};'), ctx);
+    'window.harness = {boot, data, pageRepo, pageRepos, pageTheme, pageAbout, pageOverview, emergingRule, isEmerging, fastestGrowing, pageSubmit};'), ctx);
   await sandbox.harness.boot();
   return {...sandbox.harness, response, nodes, html: () => nodes.get('app').innerHTML};
 }
@@ -79,4 +79,23 @@ test('healthy classified details and genuinely empty context', async () => {
   assert.equal(h.nodes.get('banner').hidden, true);
   h.response.empty = true; await h.pageRepo('i-dot-ai', 'consult');
   assert.match(h.html(), /No government forks yet/); assert.doesNotMatch(h.html(), /unavailable/);
+});
+test('about replaces method, with contact and sponsor ask', async () => {
+  const h = await setup(); h.pageAbout();
+  assert.match(h.html(), /About the index/);
+  assert.match(h.html(), /andreasthinks\.me/);
+  assert.match(h.html(), /contact@andreasthinks\.me/);
+  assert.match(h.html(), /Sponsor the index/);
+  assert.match(h.nodes.get('sponsor').innerHTML, /Interested in sponsoring it\?/);
+});
+test('fastest growing needs 50 repositories and emerging caps at 200', async () => {
+  const h = await setup();
+  const rule = h.emergingRule();
+  assert.equal(rule.maxRepos, 200);
+  assert.ok(h.isEmerging({repos: 150, growth_12m: rule.minGrowth}, rule));
+  assert.ok(!h.isEmerging({repos: 1386, growth_12m: 99}, rule));
+  assert.ok(h.fastestGrowing().every(t => t.repos >= 50));
+  h.pageOverview();
+  assert.match(h.html(), /Fastest-growing theme/);
+  assert.match(h.html(), /Show as a table/);
 });
