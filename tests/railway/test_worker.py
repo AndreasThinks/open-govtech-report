@@ -370,8 +370,8 @@ def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path)
     db.close()
 
 
-def test_positive_caveats_and_nonliteral_quotes_are_withdrawn(tmp_db, sample_repo):
-    from govtech_scraper.cloud_worker import caveat_exclusions
+@pytest.fixture
+def caveat_source(tmp_db, sample_repo):
     from govtech_scraper.decision.evidence import EvidenceStore, source_from_repo, DEFAULT_PROMPT_VERSION, taxonomy_digest
     from govtech_scraper.decision.taxonomy import load_taxonomy
     taxonomy = load_taxonomy()
@@ -384,11 +384,109 @@ def test_positive_caveats_and_nonliteral_quotes_are_withdrawn(tmp_db, sample_rep
         source=source, domain=None, kind=None,
         tags=[{'id':'notifications', 'quote':'sending emails and SMS', 'rationale':'No explicit evidence; omit', 'source_field':'readme'}],
         usage={'cost':.0001}, abstentions={}, taxonomy_sha=taxonomy_digest(taxonomy))
+    return source
+
+
+@pytest.mark.parametrize('storage', ['history', 'flat'])
+def test_positive_caveats_and_nonliteral_quotes_are_withdrawn(tmp_db, caveat_source, storage):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    if storage == 'flat':
+        tmp_db.conn.execute('DELETE FROM evidence_source_history')
     assert len(caveat_exclusions(tmp_db)) == 1
     tmp_db.conn.execute("UPDATE evidence_classification_tags SET rationale='Supported', quote='invented'")
     assert len(caveat_exclusions(tmp_db)) == 1
     tmp_db.conn.execute("UPDATE evidence_classification_tags SET quote='sending emails and SMS'")
     assert caveat_exclusions(tmp_db) == []
+
+
+@pytest.mark.parametrize('storage', ['history', 'flat'])
+@pytest.mark.parametrize('damage', [
+    'invalid-json', 'null', 'list', 'string', 'missing-fields', 'null-fields',
+    'list-fields', 'missing-quote-field', 'missing-repository', 'missing-url',
+    'list-value', 'dict-value', 'number-value', 'bool-value', 'null-value',
+])
+def test_invalid_caveat_source_fails_closed(tmp_db, caveat_source, storage, damage):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    tmp_db.conn.execute("UPDATE evidence_classification_tags SET rationale='Supported'")
+    fields = dict(caveat_source.fields)
+    if damage.startswith('missing-'):
+        fields.pop({'missing-quote-field': 'readme', 'missing-repository': 'repository',
+                    'missing-url': 'html_url'}.get(damage, 'readme'), None)
+    values = {'list-value': ['sending emails and SMS'],
+              'dict-value': {'sending emails and SMS': True}, 'number-value': 123,
+              'bool-value': True, 'null-value': None}
+    if damage in values:
+        fields['readme'] = values[damage]
+    payload = {'fields': fields} if storage == 'history' else fields
+    structures = {'null': None, 'list': [], 'string': 'sending emails and SMS',
+                  'missing-fields': {}, 'null-fields': {'fields': None},
+                  'list-fields': {'fields': ['sending emails and SMS']}}
+    if damage in structures:
+        payload = structures[damage]
+    raw = '{broken' if damage == 'invalid-json' else json.dumps(payload)
+    table = 'evidence_source_history' if storage == 'history' else 'evidence_sources'
+    if storage == 'flat':
+        tmp_db.conn.execute('DELETE FROM evidence_source_history')
+    tmp_db.conn.execute(f'UPDATE {table} SET source_json=?', (raw,))
+    before = tmp_db.conn.total_changes
+    exclusions = caveat_exclusions(tmp_db)
+    assert len(exclusions) == 1
+    assert exclusions[0]['reason'].startswith('Literal quote cannot be verified')
+    assert tmp_db.conn.total_changes == before
+
+
+@pytest.mark.parametrize('damage', ['absent', 'wrong-hash', 'wrong-field', 'empty-quote'])
+def test_caveat_requires_exact_recorded_source(tmp_db, caveat_source, damage):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    tmp_db.conn.execute('DELETE FROM evidence_source_history')
+    tmp_db.conn.execute("UPDATE evidence_classification_tags SET rationale='Supported'")
+    if damage == 'absent':
+        tmp_db.conn.execute('DELETE FROM evidence_sources')
+    elif damage == 'wrong-hash':
+        tmp_db.conn.execute("UPDATE evidence_sources SET source_hash='other'")
+    elif damage == 'wrong-field':
+        tmp_db.conn.execute("UPDATE evidence_classification_tags SET source_field='description'")
+    else:
+        tmp_db.conn.execute("UPDATE evidence_classification_tags SET quote=''")
+    assert len(caveat_exclusions(tmp_db)) == 1
+
+
+def test_caveat_history_takes_precedence_over_current_cache(tmp_db, caveat_source):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    tmp_db.conn.execute("UPDATE evidence_classification_tags SET rationale='Supported'")
+    tmp_db.conn.execute("UPDATE evidence_sources SET source_json='{}'")
+    assert caveat_exclusions(tmp_db) == []
+
+
+@pytest.mark.parametrize('storage', ['history', 'flat'])
+def test_caveat_optional_metadata_need_not_exist(tmp_db, caveat_source, storage):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    fields = {key: caveat_source.fields[key] for key in ('repository', 'html_url', 'readme')}
+    table = 'evidence_source_history' if storage == 'history' else 'evidence_sources'
+    if storage == 'flat':
+        tmp_db.conn.execute('DELETE FROM evidence_source_history')
+    payload = {'fields': fields} if storage == 'history' else fields
+    tmp_db.conn.execute(f'UPDATE {table} SET source_json=?', (json.dumps(payload),))
+    tmp_db.conn.execute("UPDATE evidence_classification_tags SET rationale='Supported'")
+    assert caveat_exclusions(tmp_db) == []
+
+
+def test_caveat_source_lookups_use_indexes(tmp_db, caveat_source):
+    from govtech_scraper.cloud_worker import caveat_exclusions
+    tmp_db.conn.execute('DELETE FROM evidence_source_history')
+    tmp_db.conn.execute('PRAGMA automatic_index=OFF')
+    statements = []
+    tmp_db.conn.set_trace_callback(statements.append)
+    try:
+        caveat_exclusions(tmp_db)
+    finally:
+        tmp_db.conn.set_trace_callback(None)
+    lookups = [s for s in statements if s.startswith('SELECT source_json')]
+    assert len(lookups) == 2
+    for sql in lookups:
+        plan = [row[3] for row in tmp_db.conn.execute('EXPLAIN QUERY PLAN ' + sql)]
+        assert any('SEARCH' in detail and 'INDEX' in detail for detail in plan), plan
+        assert not any('SCAN' in detail for detail in plan), plan
 
 
 def test_volume_guard(tmp_path):

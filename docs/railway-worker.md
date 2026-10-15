@@ -126,6 +126,12 @@ freshness and complete metadata coverage gates remain in force. Durable reviewed
 exclusions and positive rationales explicitly disclaiming evidence are withdrawn
 on the public copy, recorded as review abstentions. Tags also require a literal
 quote in their recorded source; private inference rows are never rewritten.
+Quote checks decode history envelopes and flat current-cache fields separately.
+Missing or malformed proof is withdrawn for review, including non-string field
+values or missing repository identity/quoted fields. Malformed history does not
+fall back to the current cache. History uses its indexed source hash; fallback
+uses the indexed repository URL plus an exact source-hash match, avoiding a
+catalogue scan for each tag.
 
 Publication uses existing `publish_bundle` and exact readback. An HTTP 409/412
 permits at most one fresh metadata fetch/merge/revalidation/export retry, without

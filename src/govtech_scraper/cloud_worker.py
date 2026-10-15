@@ -135,6 +135,23 @@ class TargetedSources:
         return acquired
 
 
+def _recorded_source_fields(source_json, *, history):
+    """History stores an envelope; the current cache stores flat string fields."""
+    try:
+        payload = json.loads(source_json)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    fields = payload.get('fields') if history else payload
+    # Metadata fields are optional, but source identity and string values are not.
+    if (not isinstance(fields, dict)
+            or not fields.get('repository') or not fields.get('html_url')
+            or not all(isinstance(value, str) for value in fields.values())):
+        return {}
+    return fields
+
+
 def caveat_exclusions(db):
     """Conservative explicit self-disqualification, never invented negative labels."""
     import re
@@ -146,10 +163,12 @@ def caveat_exclusions(db):
     for row in rows:
         source = db.conn.execute('SELECT source_json FROM evidence_source_history WHERE source_hash=?',
                                  (row['source_hash'],)).fetchone()
+        history = source is not None
         if source is None:
-            source = db.conn.execute('SELECT source_json FROM evidence_sources WHERE source_hash=?',
-                                     (row['source_hash'],)).fetchone()
-        fields = json.loads(source[0])['fields'] if source else {}
+            # html_url is indexed; a hash-only lookup scans the catalogue per tag.
+            source = db.conn.execute('SELECT source_json FROM evidence_sources WHERE html_url=? AND source_hash=?',
+                                     (row['html_url'], row['source_hash'])).fetchone()
+        fields = _recorded_source_fields(source[0], history=history) if source else {}
         reason = None
         if not row['quote'] or row['quote'] not in fields.get(row['source_field'], ''):
             reason = 'Literal quote cannot be verified against recorded source; withdrawn for review'
