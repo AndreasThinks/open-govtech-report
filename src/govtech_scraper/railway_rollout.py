@@ -246,20 +246,23 @@ def rollout_railway(receipt, api, client, *, fetch=read_public, attempts=30, sle
     fingerprint = _fingerprint(variables)
     target = client.config.target()
     same = state.get('dataset_sha') == sha
+    # A verified earlier dataset is settled: ordinary code deploys of the web
+    # service since then change its commit and deployment and are not drift.
+    settled = not same and state.get('phase') == 'verified'
     if state:
         if (state.get('phase') not in ('deploying', 'verified')
                 or (not same and state['phase'] != 'verified')
                 or state.get('target') != target
                 or state.get('web_url') != client.config.web_url
                 or state.get('variables_hash') != fingerprint
-                or state.get('source_commit') != code):
+                or (state.get('source_commit') != code and not settled)):
             raise RuntimeError('Railway intent unresolved or target drift; operator review required')
         previous_pin = f"https://huggingface.co/datasets/{DATASET}/resolve/{valid_sha(state['dataset_sha'])}/data/govtech.db"
         if variables.get(DB_KEY) != previous_pin:
             raise RuntimeError('Railway database variable drift')
         if same and state.get('db_sha256') != digest:
             raise RuntimeError('Railway receipt drift')
-        if state['phase'] == 'verified' and state.get('deployment_id') != deployment['id']:
+        if same and state['phase'] == 'verified' and state.get('deployment_id') != deployment['id']:
             raise RuntimeError('Railway deployment drift')
     if not same:
         state = dict(dataset_sha=sha, db_sha256=digest, phase='prepared', target=target,
