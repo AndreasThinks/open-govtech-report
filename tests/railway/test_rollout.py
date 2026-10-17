@@ -285,6 +285,32 @@ def test_metadata_revision_after_cutover(setup):
     assert [w['skipDeploys'] for w in t.writes].count(False) == 2
 
 
+def test_code_deploy_after_verified_rollout_does_not_block_next_dataset(setup):
+    """Production 2026-10-16: merges redeployed the web on new code after a verified rollout."""
+    hub, receipt, t, client, fetch, seen = setup
+    rr.rollout_railway(receipt, hub, client, fetch=fetch, attempts=1)
+    newer_code = 'f' * 40
+    t.instance['latestDeployment'] = {'id': 'code-deploy', 'status': 'SUCCESS',
+                                      'meta': {'commitHash': newer_code}}
+    # The same dataset on a moved deployment still needs operator review.
+    with pytest.raises(RuntimeError, match='drift'):
+        rr.rollout_railway(receipt, hub, client, fetch=fetch, attempts=1)
+    revision = 'd'*40
+    next_receipt = {**receipt, 'dataset_sha': revision}
+    original_paths, original_download = hub.get_paths_info, hub.hf_hub_download
+    hub.get_paths_info = lambda **kw: original_paths(**{**kw, 'revision': SHA})
+    hub.hf_hub_download = lambda **kw: original_download(**{**kw, 'revision': SHA})
+    def next_fetch(url):
+        value = fetch(url)
+        return ({**value, 'dataset_sha': revision, 'source_commit': newer_code}
+                if url.endswith('/healthz') else value)
+    result = rr.rollout_railway(next_receipt, hub, client, fetch=next_fetch, attempts=1)
+    assert result['dataset_sha'] == revision and result['source_commit'] == newer_code
+    state = json.loads(t.variables[rr.INTENT_KEY])
+    assert state['previous_deployment_id'] == 'code-deploy'
+    assert state['phase'] == 'verified' and state['source_commit'] == newer_code
+
+
 def test_worker_uses_shared_combined_entrypoint():
     from govtech_scraper import cloud_worker
     assert cloud_worker.update_index is rr.update_public_index
