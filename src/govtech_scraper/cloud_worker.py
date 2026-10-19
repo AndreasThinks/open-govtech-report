@@ -31,7 +31,7 @@ from .decision.source_worker import AioHttpGraphQLTransport
 from .decision.store import row_to_repository
 from .decision.taxonomy import load_taxonomy
 from .railway_rollout import update_public_index as update_index
-from .operations import DATASET, publish_bundle, valid_sha, verify_remote, artifact_metadata
+from .operations import DATASET, failure_reason, publish_bundle, valid_sha, verify_remote, artifact_metadata
 from .publication import prepare_classification_publication, prepare_publication, check_freshness, FILES
 from .railway_web import bootstrap, DATASET as PUBLIC_URL
 
@@ -232,7 +232,7 @@ class Worker:
             try:
                 # A durable publication receipt needs only rollout verification on retry.
                 # Return before metadata acquisition, provider work or paid-mode gates.
-                if rollout and self.state.get(db, 'pending_rollout'):
+                if rollout and self.current_pending_rollout(db):
                     checkpoint_allowed = True
                     self.publish(db, None, rollout=True)
                     status['phase'] = 'rollout-completed'
@@ -317,6 +317,7 @@ class Worker:
                 status['phase'] = 'deadline' if isinstance(exc, (asyncio.TimeoutError, asyncio.CancelledError)) else 'failed'
                 # Never persist provider exception text, tokens or raw receipt payloads in status.
                 status['error'] = type(exc).__name__
+                status['reason'] = failure_reason(exc)
                 raise
             finally:
                 self.state.set(db, 'terminal_status', status)
@@ -326,8 +327,16 @@ class Worker:
                 finally:
                     db.close()
 
+    def current_pending_rollout(self, db):
+        """A pending rollout of an older dataset would put superseded data back on the site."""
+        pending = self.state.get(db, 'pending_rollout')
+        if pending and pending.get('dataset_sha') != self.public.head():
+            self.state.set(db, 'pending_rollout', None)
+            return None
+        return pending
+
     def publish(self, db, parent, *, rollout=False, attempts=2):
-        previous = self.state.get(db, 'pending_rollout')
+        previous = self.current_pending_rollout(db) if rollout else None
         if rollout and previous:
             update_index(previous, self.public)
             self.state.set(db, 'pending_rollout', None)
@@ -460,7 +469,7 @@ def _child(args):
         execute(args)
     except Exception as exc:
         # Sanitized actionable category; full private ledger/receipts remain on volume.
-        print(json.dumps({'phase': 'failed', 'error': type(exc).__name__,
+        print(json.dumps({'phase': 'failed', 'error': type(exc).__name__, 'reason': failure_reason(exc),
                           'action': 'Inspect private terminal status and checkpoint; do not reset or retry paid claims'}), flush=True)
         raise SystemExit(1)
 

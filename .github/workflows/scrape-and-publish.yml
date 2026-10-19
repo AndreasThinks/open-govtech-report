@@ -112,7 +112,7 @@ jobs:
           GOVTECH_RAILWAY_WEB_URL: ${{ vars.GOVTECH_RAILWAY_WEB_URL }}
           GOVTECH_RAILWAY_API_TOKEN: ${{ secrets.GOVTECH_RAILWAY_API_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: uv run --frozen python scripts/update_index.py
+        run: uv run --frozen python scripts/update_index.py --attempts 60
 
       - name: Retain publication receipt and Index result
         if: always()

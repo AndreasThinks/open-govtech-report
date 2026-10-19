@@ -5,6 +5,12 @@ The default remains HF-only. Both `scripts/update_index.py` and the worker's exp
 source acquisition, inference, or changes to worker budgets. The metadata workflow
 continues to publish the same verified HF bundle before requesting rollout.
 
+The worker resumes a pending rollout only while its receipt is still the public dataset head.
+A newer publication (normally the weekly scrape) supersedes it: the worker drops it and
+publishes on top of the newer head instead of rolling the site back. Failures report a
+reason (`failure_reason`): our own fixed error sentences are kept, anything else is
+reduced to its exception type.
+
 ## Explicit runtime configuration
 
 Set `GOVTECH_RAILWAY_ROLLOUT_ENABLED=true` only after parent acceptance. Unset, empty,
