@@ -60,9 +60,9 @@ operations procedure; this module is not a distributed lock service.
    `spaces/railway/Dockerfile.web`, no worker command or cron schedule, no volume
    attachments to this service in this environment, no private-worker or credential variables. Source SHA comes from actual
    deployment `meta.commitHash`. Missing or unsupported target metadata fails closed.
-2. Reuse HF's existing serialized restart intent and verify the **native HF** stats
-   endpoint. `operations.update_index(endpoint=...)` accepts only native HF or
-   canonical stats; existing callers still default to canonical.
+2. The retired native HF Space is not updated or checked in Railway mode. It used to
+   be a hard gate here; when its pinned code fell behind, it blocked every Railway
+   rollout (Oct 2026). The HF-only default path (Railway disabled) still uses it.
 3. Reverify the immutable receipt with `verify_remote` and `check_freshness`. The
    database URL always pins the fixed public dataset to its exact 40-hex commit.
 4. Persist and read back `GOVTECH_RAILWAY_ROLLOUT_STATE` with phase `prepared`, using

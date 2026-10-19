@@ -104,7 +104,7 @@ def test_default_and_combined(setup):
     assert seen == [STATS_URL]
     seen.clear()
     result = rr.update_public_index(receipt, hub, environ=env(), railway=client, fetch=fetch, attempts=1)
-    assert seen == [NATIVE_STATS_URL, WEB + '/healthz', WEB + '/v1/stats', STATS_URL]
+    assert seen == [WEB + '/healthz', WEB + '/v1/stats', STATS_URL]
     assert result['canonical_verified'] is True
     assert result['railway']['deployment_id'] == 'new'
     assert transport.variables['OTHER'] == 'keep'
@@ -115,7 +115,7 @@ def test_default_and_combined(setup):
     assert 'test-secret' not in repr(client.config)
     rr.update_public_index(receipt, hub, environ=env(), railway=client, fetch=fetch, attempts=1)
     assert len(transport.writes) == 3
-    assert hub.restarts == 1
+    assert hub.restarts == 1  # only the HF-only default call above; Railway mode never touches the Space
 
 
 @pytest.mark.parametrize('key', list(env())[1:])
@@ -194,7 +194,7 @@ def test_bounded_failure(setup, bad):
     assert len(t.writes) == 2
 
 
-def test_native_success_cannot_certify_canonical(setup):
+def test_railway_success_cannot_certify_canonical(setup):
     hub, receipt, t, client, fetch, _ = setup
     with pytest.raises(RuntimeError, match='canonical'):
         rr.update_public_index(receipt, hub, environ=env(), railway=client,
@@ -280,8 +280,8 @@ def test_metadata_revision_after_cutover(setup):
     result = rr.update_public_index(next_receipt, hub, environ=env(), railway=client,
                                     fetch=next_fetch, attempts=1)
     assert result['dataset_sha'] == revision
-    assert seen[0] == NATIVE_STATS_URL and seen[-1] == STATS_URL
-    assert hub.restarts == 2
+    assert NATIVE_STATS_URL not in seen and seen[-1] == STATS_URL
+    assert hub.restarts == 0
     assert [w['skipDeploys'] for w in t.writes].count(False) == 2
 
 
