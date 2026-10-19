@@ -12,7 +12,7 @@ import time
 import urllib.request
 from urllib.parse import urlsplit
 
-from .operations import (DATASET, STATS_URL, NATIVE_STATS_URL, check_freshness,
+from .operations import (DATASET, STATS_URL, check_freshness,
                          valid_sha, verify_remote, update_index)
 
 GRAPHQL_URL = 'https://backboard.railway.com/graphql/v2'
@@ -311,7 +311,7 @@ def rollout_railway(receipt, api, client, *, fetch=read_public, attempts=30, sle
 
 def update_public_index(receipt, api, *, environ=None, railway=None, fetch=read_public,
                         attempts=30, sleep=time.sleep, allow_native_fallback=False):
-    """Default HF-only; enabled means native HF + Railway + canonical, never native-only."""
+    """Default HF-only; enabled means Railway + canonical. The retired HF Space is not touched."""
     config = RolloutConfig.from_env(os.environ if environ is None else environ)
     if config is None:
         return update_index(receipt, api, fetch=fetch, attempts=attempts, sleep=sleep,
@@ -319,17 +319,13 @@ def update_public_index(receipt, api, *, environ=None, railway=None, fetch=read_
     client = railway or RailwayClient(config)
     if client.config != config:
         raise ValueError('Railway adapter target differs from explicit configuration')
-    # Fail target validation before changing even the fallback service.
-    client.inspect()
-    hf = update_index(receipt, api, fetch=fetch, attempts=attempts, sleep=sleep,
-                      endpoint=NATIVE_STATS_URL)
     result = rollout_railway(receipt, api, client, fetch=fetch, attempts=attempts, sleep=sleep)
     for attempt in range(attempts):
         try:
             stats = fetch(STATS_URL)
             if all(stats.get(k) == receipt['stats'][k] for k in KEYS):
                 return dict(dataset_sha=receipt['dataset_sha'], endpoint=STATS_URL, stats=stats,
-                            hf=hf, railway=result, canonical_verified=True)
+                            railway=result, canonical_verified=True)
         except Exception:
             pass
         if attempt + 1 < attempts:
