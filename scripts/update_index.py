@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 from huggingface_hub import HfApi
-from govtech_scraper.operations import write_json
+from govtech_scraper.operations import failure_reason, write_json
 from govtech_scraper.railway_rollout import update_public_index as update_index
 
 
@@ -27,4 +27,4 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as exc:
-        raise SystemExit(f'Index update failed ({type(exc).__name__}); inspect persisted restart intent before retry') from None
+        raise SystemExit(f'Index update failed ({failure_reason(exc)}); inspect persisted restart intent before retry') from None

@@ -575,12 +575,35 @@ def test_pending_rollout_resumes_without_republication(running_worker, monkeypat
     db = worker.state.open_normal()
     receipt = {'dataset_sha': 'c'*40}
     worker.state.set(db, 'pending_rollout', receipt)
+    worker.public.head = lambda: 'c'*40
     seen = []
     monkeypatch.setattr(cloud_worker, 'update_index', lambda value, api: seen.append(value))
     assert worker.publish(db, 'b'*40, rollout=True) == receipt
     assert seen == [receipt]
     assert worker.state.get(db, 'pending_rollout') is None
     db.close()
+
+
+def test_superseded_pending_rollout_is_dropped_not_replayed(running_worker, monkeypatch):
+    # A newer publication (e.g. the weekly scrape) must not be undone by an older pending rollout.
+    from govtech_scraper import cloud_worker
+    worker, _ = running_worker
+    db = worker.state.open_normal()
+    worker.state.set(db, 'pending_rollout', {'dataset_sha': 'c'*40})
+    worker.public.head = lambda: 'd'*40
+    monkeypatch.setattr(cloud_worker, 'update_index',
+                        lambda value, api: pytest.fail('superseded receipt must not be rolled out'))
+    assert worker.current_pending_rollout(db) is None
+    assert worker.state.get(db, 'pending_rollout') is None
+    db.close()
+
+
+def test_failure_reason_keeps_fixed_messages_only():
+    from govtech_scraper.operations import failure_reason
+    assert failure_reason(RuntimeError('Railway write readback unresolved; operator review required')) == \
+        'RuntimeError: Railway write readback unresolved; operator review required'
+    assert failure_reason(RuntimeError('401 for https://x?token=abc')) == 'RuntimeError'
+    assert failure_reason(KeyError('secret')) == 'KeyError'
 
 
 def test_private_transfer_rejects_wrong_revision_and_hash(state, tmp_path):

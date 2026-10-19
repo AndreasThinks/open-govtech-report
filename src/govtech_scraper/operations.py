@@ -165,7 +165,16 @@ def update_index(receipt, api, *, fetch=read_stats, attempts=30, sleep=time.slee
         except Exception:
             matches = False
         print(f'Explicit native HF diagnostic: snapshot match={matches}; canonical verification still failed')
-    raise RuntimeError('Index canonical stats verification failed within bounded wait')
+    where = 'native HF' if endpoint == NATIVE_STATS_URL else 'canonical'
+    raise RuntimeError(f'Index {where} stats verification failed within bounded wait')
+
+
+def failure_reason(exc):
+    """Our own fixed failure sentences are safe to log; anything else is reduced to its type."""
+    message = str(exc) if isinstance(exc, (RuntimeError, ValueError)) else ''
+    if len(message) <= 160 and re.fullmatch(r"[A-Za-z0-9 ;,.()'/-]+", message):
+        return f'{type(exc).__name__}: {message}'
+    return type(exc).__name__
 
 
 def dataset_card(manifest):

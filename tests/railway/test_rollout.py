@@ -328,6 +328,7 @@ def test_worker_pending_receipt_runs_actual_adapters_without_provider_or_volume(
     worker = cloud_worker.Worker(state, hub, sources=forbidden, prices=forbidden,
                                 client=forbidden, volume_check=forbidden)
     monkeypatch.setattr(hub, 'create_commit', forbidden)
+    monkeypatch.setattr(hub, 'head', lambda: receipt['dataset_sha'], raising=False)
     monkeypatch.setattr(cloud_worker, 'update_index', lambda value, api:
         rr.update_public_index(value, api, environ=env(), railway=client, fetch=fetch, attempts=1))
     assert worker.publish(None, 'b'*40, rollout=True) == receipt
@@ -383,6 +384,7 @@ async def test_worker_run_pending_rollout_bypasses_inference(setup, running_work
     def forbidden(*args, **kwargs):
         pytest.fail('pending rollout must precede metadata/source acquisition or inference')
     worker.merge = worker.volume_check = forbidden
+    monkeypatch.setattr(hub, 'head', lambda: receipt['dataset_sha'], raising=False)
     monkeypatch.setattr(cloud_worker, 'update_index', lambda value, api:
         rr.update_public_index(value, api, environ=env(), railway=client, fetch=fetch, attempts=1))
     result = await worker.run(mode='classify', publish=True, rollout=True)
