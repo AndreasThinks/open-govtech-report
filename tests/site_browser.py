@@ -205,6 +205,18 @@ class Desktop(unittest.TestCase):
         expect(self.page.locator('#app')).to_contain_text('at least one domain, kind or tag')
         expect(self.page.locator('#app')).not_to_contain_text('Classification reads metadata only')
 
+    def test_about_funnel_and_repository_walkthrough(self):
+        self.fixtures["overview"]["sources"] = [
+            {"key": "github", "repos": 18000, "original": 15000},
+            {"key": "servers", "repos": 3450, "original": 2300, "hosts": 7},
+            {"key": "submitted", "repos": 30, "original": 20}]
+        self.go("/about")
+        expect(self.page.locator(".funnel svg")).to_be_visible()
+        expect(self.page.locator(".funnel")).to_contain_text("Government servers")
+        expect(self.page.locator("#journey")).to_contain_text("Follow one repository")
+        expect(self.page.locator("#journey .checks li")).to_have_count(4)
+        self.layout()
+
     def test_healthy_empty_context(self):
         self.fixtures["context"] = {"history": [], "reused_by": [], "similar": []}
         self.go("/repo/i-dot-ai/consult")

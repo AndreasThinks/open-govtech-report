@@ -39,6 +39,7 @@ BREADTH_MIN = 5  # accounts creating new work before a rise counts as emerging
 CONCENTRATED_SHARE = 50  # top account's share of new work, in percent, above which a rise is one team's
 PRACTICE_MIN = 25  # maintained repositories a label needs to appear on the practice table
 UNLICENSED = ("", "NOASSERTION", "other", "Other")
+FORGE_HOSTS_PATH = Path(__file__).parent.parent / "forge_hosts.yaml"
 
 
 def _iso(dt: datetime) -> str:
@@ -311,7 +312,31 @@ class Insights:
             ],
             "newest": newest["items"],
             "classification": self._coverage(original),
+            "sources": self._sources(),
         }
+
+    def _sources(self) -> list[dict]:
+        """Current repositories by where they were read: GitHub, curated government servers, or
+        submitted accounts on shared servers such as gitlab.com and Codeberg."""
+        servers = {str(h["host"]).strip().lower()
+                   for h in yaml.safe_load(FORGE_HOSTS_PATH.read_text()).get("hosts", [])}
+        counts = {"github": [0, 0], "servers": [0, 0], "submitted": [0, 0]}
+        hosts = set()
+        with self.catalogue._connect() as conn:
+            rows = conn.execute(
+                f"""SELECT LOWER(substr(html_url, 9, instr(substr(html_url, 9), '/') - 1)) AS host,
+                           COUNT(*) AS repos, SUM(fork = 0) AS original
+                    FROM repositories WHERE {self.catalogue.current_predicate()}
+                    GROUP BY 1"""
+            ).fetchall()
+        for r in rows:
+            key = "github" if r["host"] == "github.com" else "servers" if r["host"] in servers else "submitted"
+            if key == "servers":
+                hosts.add(r["host"])
+            counts[key][0] += r["repos"]
+            counts[key][1] += r["original"] or 0
+        return [{"key": k, "repos": n, "original": o, **({"hosts": len(hosts)} if k == "servers" else {})}
+                for k, (n, o) in counts.items()]
 
     def _coverage(self, original: int | None = None) -> dict:
         """Classification progress over current original repos the pipeline can read.
