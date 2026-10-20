@@ -88,6 +88,14 @@ test('about replaces method, with contact and sponsor ask', async () => {
   assert.match(h.html(), /Sponsor the index/);
   assert.match(h.nodes.get('sponsor').innerHTML, /Interested in sponsoring it\?/);
 });
+test('about draws the funnel from live totals, and the journey once its repository loads', async () => {
+  const h = await setup(); h.pageAbout();
+  assert.match(h.html(), /class="funnel full"/);
+  assert.match(h.html(), /in the index/); assert.match(h.html(), /All sources/);
+  await new Promise(r => setTimeout(r, 0));
+  assert.match(h.nodes.get('journey').innerHTML, /Follow one repository/);
+  assert.match(h.nodes.get('journey').innerHTML, /i-dot-ai\/consult/);
+});
 test('momentum lists follow the API status, not size', async () => {
   const h = await setup();
   assert.ok(h.risers().length && h.risers().every(t => t.status === 'emerging'));

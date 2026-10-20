@@ -648,16 +648,144 @@
   }
 
   // ------------------------------------------------------------------ about (was "method")
-  function pipelineFigure() {
-    const steps = [
-      ["Find sources", "Start from lists of government accounts and servers, plus reviewed submissions.", "government.github.com YAML · forge_hosts.yaml · submissions/pending"],
-      ["Fetch", "Ask each platform for its public repositories, and skip copies of ones already found. Code itself is not copied.", "GitHub REST API · GitLab v4 and Forgejo v1 APIs, 2 requests a second per server"],
-      ["Store", "Keep one row per repository in one database, with a snapshot each week.", "SQLite · repositories, repository_snapshots, cache (ETag)"],
-      ["Count", "Work out originals, maintained and licensed repositories for the numbers.", "fork, archived and pushed_at filters"],
-      ["Classify", "An AI model picks themes from a fixed list and must quote its evidence. Only new or changed repositories are read again.", "decision model · taxonomy v1 · quote validation · content-hash cache"],
-      ["Publish", "Rebuild the site, the API and the open dataset from the same database.", "static site · FastAPI and MCP · Parquet and CSV export"],
+  // About: every repository from source to theme, drawn to scale from the overview.
+  function funnelFigure() {
+    const o = state.overview, t = o.totals, c = o.classification || {};
+    const by = Object.fromEntries((o.sources || []).map(s => [s.key, s]));
+    const sources = o.sources ? [
+      ["github", "GitHub accounts", ["registry and reviewed", "submissions"], "var(--cobalt)"],
+      ["servers", "Government servers", [`${num(by.servers && by.servers.hosts)} GitLab and Forgejo`], "var(--hot)"],
+      ["submitted", "Shared servers", ["gitlab.com, Codeberg"], "var(--ok)"],
+    ].filter(([k]) => by[k] && by[k].repos).map(([k, name, sub, col]) => ({ name, sub, col, v: by[k].repos }))
+      : [{ name: "All sources", sub: ["registry, servers", "and submissions"], col: "var(--cobalt)", v: t.repos }];
+    const k = 380 / Math.max(t.repos, 1), h = v => Math.max(v * k, 2), W = 12, T = 40;
+    const X = [170, 340, 500, 660, 820];
+    const band = (x0, a0, b0, x1, a1, b1) => { const m = (x0 + x1) / 2; return `M${x0} ${a0}C${m} ${a0} ${m} ${a1} ${x1} ${a1}L${x1} ${b1}C${m} ${b1} ${m} ${b0} ${x0} ${b0}Z`; };
+    const r = (n, d) => n.toFixed(d ?? 1);
+    let svg = "", y = T - 20, bottom = 0;
+    const node = (x, top, v, col) => ({ x, top, v, hh: h(v), col, out: top, in: top });
+    const flow = (a, b, v, col, op) => {
+      const hh = h(v);
+      svg += `<path d="${band(a.x + W, r(a.out), r(a.out + hh), b.x, r(b.in), r(b.in + hh))}" style="fill:${col};fill-opacity:${op}"/>`;
+      a.out += hh; b.in += hh;
+    };
+    const text = (x, yy, s, cls = "", anchor) => `<text x="${x}" y="${r(yy)}" class="${cls}"${anchor ? ` text-anchor="${anchor}"` : ""}>${s}</text>`;
+    // Sources: each gets room for its label, so a tiny source still reads.
+    const srcNodes = sources.map(s => {
+      const lines = 2 + s.sub.length, block = Math.max(h(s.v), lines * 17);
+      const n = node(X[0], y + (block - h(s.v)) / 2, s.v, s.col);
+      const mid = n.top + n.hh / 2 - (lines * 17) / 2 + 13;
+      n.label = text(X[0] - 12, mid, esc(s.name), "fb", "end") + s.sub.map((l, i) => text(X[0] - 12, mid + 17 * (i + 1), esc(l), "m", "end")).join("") +
+        text(X[0] - 12, mid + 17 * (s.sub.length + 1), num(s.v), "v", "end").replace("<text", `<text style="fill:${s.col}"`);
+      y += block + 14;
+      return n;
+    });
+    bottom = y;
+    const idx = node(X[1], T, t.repos, "var(--ink)");
+    const forks = Math.max(t.repos - t.original, 0);
+    const orig = node(X[2], T, t.original, "var(--ink)"), fork = node(X[2], T + h(t.original) + 16, forks, "var(--faint)");
+    srcNodes.forEach(n => flow(n, idx, n.v, n.col, 0.32));
+    flow(idx, orig, t.original, "var(--cobalt)", 0.32);
+    if (forks) flow(idx, fork, forks, "var(--faint)", 0.35);
+    const all = [...srcNodes, idx, orig, ...(forks ? [fork] : [])];
+    let labels = srcNodes.map(n => n.label).join("") +
+      text(X[1] + 26, T + 180, num(t.repos), "big") + text(X[1] + 26, T + 202, "in the index", "s") +
+      text(X[2] + 26, T + 150, num(t.original), "mid") + text(X[2] + 26, T + 170, "originals", "s");
+    if (forks) labels += text(X[2] + 26, fork.top + 18, `${num(forks)} forks`, "fb") + text(X[2] + 26, fork.top + 35, "not in themes", "m");
+    bottom = Math.max(bottom, fork.top + 44);
+    const heads = [["1 · SOURCES", X[0]], ["2 · FETCH AND STORE", X[1]], ["3 · COUNT", X[2]]];
+    const cl = c.model ? c.current_total_repos || 0 : 0;
+    if (cl) {
+      heads.push(["4 · CLASSIFY", X[3]], ["5 · RESULT", X[4]]);
+      const elsewhere = Math.max(t.original - cl, 0);
+      const gho = node(X[3], T, cl, "var(--ink)"), oth = node(X[3], T + h(cl) + 16, elsewhere, "var(--hot)");
+      flow(orig, gho, cl, "var(--cobalt)", 0.32);
+      if (elsewhere) { flow(orig, oth, elsewhere, "var(--hot)", 0.38); all.push(oth); }
+      all.push(gho);
+      labels += text(X[3] + 26, T + 120, num(cl), "mid") + text(X[3] + 26, T + 140, "GitHub originals", "s");
+      if (elsewhere) labels += text(X[3] + 26, oth.top + oth.hh + 18, `${num(elsewhere)} elsewhere`, "fb") + text(X[3] + 26, oth.top + oth.hh + 35, "counted, not themed yet", "m");
+      let oy = T, last = T;
+      [["Labelled", c.labelled_repos, "var(--cobalt)", 0.62], ["Waiting", c.pending_repos, "var(--cool)", 0.28], ["Failed", c.failed_repos, "var(--no)", 0.55], ["Abstained", c.abstained_repos, "var(--faint)", 0.5]]
+        .filter(([, v]) => v).forEach(([name, v, col, op], i) => {
+          const n = node(X[4], oy, v, col); flow(gho, n, v, col, op); all.push(n);
+          const ly = Math.max(n.top + n.hh / 2 + 5, last + 18);
+          labels += i ? text(X[4] + 20, ly, `${name} <tspan class="v" style="fill:${col}">${num(v)}</tspan>`, "") : text(X[4] + 20, ly - 6, name, "fb") + text(X[4] + 20, ly + 13, num(v), "v").replace("<text", `<text style="fill:${col}"`);
+          last = i ? ly : ly + 13; oy += n.hh + 10;
+        });
+      bottom = Math.max(bottom, oth.top + oth.hh + 44, last + 26);
+    } else {
+      heads.push(["4 · CLASSIFY", X[3]]);
+      labels += text(X[3] - 20, T + 150, "Not classified yet", "m");
+    }
+    const nodes = all.map(n => `<rect x="${n.x}" y="${r(n.top)}" width="${W}" height="${r(n.hh)}" rx="2" style="fill:${n.col}"/>`).join("");
+    const hd = heads.map(([s, x]) => text(x + W / 2, 14, s, "hd", "middle")).join("");
+    const aria = `${num(t.repos)} repositories from ${sources.length} kinds of source; ${num(t.original)} are originals` +
+      (cl ? `; ${num(cl)} GitHub originals go to classification, of which ${num(c.labelled_repos)} are labelled` : "") + ".";
+    return `<figure class="funnel full"><svg viewBox="0 0 960 ${Math.ceil(bottom)}" role="img" aria-label="${esc(aria)}">${hd}${svg}${nodes}${labels}</svg>
+      <figcaption><span class="hint">Scroll sideways for the rest of the funnel. </span>Band widths are to scale, from the scrape of ${esc(o.as_of ? date(o.as_of) : "unknown")}.</figcaption></figure>
+      <div class="fnotes full">
+        <div style="--c:var(--hot)"><b>Copies are dropped at the door</b><p>Mirrors and migrated copies of repositories already in the index are skipped, so code published in two places counts once. The code itself is never copied.</p></div>
+        <div style="--c:var(--faint)"><b>Forks fall out of the numbers</b><p>A government forking a popular project should not inflate a theme. Of the originals, ${num(t.maintained)} are maintained: not archived, and pushed to in the last year.</p></div>
+        <div style="--c:var(--cobalt)"><b>Every label quotes its evidence</b><p>The model reads the description and README and picks from a fixed list. A label survives only if its quote appears word for word; otherwise it abstains.</p></div>
+      </div>`;
+  }
+
+  // About: one real repository on its way through the pipeline, filled in once it loads.
+  const JOURNEY = ["alphagov", "notify-api"];
+  async function fillJourney() {
+    const el = document.getElementById("journey");
+    if (!el || !state.live) return;
+    const [r, ctx] = await Promise.all([data.repo(...JOURNEY), data.context(...JOURNEY)]).catch(() => [null, null]);
+    if (!r || document.getElementById("journey") !== el) return;
+    el.innerHTML = journey(r, ctx);
+    fixLinks(el);
+  }
+  function journey(r, ctx) {
+    const owner = ownerOf(r), github = /^https:\/\/github\.com\//.test(r.html_url || "");
+    const asOf = new Date(state.overview.as_of || Date.now()), yearAgo = new Date(asOf - 365 * 864e5).toISOString();
+    const pushed = r.pushed_at || "", day = 864e5;
+    const maintained = !r.fork && !r.archived && pushed >= yearAgo;
+    const notable = !!(r.description || "").trim() && (r.size_kb || 0) > 0 && new Date(pushed) - new Date(r.created_at) > day;
+    const tick = ok => ok ? `<svg viewBox="0 0 24 24" role="img" aria-label="passes" class="ok"><path d="M5 12l5 5L20 7"/></svg>` : `<svg viewBox="0 0 24 24" role="img" aria-label="fails" class="no"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+    const checks = [
+      ["Original", !r.fork, r.fork ? "A fork of another project" : "Not a fork of another project"],
+      ["Maintained", maintained, r.archived ? `Archived; last push ${date(pushed)}` : `Last push ${date(pushed)}`],
+      ["Licensed", licensed(r), licensed(r) ? `${esc(r.license)}, detected by the platform` : "No open licence detected"],
+      ["Notable", notable, notable ? "Has a description, content, and work after its first day" : "Missing a description, content or later work"],
     ];
-    return `<ol class="flow" aria-label="The six steps from sources to published data">${steps.map(([name, plain, tech], i) => `<li><span class="n">${i + 1}</span><b>${name}</b><p>${plain}</p><code>${tech}</code></li>`).join("")}</ol>`;
+    const adds = [!r.fork && "themes", "totals", maintained && "maintained figures"].filter(Boolean);
+    const cls = r.classification, ev = cls && (cls.tags || []).find(x => x.quote);
+    const desc = esc(r.description || "");
+    const quoted = ev && ev.source_field === "description" && desc.includes(esc(ev.quote))
+      ? desc.replace(esc(ev.quote), `<mark>${esc(ev.quote)}</mark>`) : ev ? `<mark>${esc(ev.quote)}</mark>` : "";
+    const tagName = id => { const th = themeById(id); return th ? th.name : id; };
+    const hist = (ctx && ctx.history) || [], hi = Math.max(...hist.map(p => p.stars), 1), lo = Math.min(...hist.map(p => p.stars), hi);
+    const bars = hist.map(p => `<i style="height:${hi === lo ? 70 : 25 + (p.stars - lo) / (hi - lo) * 75}%"></i>`).join("");
+    const step = (n, name, words, spec) => `<li><span class="n">${n}</span><div class="tx"><b>${name}</b>${words}</div><div class="spec">${spec}</div></li>`;
+    return `<h3>Follow one repository</h3>
+      <p>Here is one real repository on its way through those steps, exactly as the index holds it today.</p>
+      <div class="walk">
+      <a class="wkcard" href="${repoHref(r)}"><b>${esc(r.full_name)}</b><small>${esc([r.country, r.language, r.license, r.archived && "archived"].filter(Boolean).join(" · "))}</small></a>
+      <ol>
+      ${step(1, "Find sources", `<p>${esc(owner)} is ${github ? "on GitHub's registry of government accounts" : "a government account outside GitHub"}, so every public repository it owns is in scope.</p>`,
+        `<pre><span class="m"># ${github ? "government.github.com · governments.yml" : "forge_hosts.yaml or a reviewed submission"}</span>\n${esc(r.country)}:\n  <mark>- ${esc(owner)}</mark>\n  <span class="m">… ${num(state.overview.totals.accounts)} accounts in all</span></pre>`)}
+      ${step(2, "Fetch", `<p>One request lists 100 repositories at a time. Only the description card comes back, never the code.</p><p>If nothing has changed by next week, the platform answers "not modified" and the request costs nothing.</p>`,
+        `<pre><span class="m">GET ${github ? `api.github.com/users/${esc(owner)}/repos` : `${esc(owner)}: the server's public API`}</span>
+{ "name": "${esc(r.full_name.split("/").pop())}",
+  "description": "${esc((r.description || "").slice(0, 100))}",
+  "language": "${esc(r.language || "")}", "license": "${esc(r.license || "")}", "fork": ${!!r.fork},
+  "archived": ${!!r.archived}, "pushed_at": "${esc(pushed.slice(0, 10))}" … }</pre>`)}
+      ${step(3, "Store", `<p>One row holds its latest state. Every scrape also adds a dated snapshot, which is how the site shows change over time.</p>`,
+        hist.length ? `<div class="snaps"><span>${num(hist.length)} snapshots</span><span>${num(hist[hist.length - 1].stars)} stars · ${num(hist[hist.length - 1].forks)} forks</span></div><div class="bars">${bars}</div><div class="snaps m"><span>${date(hist[0].date)}</span><span>${date(hist[hist.length - 1].date)}</span></div>` : `<p class="m">No snapshots yet.</p>`)}
+      ${step(4, "Count", `<p>Four plain tests decide which figures a repository adds to. This one counts in ${adds.join(", ").replace(/, ([^,]*)$/, " and $1")}.</p>`,
+        `<ul class="checks">${checks.map(([name, ok, why]) => `<li>${tick(ok)}<b>${name}</b><span>${why}</span></li>`).join("")}</ul>`)}
+      ${step(5, "Classify", `<p>An AI model reads the description and README, then picks from a fixed list of themes. It has to quote its evidence.</p><p>The quote is checked against the source text. If it is not there word for word, the label is thrown away and recorded as an abstention.</p>`,
+        cls ? `<p class="lbl">${ev && ev.source_field === "description" ? "Description" : "Evidence"}</p><p class="quote">${quoted || desc}</p>
+          <p class="tags">${cls.domain_name ? `<span class="b co">${esc(cls.domain_name)}</span>` : ""}${(cls.tags || []).map(x => `<span class="b">tag: ${esc(tagName(x.id))}</span>`).join("")}${cls.kind ? `<span class="b">kind: ${esc(cls.kind)}</span>` : ""}${ev ? `<span class="okq">quote found</span>` : ""}</p>`
+        : `<p class="m">Not classified yet.</p>`)}
+      ${step(6, "Publish", `<p>The same database row becomes a page, an API answer and a line in the open dataset.</p>`,
+        `<div class="pubs"><a href="${repoHref(r)}"><small>Site</small>/repo/${esc(r.full_name)}</a><a href="${esc(API)}/v1/repos/${encPath(r.full_name)}"><small>API and MCP</small>/v1/repos/${esc(r.full_name)}</a><a href="#/data"><small>Open dataset</small>SQLite · Parquet · CSV</a></div>`)}
+      </ol></div>`;
   }
 
   function pageAbout() {
@@ -723,8 +851,9 @@
         <p>Registry labels mix countries with parts of a government and international bodies. The <a href="#/countries">countries page</a> groups each label by country and level of government: national, regional, local, tribal or international.</p>
 
         <h2 id="pipeline">How the data is made</h2>
-        <p>Each week the index runs the same six steps. The plain-English version is in each card; the technical names are underneath.</p>
-        ${pipelineFigure()}
+        <p>Every Sunday the index reads every source, and every night it sorts whatever is new into themes. Every figure on the site comes out of this one funnel.</p>
+        ${funnelFigure()}
+        <div id="journey" class="full"></div>
 
         <h2 id="counting">Which repositories count</h2>
         <dl class="def">
@@ -763,6 +892,7 @@
         <p>If your organisation is missing, on GitHub or another code platform, <a href="#/submit">suggest it</a>. To suggest a whole government code server, use the same page with the server's address. If a repository is in the wrong theme or something else is wrong, open an issue on <a href="https://github.com/AndreasThinks/open-govtech-report/issues">GitHub</a> or email <a href="${mailto("Open GovTech Index correction")}">${esc(CONTACT)}</a>.</p>
       </article>
     </div></div>`;
+    fillJourney();
   }
 
   // ------------------------------------------------------------------ countries

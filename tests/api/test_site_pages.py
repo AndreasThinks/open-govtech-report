@@ -225,6 +225,13 @@ def test_forge_account_page_badge_and_link(forge_client):
     assert forge_client.get("/badge/gitlab.com/commonground/sub/api.svg").status_code == 200
 
 
+def test_overview_counts_repositories_by_source(forge_client):
+    sources = {s["key"]: s for s in forge_client.get("/v1/overview").json()["sources"]}
+    assert sources["github"]["repos"] == 1
+    assert sources["servers"]["repos"] == 1 and sources["servers"]["hosts"] == 1  # code.overheid.nl
+    assert sources["submitted"]["repos"] == 1  # gitlab.com is a shared server
+
+
 def test_forge_repos_are_left_out_of_classification(forge_client):
     cov = forge_client.get("/v1/overview").json()["classification"]
     assert cov["current_total_repos"] == 1  # only the GitHub original
