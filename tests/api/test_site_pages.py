@@ -181,6 +181,8 @@ def test_feeds_badge_and_sitemap(client):
     assert client.get("/feeds/country/uk-central.xml").status_code == 200
     assert client.get("/feeds/theme/notifications.xml").status_code == 200
     assert client.get("/feeds/theme/nope.xml").status_code == 404
+    assert feed.headers["cache-control"] == "public, max-age=3600"
+    assert "<link>https://www.govtechindex.cloud/week</link>" in feed.text
     badge = client.get("/badge/alphagov/notify-api.svg")
     assert badge.status_code == 200 and badge.text.startswith("<svg")
     assert client.get("/badge/nobody/nothing.svg").status_code == 404
@@ -240,6 +242,43 @@ def test_forge_repos_are_left_out_of_classification(forge_client):
     cov = forge_client.get("/v1/overview").json()["classification"]
     assert cov["current_total_repos"] == 1  # only the GitHub original
     assert forge_client.get("/v1/repos/gitlab.com/commonground/sub/api").json()["classification"] is None
+
+
+def test_account_and_search_feeds(client):
+    account = client.get("/feeds/account/AlphaGov.xml")
+    assert account.status_code == 200
+    assert "<title>Open GovTech Index: alphagov</title>" in account.text
+    assert "alphagov/fresh-notify" in account.text and "navikt" not in account.text
+    assert client.get("/feeds/account/nobody.xml").status_code == 404
+
+    search = client.get("/feeds/repos.xml", params={"country": "U.K. Central", "tag": "notifications"})
+    assert search.status_code == 200
+    assert "Open GovTech Index: U.K. Central · Notifications" in search.text
+    assert "alphagov/fresh-notify" in search.text and "placeholder" not in search.text
+    assert "/repos?country=U.K.+Central&amp;tag=notifications&amp;sort=newest</link>" in search.text
+    # Sort and paging are ignored; unknown themes and a tag passed as a domain are not found.
+    assert client.get("/feeds/repos.xml", params={"sort": "stars"}).status_code == 200
+    assert client.get("/feeds/repos.xml", params={"tag": "nope"}).status_code == 404
+    assert client.get("/feeds/repos.xml", params={"domain": "notifications"}).status_code == 404
+    empty = client.get("/feeds/repos.xml", params={"country": "Atlantis"})
+    assert empty.status_code == 200 and "<item>" not in empty.text
+
+
+def test_pages_advertise_their_own_feed(client):
+    def alternates(path):
+        text = client.get(path).text
+        return [line for line in text.splitlines() if 'rel="alternate"' in line]
+
+    theme = alternates("/theme/notifications")
+    assert 'href="/feeds/theme/notifications.xml"' in theme[0] and "/feeds/week.xml" in theme[1]
+    assert 'href="/feeds/country/uk-central.xml"' in alternates("/country/uk-central")[0]
+    assert 'href="/feeds/account/alphagov.xml"' in alternates("/account/AlphaGov")[0]
+    assert len(alternates("/about")) == 1
+
+
+def test_forge_account_feed(forge_client):
+    feed = forge_client.get("/feeds/account/gitlab.com/commonground/sub.xml")
+    assert feed.status_code == 200 and "gitlab.com/commonground/sub/api" in feed.text
 
 
 def test_licence_names_and_families():

@@ -146,7 +146,7 @@ table.list{width:100%;border-collapse:collapse;font-size:14.5px;font-variant-num
 .filters label{display:grid;gap:4px;font-size:12.5px;font-weight:600;color:var(--muted)}
 .filters input,.filters select{font:14px var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:7px 9px;min-width:0}
 .filters .chk{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--ink);padding-bottom:8px}
-.pager{display:flex;gap:10px;align-items:center;margin-top:12px;font-size:14px;color:var(--muted)}
+.pager{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px;font-size:14px;color:var(--muted)}
 .prose{max-width:72ch}
 .prose h2{margin-top:32px}
 .prose code,.prose pre{font:13px var(--mono);background:var(--tint);border-radius:4px}
@@ -221,6 +221,13 @@ table.list{width:100%;border-collapse:collapse;font-size:14.5px;font-variant-num
 .newrow a{font:600 14.5px var(--mono);text-decoration:none;overflow-wrap:anywhere}
 .newrow p{margin:2px 0 0;font-size:14px;color:var(--muted);grid-column:1/-1}
 .newrow .meta{display:flex;flex-wrap:wrap;gap:6px;grid-column:1/-1}
+.follow{position:relative}
+.follow.push{margin-left:auto}
+.follow summary{list-style:none}
+.follow summary::-webkit-details-marker{display:none}
+.follow[open] summary{background:var(--cobalt);color:var(--cobalt-ink)}
+.follow>.card{position:absolute;right:0;top:calc(100% + 6px);z-index:20;width:min(420px,calc(100vw - 32px));text-align:left;color:var(--ink);box-shadow:0 8px 24px rgba(0,0,0,.14)}
+@media (max-width:700px){.follow[open]{flex-basis:100%}.follow>.card{position:static;width:auto;margin-top:8px}}
 .feedbox{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 .feedbox input{flex:1 1 220px;min-width:0;font:13px var(--mono);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px}
 .snippet{display:block;width:100%;font:12.5px var(--mono);color:var(--ink);background:var(--tint);border:1px solid var(--line);border-radius:4px;padding:8px 10px;margin-bottom:10px;resize:vertical}

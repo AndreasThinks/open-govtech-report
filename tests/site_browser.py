@@ -217,6 +217,18 @@ class Desktop(unittest.TestCase):
         expect(self.page.locator("#journey .checks li")).to_have_count(4)
         self.layout()
 
+    def test_subscribe_to_theme_and_search(self):
+        self.go("/theme/00")
+        sub = self.page.locator(".phead details.follow")
+        sub.locator("summary").click()
+        expect(sub.locator("input")).to_have_value(self.base + "/feeds/theme/00.xml")
+        self.layout()
+        self.go("/repos?country=U.K.%20Central&tag=payments&sort=stars&maintained=true")
+        sub = self.page.locator(".pager details.follow")
+        sub.locator("summary").click()
+        expect(sub.locator("input")).to_have_value(self.base + "/feeds/repos.xml?country=U.K.+Central&tag=payments")
+        self.layout()
+
     def test_healthy_empty_context(self):
         self.fixtures["context"] = {"history": [], "reused_by": [], "similar": []}
         self.go("/repo/i-dot-ai/consult")

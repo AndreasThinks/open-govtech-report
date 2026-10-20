@@ -30,8 +30,11 @@ moved to paths automatically.
 | `/submit` | Builds a `submissions/pending/*.yaml` file and opens it on GitHub |
 | `/about`, `/data` | Why the index exists, who runs it, supporters and the method (`/method` redirects); API, MCP, feeds and badges |
 
-Charts have a "Show as a table" option. Feeds live at `/feeds/week.xml`,
-`/feeds/theme/{id}.xml` and `/feeds/country/{id}.xml`; badges at `/badge/{owner}/{name}.svg`;
+Charts have a "Show as a table" option. Feeds are the site's notifications: `/feeds/week.xml`,
+`/feeds/theme/{id}.xml`, `/feeds/country/{id}.xml`, `/feeds/account/{owner}.xml`, and
+`/feeds/repos.xml?country=...&tag=...` for any search. Theme, country and account pages have a
+Subscribe button and name their own feed in `<link rel="alternate">`, so a feed reader given the
+page address finds it; the Repositories page offers its current filters as a feed. Badges are at `/badge/{owner}/{name}.svg`;
 `/sitemap.xml` and `/robots.txt` are generated. Set `GOVTECH_SITE_URL` if the public address is
 not `https://www.govtechindex.cloud`.
 

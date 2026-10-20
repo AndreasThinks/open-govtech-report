@@ -46,7 +46,9 @@ publication (`HfApi().restart_space(...)`).
 | `GET /v1/stats` | Headline numbers |
 
 CORS is open, so browser apps can call it directly. The same app also serves RSS feeds
-(`/feeds/week.xml`, `/feeds/theme/{id}.xml`, `/feeds/country/{slug}.xml`), README badges
+(`/feeds/week.xml`, `/feeds/theme/{id}.xml`, `/feeds/country/{slug}.xml`,
+`/feeds/account/{owner}.xml`, and `/feeds/repos.xml`, which takes the `q`, `country`, `domain`,
+`tag`, `kind`, `language`, `topic` and `owner` filters of `/v1/repos`), README badges
 (`/badge/{owner}/{name}.svg`), `/sitemap.xml` and the site's page paths; see [site.md](site.md).
 
 ## MCP

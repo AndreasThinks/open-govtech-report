@@ -391,6 +391,23 @@
     try { navigator.clipboard.writeText(text).then(done, pick); } catch (err) { pick(); }
   });
 
+  // ------------------------------------------------------------------ feeds
+  // Feeds are the site's notifications: any feed reader can follow a theme, country, account or search.
+  const feedUrl = path => (API || location.origin) + path;
+  let feedSeq = 0;
+  function followBox(path, label) {
+    const id = "feed" + (++feedSeq), url = feedUrl(path);
+    return `<div class="feedbox"><input id="${id}" readonly value="${esc(url)}" aria-label="${esc(label)} feed address">${copyButton(id, "Copy feed")}</div>
+      <p class="cap" style="margin-top:8px">Paste it into a feed reader such as Feedly, Inoreader or NetNewsWire to hear about new repositories with a description and real content. Updated daily. <a href="${esc(url)}">Open the feed</a></p>`;
+  }
+  const subscribe = (path, label, cls = "") => `<details class="follow${cls}"><summary class="btn ghost">Subscribe</summary><div class="card"><h3>Follow ${esc(label)}</h3>${followBox(path, label)}</div></details>`;
+  const SEARCH_FEED_KEYS = ["q", "country", "domain", "tag", "kind", "language", "topic", "owner"];
+  function searchFeedPath(p) {
+    const q = new URLSearchParams();
+    for (const k of SEARCH_FEED_KEYS) if (p.get(k)) q.set(k, p.get(k));
+    return "/feeds/repos.xml" + (String(q) ? "?" + q : "");
+  }
+
   // ------------------------------------------------------------------ sponsor slot
   const LOGO_FALLBACK = name => `<span class="spmark" aria-hidden="true">${esc(name.slice(0, 1))}</span>`;
   function sponsorMark(sp) {
@@ -505,7 +522,7 @@
       <div class="crumb"><a href="#/">Overview</a> / <a href="#/themes">Themes</a>${t.type === "tag" ? ` / <a href="${themeHref(t.domain)}">${esc(t.domain_name)}</a>` : ""}</div>
       <div class="row">
         <div><div class="eyebrow">${em ? "Emerging theme" : t.type === "domain" ? "Function of government" : "Theme"}</div><h1>${esc(t.name)}</h1><p>${esc(t.definition)}</p></div>
-        <div class="acts"><button class="btn" id="track" type="button"></button><a class="btn ghost" href="#/repos?${filter}">Browse all</a><a class="btn ghost" href="${esc(API)}/v1/themes/${enc(id)}">JSON</a></div>
+        <div class="acts"><button class="btn" id="track" type="button"></button>${state.sampleThemes ? "" : subscribe(`/feeds/theme/${enc(id)}.xml`, t.name)}<a class="btn ghost" href="#/repos?${filter}">Browse all</a><a class="btn ghost" href="${esc(API)}/v1/themes/${enc(id)}">JSON</a></div>
       </div>
       <div class="stats">
         <div class="stat"><b>${num(t.repos)}</b><small>original repositories</small></div>
@@ -532,8 +549,8 @@
     </div></div></section>
     ${t.teams && t.teams.length ? `<section class="sec pad"><div class="in"><div class="two">
       <div class="card"><h3>Teams to talk to</h3><p class="cap">Accounts with the most maintained repositories on this ${t.type === "domain" ? "domain" : "theme"}.</p>${countRows(t.teams, x => accountHref(x.owner), x => x.owner, x => x.maintained, x => `${esc(x.country)} · ${num(x.repos)} repositories in total`)}</div>
-      <div class="card"><h3>Follow this ${t.type === "domain" ? "domain" : "theme"}</h3><p class="cap">New repositories with a description and real content, as an RSS feed you can read anywhere.</p>
-        <div class="feedbox"><input id="feedurl" readonly value="${esc((API || location.origin) + "/feeds/theme/" + enc(id) + ".xml")}" aria-label="Feed address">${copyButton("feedurl", "Copy feed")}</div>
+      <div class="card"><h3>Follow this ${t.type === "domain" ? "domain" : "theme"}</h3>
+        ${followBox(`/feeds/theme/${enc(id)}.xml`, t.name)}
         <p class="cap" style="margin-top:12px">Or <a href="#/compare?a=theme:${enc(id)}">compare it with another theme</a>.</p></div>
     </div></div></section>` : ""}
     <section class="sec pad"><div class="in">
@@ -577,7 +594,8 @@
       </form>
       ${res.unavailable ? '<p class="empty">Apply the available filters above to search live repositories.</p>' : repoTable(res.items, "Nothing matches these filters.")}
       <div class="pager">${off > 0 ? `<a class="btn ghost" href="#/repos?${pageParams(p, off - 25)}">Previous</a>` : ""}<span>${total ? `${num(off + 1)}–${num(Math.min(total, off + 25))} of ${num(total)}` : ""}</span>${off + 25 < total ? `<a class="btn ghost" href="#/repos?${pageParams(p, off + 25)}">Next</a>` : ""}
-        ${total && state.live ? `<button class="btn ghost" type="button" id="csv" style="margin-left:auto">Download CSV${total > CSV_MAX ? ` (first ${num(CSV_MAX)})` : ""}</button>` : ""}</div>
+        ${state.live && !res.unavailable ? subscribe(searchFeedPath(p), "this search", " push") : ""}
+        ${total && state.live ? `<button class="btn ghost" type="button" id="csv"${state.live && !res.unavailable ? "" : ' style="margin-left:auto"'}>Download CSV${total > CSV_MAX ? ` (first ${num(CSV_MAX)})` : ""}</button>` : ""}</div>
     </div></section>`;
     document.getElementById("ff").addEventListener("submit", e => {
       e.preventDefault();
@@ -921,7 +939,7 @@
       <div class="row">
         <div><div class="eyebrow">${esc(LEVEL_NAMES[c.level])}${c.country !== c.label ? ` · ${esc(c.country)}` : ""}</div><h1>${esc(c.label)}</h1>
           <p>Public repositories from ${num(c.accounts)} accounts under this registry label.</p></div>
-        <div class="acts"><a class="btn ghost" href="#/compare?a=country:${enc(c.slug)}">Compare with…</a><a class="btn ghost" href="#/repos?country=${enc(c.label)}">Browse all</a><a class="btn ghost" href="${esc(API)}/v1/countries/${enc(c.slug)}">JSON</a></div>
+        <div class="acts">${subscribe(`/feeds/country/${enc(c.slug)}.xml`, c.label)}<a class="btn ghost" href="#/compare?a=country:${enc(c.slug)}">Compare with…</a><a class="btn ghost" href="#/repos?country=${enc(c.label)}">Browse all</a><a class="btn ghost" href="${esc(API)}/v1/countries/${enc(c.slug)}">JSON</a></div>
       </div>
       <div class="stats">
         <div class="stat"><b>${num(c.maintained)}</b><small>maintained originals</small></div>
@@ -947,7 +965,7 @@
     </div></div></section>
     <section class="sec pad"><div class="in">
       <h2>Most starred maintained repositories</h2><p class="sub"><a href="#/repos?country=${enc(c.label)}">Browse all</a>.</p>${repoTable(c.top_repos, "None yet.")}
-      <h2 style="margin-top:32px">New and worth a look</h2><p class="sub">Recently created, with a description and real content. <a href="${esc((API || location.origin) + "/feeds/country/" + enc(c.slug) + ".xml")}">RSS feed</a>.</p>${repoTable(c.newest_repos, "Nothing new yet.")}
+      <h2 style="margin-top:32px">New and worth a look</h2><p class="sub">Recently created, with a description and real content. <a href="${esc(feedUrl(`/feeds/country/${enc(c.slug)}.xml`))}">RSS feed</a>.</p>${repoTable(c.newest_repos, "Nothing new yet.")}
     </div></section>`;
     columns(document.getElementById("cols"), c.monthly_new);
   }
@@ -962,7 +980,7 @@
       <div class="row">
         <div><div class="eyebrow">${a.account_type === "user" ? "User account" : "Organisation"} · ${esc(LEVEL_NAMES[a.level] || "")}</div><h1 class="mono-h">${esc(a.owner)}</h1>
           <p>${num(a.repos)} public repositories under <a href="${placeHref(a.label)}">${esc(a.label)}</a>. First repository ${date(a.first_repo)}, last push ${ago(a.last_push)}.</p></div>
-        <div class="acts"><a class="btn" href="${esc(a.url || a.github_url)}" rel="noopener">View on ${esc(hostName(a.url || a.github_url))}</a><a class="btn ghost" href="#/repos?q=${enc(a.owner)}&maintained=false">Browse all</a></div>
+        <div class="acts"><a class="btn" href="${esc(a.url || a.github_url)}" rel="noopener">View on ${esc(hostName(a.url || a.github_url))}</a>${subscribe(`/feeds/account/${encPath(a.owner)}.xml`, a.owner)}<a class="btn ghost" href="#/repos?q=${enc(a.owner)}&maintained=false">Browse all</a></div>
       </div>
       <div class="stats">
         <div class="stat"><b>${num(a.maintained)}</b><small>maintained originals</small></div>
@@ -1016,8 +1034,8 @@
           <ul class="rows">${w.star_movers.items.map(r => `<li><a href="${repoHref(r)}"><code>${esc(r.full_name)}</code></a><span>+${num(r.gained)}</span><small>${esc(r.country)} · ${num(r.stars)} stars</small></li>`).join("") || "<li><small>No movers this week.</small></li>"}</ul></div>
         <div class="card"><h3>Archived this week</h3><p class="cap">${esc(w.definitions.archived)}</p>
           <ul class="rows">${w.archived.items.map(r => `<li><a href="${repoHref(r)}"><code>${esc(r.full_name)}</code></a><span>${num(r.stars)} ★</span><small>${esc(r.country)}</small></li>`).join("") || "<li><small>None this week.</small></li>"}</ul></div>
-        <div class="card"><h3>Follow it</h3><p class="cap">One feed for the whole index; every theme and country page has its own.</p>
-          <div class="feedbox"><input id="feedurl" readonly value="${esc((API || location.origin) + "/feeds/week.xml")}" aria-label="Weekly feed address">${copyButton("feedurl", "Copy feed")}</div></div>
+        <div class="card"><h3>Follow it</h3><p class="cap">One feed for the whole index. Every theme, country and account page has its own Subscribe button, and any search on <a href="#/repos">Repositories</a> can be a feed too.</p>
+          ${followBox("/feeds/week.xml", "Whole index")}</div>
       </div>
     </div></div></section>`;
   }
@@ -1340,7 +1358,7 @@
         <li><code>/v1/taxonomy</code>, <code>/v1/stats</code></li>
       </ul>
       <h2>Feeds and badges</h2>
-      <p>RSS feeds of new repositories worth a look: <a href="${esc(API)}/feeds/week.xml">/feeds/week.xml</a>, <code>/feeds/theme/{id}.xml</code> and <code>/feeds/country/{id}.xml</code>. Every repository has a README badge at <code>/badge/{owner}/{name}.svg</code>; copy it from the repository's page.</p>
+      <p>RSS feeds of new repositories worth a look, for notifications in any feed reader: <a href="${esc(API)}/feeds/week.xml">/feeds/week.xml</a>, <code>/feeds/theme/{id}.xml</code>, <code>/feeds/country/{id}.xml</code> and <code>/feeds/account/{owner}.xml</code>. Any search is a feed too: <code>/feeds/repos.xml</code> takes the same <code>q</code>, <code>country</code>, <code>domain</code>, <code>tag</code>, <code>kind</code>, <code>language</code>, <code>topic</code> and <code>owner</code> filters as <code>/v1/repos</code>, for example <code>/feeds/repos.xml?country=U.K.%20Central&amp;tag=digital-identity</code>. Every repository has a README badge at <code>/badge/{owner}/{name}.svg</code>; copy it from the repository's page.</p>
       <h2>MCP</h2>
       <p>AI assistants that support the Model Context Protocol can query the index with the same answers as this site.</p>
       <pre>{ "mcpServers": { "govtech-index": { "url": "${esc(base)}/mcp/" } } }</pre>
