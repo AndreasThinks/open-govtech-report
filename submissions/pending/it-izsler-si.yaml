@@ -1,0 +1,13 @@
+org: IZSLER-SI
+country: IT
+account_type: user
+description: IZSLER (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Dizionari condivisi; IPA izs_loer. Source
+  repository https://github.com/IZSLER-SI/dizionari_condivisi.git. Account-level public-body identity
+  checked before submission. Official Italian public-administration reuse catalogue: Prenotazione Campioni;
+  IPA izs_loer. Source repository https://github.com/IZSLER-SI/prenotazione_campioni.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  C.A.P.; IPA izs_loer. Source repository https://github.com/IZSLER-SI/CAP.git. Account-level public-body
+  identity checked before submission. Account exists and API type checked 2026-10-20.'

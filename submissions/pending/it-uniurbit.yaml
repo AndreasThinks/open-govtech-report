@@ -1,0 +1,11 @@
+org: uniurbit
+country: IT
+account_type: org
+description: Università degli Studi di Urbino Carlo Bo (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.uniurb.it
+notes: 'Official Italian public-administration reuse catalogue: UniSD; IPA usucb. Source repository https://github.com/uniurbit/UniSD.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: UniConv; IPA usucb. Source repository https://github.com/uniurbit/UniConv.git. Account-level
+  public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

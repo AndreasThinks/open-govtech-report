@@ -1,0 +1,9 @@
+org: delegation-numerique-en-sante
+country: FR
+account_type: org
+description: Délégation ministérielle du numérique en santé (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: Listed public-body account in the French registry (pso_id 163a8b8e-8ebc-4fb7-8ed4-44fbb78110db).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

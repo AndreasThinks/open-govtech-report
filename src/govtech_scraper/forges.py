@@ -486,8 +486,20 @@ def _save_host(db: Database, forge: ForgeHost, repos: list[Repository], complete
     """Save repos; on a complete enumeration, mark this host's missing repos not current."""
     db.save_repositories(repos)
     if complete:
-        db.conn.execute("UPDATE repositories SET current=0 WHERE html_url LIKE ?",
-                        (f"https://{forge.host}/%",))
+        if forge.owners:
+            # A submission enumerates only its owner(s), never the whole shared host.
+            # Use literal prefixes rather than LIKE: group names may contain '_' .
+            for owner in forge.owners:
+                key = f"{forge.host}/{owner}".lower()
+                prefix = key + "/"
+                db.conn.execute(
+                    "UPDATE repositories SET current=0 WHERE "
+                    "lower(owner)=? OR substr(lower(owner),1,?)=?",
+                    (key, len(prefix), prefix),
+                )
+        else:
+            db.conn.execute("UPDATE repositories SET current=0 WHERE html_url LIKE ?",
+                            (f"https://{forge.host}/%",))
     db.conn.executemany("UPDATE repositories SET current=1 WHERE html_url=?",
                         [(r.html_url,) for r in repos])
     db.conn.commit()
@@ -551,7 +563,9 @@ async def scrape_forges(
             result = await fetch_forge(get, forge, limit=limit, details=details,
                                        known=_known_details(db, forge), dedup=_dedup(db, forge))
             # Synchronous, so no other host's write can interleave with this save.
-            _save_host(db, forge, result.repos, complete=limit is None)
+            # A missing submitted group is not proof its old projects disappeared.
+            _save_host(db, forge, result.repos,
+                       complete=limit is None and not result.missing_owners)
         except Exception as exc:  # noqa: BLE001 - one host must not stop the rest
             db.conn.rollback()
             result = HostResult(host=forge.host, status="failed", error_type=type(exc).__name__)

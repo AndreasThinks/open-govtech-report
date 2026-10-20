@@ -49,3 +49,40 @@ hosts:
     country: U.S. Federal
     level: research
     description: Oak Ridge National Laboratory (US Department of Energy)
+
+  # Source-expansion review: docs/source-expansion.md. Personal namespaces stay off.
+  - host: code.peren.gouv.fr
+    country: France
+    level: national
+    include_personal: false
+    description: PÉReN, French government expertise on digital-platform regulation
+
+  - host: gitlab.cerema.fr
+    country: France
+    level: national
+    include_personal: false
+    description: CEREMA, public expertise for environment, infrastructure and territories
+
+  - host: gitlab.has-sante.fr
+    country: France
+    level: national
+    include_personal: false
+    description: Haute Autorité de Santé, the French national health authority
+
+  - host: gitlab-forge.din.developpement-durable.gouv.fr
+    country: France
+    level: national
+    include_personal: false
+    description: French sustainable-development ministry public code forge
+
+  - host: gitlab.osti.gov
+    country: U.S. Federal
+    level: research
+    include_personal: false
+    description: US Department of Energy OSTI repository service
+
+  - host: gitlab.inria.fr
+    country: France
+    level: research
+    include_personal: false
+    description: Inria, French national public research institute for digital science

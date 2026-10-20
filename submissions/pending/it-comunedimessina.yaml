@@ -1,0 +1,10 @@
+org: ComuneDiMessina
+country: IT
+account_type: org
+description: Servizi Informativi e Innovazione Tecnologica Comune di Messina (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.comune.messina.it
+notes: 'Official Italian public-administration reuse catalogue: DigiPro; IPA c_f158. Source repository
+  https://github.com/ComuneDiMessina/DiGiPro.git. Account-level public-body identity checked before submission.
+  Account exists and API type checked 2026-10-20.'

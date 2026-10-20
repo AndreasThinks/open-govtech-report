@@ -1,0 +1,9 @@
+org: ComuneDiFerrara
+country: IT
+account_type: org
+description: ComuneDiFerrara (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Comune di Ferrara; IPA c_d548. Source
+  repository https://github.com/ComuneDiFerrara/portale-istituzionale.git. Account-level public-body identity
+  checked before submission. Account exists and API type checked 2026-10-20.'

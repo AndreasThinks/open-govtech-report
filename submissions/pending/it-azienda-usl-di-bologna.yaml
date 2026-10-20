@@ -1,0 +1,8 @@
+org: Azienda-USL-di-Bologna
+country: IT
+account_type: org
+description: Azienda-USL-di-Bologna (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: BABEL; IPA asl_bo. Source repository https://github.com/Azienda-USL-di-Bologna/babel.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

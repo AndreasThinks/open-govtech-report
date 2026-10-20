@@ -1,0 +1,9 @@
+org: RegioneUmbria-RCB
+country: IT
+account_type: org
+description: Repository regionale del codice sorgente e delle buone pratiche (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: VBG (Virtual Business Gate); IPA r_umbria.
+  Source repository https://github.com/RegioneUmbria-RCB/VBG.git. Account-level public-body identity checked
+  before submission. Account exists and API type checked 2026-10-20.'

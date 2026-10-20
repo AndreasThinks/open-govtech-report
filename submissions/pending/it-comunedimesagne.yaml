@@ -1,0 +1,11 @@
+org: comunedimesagne
+country: IT
+account_type: org
+description: Comune di Mesagne (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Provvedimenti Amministrativi; IPA r_basili.
+  Source repository https://github.com/comunedimesagne/ProvvedimentiAmministrativi.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  SEP; IPA c_f152. Source repository https://github.com/comunedimesagne/SEP.git. Account-level public-body
+  identity checked before submission. Account exists and API type checked 2026-10-20.'

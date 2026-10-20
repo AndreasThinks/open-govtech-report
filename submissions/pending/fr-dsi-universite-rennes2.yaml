@@ -1,0 +1,10 @@
+org: dsi-universite-rennes2
+country: FR
+account_type: org
+description: DSI Université Rennes 2 (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+- https://www.univ-rennes2.fr/structure/dsi
+notes: Listed public-body account in the French registry (pso_id a94fe690-dd65-4e9c-9429-b13bb5236166).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

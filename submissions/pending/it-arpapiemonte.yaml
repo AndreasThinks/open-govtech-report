@@ -1,0 +1,11 @@
+org: Arpapiemonte
+country: IT
+account_type: org
+description: Arpa Piemonte (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Openoise Map - QGIS plugin; IPA arlpa_to.
+  Source repository https://github.com/Arpapiemonte/openoise-map.git. Account-level public-body identity
+  checked before submission. Official Italian public-administration reuse catalogue: Weboll; IPA arlpa_to.
+  Source repository https://github.com/Arpapiemonte/weboll.git. Account-level public-body identity checked
+  before submission. Account exists and API type checked 2026-10-20.'

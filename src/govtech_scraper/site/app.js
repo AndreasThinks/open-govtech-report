@@ -1134,7 +1134,7 @@
 
   // ------------------------------------------------------------------ submit an account
   // Government servers read in full (keep in step with forge_hosts.yaml; a test checks).
-  const FORGE_SERVERS = { "gitlab.opencode.de": "gitlab", "code.europa.eu": "gitlab", "code.overheid.nl": "forgejo", "gitlab.adullact.net": "gitlab", "repo1.dso.mil": "gitlab", "code.usgs.gov": "gitlab", "code.ornl.gov": "gitlab" };
+  const FORGE_SERVERS = { "gitlab.opencode.de": "gitlab", "code.europa.eu": "gitlab", "code.overheid.nl": "forgejo", "gitlab.adullact.net": "gitlab", "repo1.dso.mil": "gitlab", "code.usgs.gov": "gitlab", "code.ornl.gov": "gitlab", "code.peren.gouv.fr": "gitlab", "gitlab.cerema.fr": "gitlab", "gitlab.has-sante.fr": "gitlab", "gitlab-forge.din.developpement-durable.gouv.fr": "gitlab", "gitlab.osti.gov": "gitlab", "gitlab.inria.fr": "gitlab" };
   // Shared servers whose platform we know; any other host asks.
   const SHARED_HOSTS = { "gitlab.com": "gitlab", "framagit.org": "gitlab", "codeberg.org": "forgejo", "gitea.com": "forgejo" };
   const PLATFORM_NAMES = { github: "GitHub", gitlab: "GitLab", forgejo: "Forgejo or Gitea" };

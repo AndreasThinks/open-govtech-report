@@ -1,0 +1,9 @@
+org: MIT-DG-Porti-Logistica-Intermodalita
+country: IT
+account_type: org
+description: MIT - DG Porti Logistica Intermodalità (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: PCS-MIT; IPA m_inf. Source repository
+  https://github.com/MIT-DG-Porti-Logistica-Intermodalita/PCS-Mit.git. Account-level public-body identity
+  checked before submission. Account exists and API type checked 2026-10-20.'

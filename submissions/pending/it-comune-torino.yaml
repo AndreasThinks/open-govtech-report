@@ -1,0 +1,10 @@
+org: comune-torino
+country: IT
+account_type: org
+description: Comune di Torino (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: ISCRITTO; IPA c_l219. Source repository
+  https://github.com/comune-torino/iscritto.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: Alexacert; IPA c_l219. Source repository https://github.com/comune-torino/alexacert.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

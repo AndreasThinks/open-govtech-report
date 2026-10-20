@@ -1,0 +1,11 @@
+org: aziendazero
+country: IT
+account_type: org
+description: Azienda Zero (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.azero.veneto.it
+notes: 'Official Italian public-administration reuse catalogue: SIAVr; IPA azero. Source repository https://github.com/aziendazero/Siavr.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Screening; IPA azero. Source repository https://github.com/aziendazero/Screening.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

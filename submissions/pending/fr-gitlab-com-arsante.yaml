@@ -1,0 +1,10 @@
+host: gitlab.com
+platform: gitlab
+owner: arsante
+country: FR
+account_type: org
+description: ARS
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: French public-body registry pso_id 47a968b1-8dc3-4c51-a18c-2a13f757a16f. Group identity checked
+  through public GitLab API on 2026-10-20; shared-host ingestion is scoped to this group.

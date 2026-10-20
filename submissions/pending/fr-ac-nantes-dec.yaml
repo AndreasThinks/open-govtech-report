@@ -1,0 +1,9 @@
+org: ac-nantes-dec
+country: FR
+account_type: org
+description: Académie de Nantes - Direction des Examens et Concours (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: Listed public-body account in the French registry (pso_id a80ce22b-9b00-40b8-bc4e-151bdde9d1c5).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

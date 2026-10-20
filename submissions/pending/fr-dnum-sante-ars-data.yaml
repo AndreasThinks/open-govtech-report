@@ -1,0 +1,10 @@
+org: dnum-sante-ars-data
+country: FR
+account_type: org
+description: Direction du Numérique des Ministères sociaux - Service à Compétence Nationale des SI mutualisés
+  des ARS - équipe data (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: Listed public-body account in the French registry (pso_id d8a5ff98-67d3-405d-81b8-913829272ff8).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

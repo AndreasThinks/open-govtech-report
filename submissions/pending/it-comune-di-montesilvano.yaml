@@ -1,0 +1,10 @@
+org: Comune-di-Montesilvano
+country: IT
+account_type: org
+description: Comune di Montesilvano (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.comune.montesilvano.pe.it
+notes: 'Official Italian public-administration reuse catalogue: CruscottoPA; IPA c_f646. Source repository
+  https://github.com/Comune-di-Montesilvano/CruscottoPA.git. Account-level public-body identity checked
+  before submission. Account exists and API type checked 2026-10-20.'

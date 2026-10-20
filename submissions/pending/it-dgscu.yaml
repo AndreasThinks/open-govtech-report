@@ -1,0 +1,9 @@
+org: DGSCU
+country: IT
+account_type: org
+description: Presidenza del Consiglio dei Ministri - DGSCU (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Sistema Unico Servizio Civile Universale/
+  DOL (Domanda OnLine) ; IPA pcm. Source repository https://github.com/DGSCU/SistemaUnicoSCU.git. Account-level
+  public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

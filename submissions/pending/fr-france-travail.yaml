@@ -1,0 +1,10 @@
+org: france-travail
+country: FR
+account_type: org
+description: France Travail (ex Pôle emploi) (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+- https://francetravail.io/
+notes: Listed public-body account in the French registry (pso_id cb47a769-8574-403d-9130-0ad9c83c7e22).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

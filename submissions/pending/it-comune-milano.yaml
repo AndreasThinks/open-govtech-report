@@ -1,0 +1,15 @@
+org: Comune-Milano
+country: IT
+account_type: org
+description: Comune di Milano (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Sepa@Web; IPA c_f205. Source repository
+  https://github.com/Comune-Milano/sepaweb.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: Geoworks-Mi Configuration settings; IPA c_f205.
+  Source repository https://github.com/Comune-Milano/geoworks-mi.git. Account-level public-body identity
+  checked before submission. Official Italian public-administration reuse catalogue: WeMi; IPA c_f205.
+  Source repository https://github.com/Comune-Milano/wemi.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: Whistleblowing; IPA c_f205.
+  Source repository https://github.com/Comune-Milano/Whistleblowing.git. Account-level public-body identity
+  checked before submission. Account exists and API type checked 2026-10-20.'

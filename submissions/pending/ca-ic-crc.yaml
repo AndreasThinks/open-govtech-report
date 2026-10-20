@@ -1,0 +1,10 @@
+org: ic-crc
+country: CA
+account_type: org
+description: ic-crc (Canadian public-sector account)
+evidence:
+- https://github.com/canada-ca/ore-ero/blob/master/_data/code/federal/ised-isde.yml
+notes: Canadian ORE government-attributed code record; administration ised-isde; repository https://github.com/ic-crc/SAFE-Tool.
+  Generic upstream/personal accounts excluded. Canadian ORE government-attributed code record; administration
+  ised-isde; repository https://github.com/ic-crc/crc-covlib. Generic upstream/personal accounts excluded.
+  Account exists and API type checked 2026-10-20.

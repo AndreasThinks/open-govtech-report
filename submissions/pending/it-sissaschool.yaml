@@ -1,0 +1,10 @@
+org: sissaschool
+country: IT
+account_type: org
+description: Scuola Internazionale Superiore di Studi Avanzati (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: xmlschema; IPA sissa. Source repository
+  https://github.com/sissaschool/xmlschema.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: elementpath; IPA sissa. Source repository https://github.com/sissaschool/elementpath.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

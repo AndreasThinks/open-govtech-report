@@ -1,0 +1,17 @@
+org: dipartimentofunzionepubblica
+country: IT
+account_type: org
+description: Dipartimento Funzione Pubblica (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: ParteciPa; IPA pcm. Source repository
+  https://github.com/dipartimentofunzionepubblica/partecipa.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: Decidim-privacy; IPA pcm.
+  Source repository https://github.com/dipartimentofunzionepubblica/decidim-module-privacy.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  Decidim-spid-cie; IPA pcm. Source repository https://github.com/dipartimentofunzionepubblica/decidim-module-spid-cie.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Decidim-proposal_moderation; IPA pcm. Source repository https://github.com/dipartimentofunzionepubblica/decidim-module-proposal_moderation.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Decidim-pua; IPA pcm. Source repository https://github.com/dipartimentofunzionepubblica/decidim-module-pua.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

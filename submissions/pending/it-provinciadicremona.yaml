@@ -1,0 +1,10 @@
+org: provinciadicremona
+country: IT
+account_type: org
+description: Provincia di Cremona (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.provincia.cremona.it
+notes: 'Official Italian public-administration reuse catalogue: AVCP-Xml; IPA p_cr. Source repository
+  https://github.com/provinciadicremona/AVCP-Xml.git. Account-level public-body identity checked before
+  submission. Account exists and API type checked 2026-10-20.'

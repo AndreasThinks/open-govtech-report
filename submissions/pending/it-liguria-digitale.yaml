@@ -1,0 +1,14 @@
+org: Liguria-Digitale
+country: IT
+account_type: org
+description: Liguria Digitale Spa (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.liguriadigitale.it/
+notes: 'Official Italian public-administration reuse catalogue: Protocollo e Documentale; IPA data. Source
+  repository https://github.com/Liguria-Digitale/Protocollo-e-Documentale.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: GeoViewer;
+  IPA data. Source repository https://github.com/Liguria-Digitale/Geoviewer-LD.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: GTFS2NeTEx-converter;
+  IPA data. Source repository https://github.com/Liguria-Digitale/GTFS2NeTEx-converter.git. Account-level
+  public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

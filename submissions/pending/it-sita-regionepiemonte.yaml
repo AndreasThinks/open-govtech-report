@@ -1,0 +1,11 @@
+org: SITA-RegionePiemonte
+country: IT
+account_type: org
+description: SITA - Regione Piemonte (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: CSI Atlante; IPA r_piemon. Source repository
+  https://github.com/SITA-RegionePiemonte/CSIAtlante.git. Account-level public-body identity checked before
+  submission. Official Italian public-administration reuse catalogue: CSI Atlante WI; IPA r_piemon. Source
+  repository https://github.com/SITA-RegionePiemonte/CSIAtlanteWI.git. Account-level public-body identity
+  checked before submission. Account exists and API type checked 2026-10-20.'

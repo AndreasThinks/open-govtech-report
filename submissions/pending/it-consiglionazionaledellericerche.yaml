@@ -1,0 +1,16 @@
+org: consiglionazionaledellericerche
+country: IT
+account_type: org
+description: The National Research Council (CNR) (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: sigla; IPA cnr. Source repository https://github.com/consiglionazionaledellericerche/sigla-main.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: sprint-flows; IPA cnr. Source repository https://github.com/consiglionazionaledellericerche/sprint-flows.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Servizio Terminologico Integrato; IPA cnr. Source repository https://github.com/consiglionazionaledellericerche/STI.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: epas; IPA cnr. Source repository https://github.com/consiglionazionaledellericerche/epas.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Partecipo; IPA ispra_rm. Source repository https://github.com/consiglionazionaledellericerche/Partecipo.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

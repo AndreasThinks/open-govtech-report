@@ -1,0 +1,8 @@
+org: Nova-Scotia-Digital-Service
+country: CA
+account_type: org
+description: Nova Scotia Digital Service (Canadian public-sector account)
+evidence:
+- https://github.com/canada-ca/ore-ero/blob/master/_data/code/provincial/ns.yml
+notes: Canadian ORE government-attributed code record; administration ns; repository https://github.com/Nova-Scotia-Digital-Service/when-to-call-811.
+  Generic upstream/personal accounts excluded. Account exists and API type checked 2026-10-20.

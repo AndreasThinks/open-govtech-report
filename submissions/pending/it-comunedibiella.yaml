@@ -1,0 +1,9 @@
+org: ComunediBiella
+country: IT
+account_type: org
+description: Comune di Biella (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Pdf-Mapper; IPA c_a859. Source repository
+  https://github.com/ComunediBiella/Pdf-Mapper.git. Account-level public-body identity checked before
+  submission. Account exists and API type checked 2026-10-20.'

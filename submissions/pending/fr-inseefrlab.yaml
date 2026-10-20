@@ -1,0 +1,10 @@
+org: inseefrlab
+country: FR
+account_type: org
+description: inseefrlab (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+- https://insee.fr
+notes: Listed public-body account in the French registry (pso_id 278bf3d4-9cf3-4a36-a317-ec56fb0abc52).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

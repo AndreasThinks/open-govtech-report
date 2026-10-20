@@ -1,0 +1,10 @@
+host: gitlab.com
+platform: gitlab
+owner: musee-saint-raymond
+country: FR
+account_type: org
+description: Musée Saint-Raymond
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: French public-body registry pso_id da1d6275-6710-485d-a249-282cac69dfe7. Group identity checked
+  through public GitLab API on 2026-10-20; shared-host ingestion is scoped to this group.

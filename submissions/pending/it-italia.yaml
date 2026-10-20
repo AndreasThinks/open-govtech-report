@@ -1,0 +1,15 @@
+org: italia
+country: IT
+account_type: org
+description: Developers Italia (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://developers.italia.it
+notes: 'Official Italian public-administration reuse catalogue: publiccode editor; IPA pcm. Source repository
+  https://github.com/italia/publiccode-editor.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: OpenAPI Checker; IPA pcm. Source repository
+  https://github.com/italia/api-oas-checker.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: Form PA; IPA pcm. Source repository https://github.com/italia/form-pa.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: open-catalog-api; IPA pcm. Source repository https://github.com/italia/developers-italia-api.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

@@ -1,0 +1,15 @@
+org: ComuneFI
+country: IT
+account_type: org
+description: Comune di Firenze (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: BiCoreTemplate; IPA c_d612. Source repository
+  https://github.com/ComuneFI/BiCoreTemplate.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: Divo; IPA c_d612. Source repository https://github.com/ComuneFI/divo.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: ATTICO - Gestione Atti Amministrativi del Comune di Firenze; IPA c_d612. Source repository
+  https://github.com/ComuneFI/Attico.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: ATTICO - Componente Atti Trasparenza del Comune
+  di Firenze; IPA c_d612. Source repository https://github.com/ComuneFI/AtticoTrasparenza.git. Account-level
+  public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

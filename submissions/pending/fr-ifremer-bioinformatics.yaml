@@ -1,0 +1,10 @@
+org: ifremer-bioinformatics
+country: FR
+account_type: org
+description: Ifremer - SeBiMER Bioinformatics Tools (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+- https://ifremer-bioinformatics.github.io/
+notes: Listed public-body account in the French registry (pso_id 2a7c45c1-a0fb-4130-82dd-9ced0b08424e).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

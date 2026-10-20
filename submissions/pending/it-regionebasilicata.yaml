@@ -1,0 +1,27 @@
+org: RegioneBasilicata
+country: IT
+account_type: org
+description: Regione Basilicata (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.regione.basilicata.it
+notes: 'Official Italian public-administration reuse catalogue: Sistema Informativo Contabile; IPA r_basili.
+  Source repository https://github.com/RegioneBasilicata/SistemaInformativoContabile.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  Sistema Informatico di Consolidamento; IPA r_basili. Source repository https://github.com/RegioneBasilicata/SistemaInformaticoConsolidamento.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Provvedimenti Amministrativi; IPA r_basili. Source repository https://github.com/RegioneBasilicata/ProvvedimentiAmministrativi.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Sistema Informativo Agricolo della Regione Basilicata (SIA-RB) - Modulo Utenti
+
+
+  Motori Agricoli (UMA); IPA r_basili. Source repository https://github.com/RegioneBasilicata/SIA-RB-UMA.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Sistema Informativo Agricolo della Regione Basilicata (SIA-RB) - Modulo
+
+  Assegnazione indennizzi per danni da calamità naturali; IPA r_basili. Source repository https://github.com/RegioneBasilicata/SIA-RB-CALAMITA.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Sistema Informativo Agricolo della Regione Basilicata (SIA-RB) -
+
+  ModuloAnagrafe Agricola; IPA r_basili. Source repository https://github.com/RegioneBasilicata/SIA-RB-ANAGRAFE.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

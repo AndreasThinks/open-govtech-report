@@ -1,0 +1,13 @@
+org: RegioneLombardia
+country: IT
+account_type: org
+description: Regione Lombardia (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Preference Center; IPA r_lombar. Source
+  repository https://github.com/RegioneLombardia/LombardiaInforma.git. Account-level public-body identity
+  checked before submission. Official Italian public-administration reuse catalogue: OPEN 2.0; IPA r_lombar.
+  Source repository https://github.com/RegioneLombardia/Open20.git. Account-level public-body identity
+  checked before submission. Official Italian public-administration reuse catalogue: Design Angular Kit;
+  IPA pcm. Source repository https://github.com/RegioneLombardia/design-angular-kit.git. Account-level
+  public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

@@ -1,0 +1,10 @@
+org: iisgiua
+country: IT
+account_type: org
+description: Istituto di Istruzione Superiore "Michele Giua" (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.giua.edu.it
+notes: 'Official Italian public-administration reuse catalogue: giua@school; IPA istsc_catf04000p. Source
+  repository https://github.com/iisgiua/giuaschool.git. Account-level public-body identity checked before
+  submission. Account exists and API type checked 2026-10-20.'

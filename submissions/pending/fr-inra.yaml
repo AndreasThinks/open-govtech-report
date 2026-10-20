@@ -1,0 +1,9 @@
+org: inra
+country: FR
+account_type: org
+description: Institut national de la recherche agronomique (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: Listed public-body account in the French registry (pso_id fbddbc4f-6422-41b6-998f-cb88504bb1cf).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

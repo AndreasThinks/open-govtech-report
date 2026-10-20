@@ -1,0 +1,10 @@
+org: assurance-maladie-digital
+country: FR
+account_type: org
+description: Le Digital de l'Assurance Maladie (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+- https://assurance-maladie.ameli.fr/qui-sommes-nous/organisation/cnam-tete-reseau
+notes: Listed public-body account in the French registry (pso_id ff0017f1-00fd-4ac6-a423-f3cb0a99836e).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

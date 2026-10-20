@@ -1,0 +1,10 @@
+org: ramp4-pcar4
+country: CA
+account_type: org
+description: Reusable Accessible Mapping Platform 4 (Canadian public-sector account)
+evidence:
+- https://github.com/canada-ca/ore-ero/blob/master/_data/code/federal/eccc.yml
+notes: Canadian ORE government-attributed code record; administration eccc; repository https://github.com/ramp4-pcar4/storylines.
+  Generic upstream/personal accounts excluded. Canadian ORE government-attributed code record; administration
+  eccc; repository https://github.com/ramp4-pcar4/ramp4-pcar4. Generic upstream/personal accounts excluded.
+  Account exists and API type checked 2026-10-20.

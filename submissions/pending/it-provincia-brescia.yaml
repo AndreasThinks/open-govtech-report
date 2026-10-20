@@ -1,0 +1,9 @@
+org: provincia-brescia
+country: IT
+account_type: user
+description: provincia-brescia (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Open Public Libraries. Sviluppare comunità
+  competenti e inclusive nella strategia Europa 2020; IPA p_bs. Source repository https://github.com/provincia-brescia/OPL.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

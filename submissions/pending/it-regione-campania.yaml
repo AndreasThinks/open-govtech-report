@@ -1,0 +1,17 @@
+org: regione-campania
+country: IT
+account_type: org
+description: REGIONE CAMPANIA (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.regione.campania.it
+notes: 'Official Italian public-administration reuse catalogue: GISA Campania - Prevenzione e Sicurezza
+  Lavoro; IPA r_campan. Source repository https://github.com/regione-campania/Gisa_Prevenzione_e_Sicurezza_Lavoro.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: GISA Campania - Sicurezza alimentare e veterinaria; IPA r_campan. Source repository
+  https://github.com/regione-campania/Gisa_Sicurezza_alimentare_e_veterinaria.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: GISA Campania
+  - Ambiente; IPA r_campan. Source repository https://github.com/regione-campania/Gisa_ambiente.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  GISA Campania - Prevenzione e Sicurezza Lavoro; IPA r_friuve. Source repository https://github.com/regione-campania/Gisa_Sicurezza_alimentare_e_veterinaria-nodo.fvg.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

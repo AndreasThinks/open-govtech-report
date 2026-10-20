@@ -1,0 +1,9 @@
+org: irsn
+country: FR
+account_type: org
+description: IRSN (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: Listed public-body account in the French registry (pso_id 4254dc52-8ccc-4f2f-8a68-c98adb1ee170).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

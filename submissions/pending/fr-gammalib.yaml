@@ -1,0 +1,10 @@
+org: gammalib
+country: FR
+account_type: org
+description: gammalib (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+- https://cta-redmine.irap.omp.eu/projects/gammalib
+notes: Listed public-body account in the French registry (pso_id 96d42f91-76ee-4896-bae2-5c0d5b99c0ee).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

@@ -1,0 +1,15 @@
+org: IstitutoCentraleCatalogoUnicoBiblio
+country: IT
+account_type: user
+description: Istituto Centrale per il Catalogo Unico delle biblioteche italiane e per le informazioni
+  bibliografiche (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.iccu.sbn.it/it/
+notes: 'Official Italian public-administration reuse catalogue: Chiedi al bibliotecario; IPA m_bac. Source
+  repository https://github.com/IstitutoCentraleCatalogoUnicoBiblio/Chiedi-al-bibliotecario.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  Nuovo OPAC di polo SBN; IPA m_bac. Source repository https://github.com/IstitutoCentraleCatalogoUnicoBiblio/Nuovo-Opac-di-Polo-SBN.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SBNWeb-Open; IPA m_bac. Source repository https://github.com/IstitutoCentraleCatalogoUnicoBiblio/SBNWeb-Open.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

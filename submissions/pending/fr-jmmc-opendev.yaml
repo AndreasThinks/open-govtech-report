@@ -1,0 +1,9 @@
+org: jmmc-opendev
+country: FR
+account_type: org
+description: JMMC (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: Listed public-body account in the French registry (pso_id 0bd49a4f-6c84-4d66-b653-02bfc3bfa5d7).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

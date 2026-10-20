@@ -1,0 +1,12 @@
+org: ARPA-SIMC
+country: IT
+account_type: org
+description: Arpae ER - Servizio Idro Meteo Clima (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.arpae.it/it/temi-ambientali/meteo/cosa-fa-arpae-meteo
+notes: 'Official Italian public-administration reuse catalogue: DB-All.e; IPA arpa. Source repository
+  https://github.com/ARPA-SIMC/dballe.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: Portale Allerta Meteo; IPA arpa. Source repository
+  https://github.com/ARPA-SIMC/portale-allerta-meteo.git. Account-level public-body identity checked before
+  submission. Account exists and API type checked 2026-10-20.'

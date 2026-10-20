@@ -1,0 +1,9 @@
+org: crillab
+country: FR
+account_type: org
+description: Centre de Recherche en Informatique de Lens (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: Listed public-body account in the French registry (pso_id e166377e-4c43-4c85-88f2-867e1ed15a7b).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

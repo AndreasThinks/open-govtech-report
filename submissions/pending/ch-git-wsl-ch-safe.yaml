@@ -1,0 +1,10 @@
+host: git.wsl.ch
+platform: gitlab
+owner: safe
+country: CH
+account_type: org
+description: WSL safe public research project group
+evidence:
+  - https://github.com/swiss/index
+  - https://www.wsl.ch/en/
+notes: Official Swiss index lists the legacy gitlabext.wsl.ch/safe address. It redirects to git.wsl.ch; both current group and project APIs verified on 2026-10-20. Only this public research group is submitted, not the entire WSL server.

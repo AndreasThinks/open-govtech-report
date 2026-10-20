@@ -1,0 +1,10 @@
+org: autoritedelaconcurrence
+country: FR
+account_type: org
+description: autoritedelaconcurrence (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+- https://www.autoritedelaconcurrence.fr/
+notes: Listed public-body account in the French registry (pso_id 9c7e6b7c-b793-40b2-a19b-a7dfeaa4792e).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

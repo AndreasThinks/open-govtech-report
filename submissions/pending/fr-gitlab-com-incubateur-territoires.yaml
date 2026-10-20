@@ -1,0 +1,10 @@
+host: gitlab.com
+platform: gitlab
+owner: incubateur-territoires
+country: FR
+account_type: org
+description: Incubateur des territoires - ANCT
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: French public-body registry pso_id da837b24-afa7-46ab-b56a-427dd4bcc159. Group identity checked
+  through public GitLab API on 2026-10-20; shared-host ingestion is scoped to this group.

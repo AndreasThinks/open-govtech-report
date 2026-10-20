@@ -1,0 +1,10 @@
+host: gitlab.com
+platform: gitlab
+owner: swiss-armed-forces
+same_as_github: Swiss-Armed-Forces
+country: CH
+account_type: org
+description: Swiss Armed Forces public GitLab group
+evidence:
+  - https://github.com/swiss/index
+notes: Listed by the official Swiss Confederation owner index. Anonymous group API verified on 2026-10-20. Same-body GitHub mirror deduplication enabled.

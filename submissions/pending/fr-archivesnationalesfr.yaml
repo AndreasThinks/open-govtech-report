@@ -1,0 +1,9 @@
+org: archivesnationalesfr
+country: FR
+account_type: org
+description: Archives nationales (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: Listed public-body account in the French registry (pso_id d60f8d14-d42e-4268-8ed6-ca712f369da6).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

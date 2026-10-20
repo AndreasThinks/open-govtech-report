@@ -1,0 +1,14 @@
+org: agenziaentrateriscossione
+country: IT
+account_type: user
+description: agenziaentrateriscossione (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: DocWay - FCA; IPA esrsris. Source repository
+  https://github.com/agenziaentrateriscossione/docway-fca.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: Sistema di Gestione documentale
+  DocWay comprensivo del Modulo FCS; IPA esrsris. Source repository https://github.com/agenziaentrateriscossione/docway-fcs.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Sistema di Gestione documentale DocWay comprensivo del modulo MSA; IPA esrsris. Source
+  repository https://github.com/agenziaentrateriscossione/docway-msa.git. Account-level public-body identity
+  checked before submission. Account exists and API type checked 2026-10-20.'

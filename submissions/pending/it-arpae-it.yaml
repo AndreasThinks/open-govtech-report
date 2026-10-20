@@ -1,0 +1,26 @@
+org: Arpae-it
+country: IT
+account_type: org
+description: Arpae Emilia Romagna (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.arpae.it
+notes: 'Official Italian public-administration reuse catalogue: qrcode; IPA arpa. Source repository https://github.com/Arpae-it/qrcode.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: windrose; IPA arpa. Source repository https://github.com/Arpae-it/windrose.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  Rshortner; IPA arpa. Source repository https://github.com/Arpae-it/Rshortener.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: rpdf; IPA
+  arpa. Source repository https://github.com/Arpae-it/rpdf.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: mappatore; IPA arpa. Source
+  repository https://github.com/Arpae-it/mappatore.git. Account-level public-body identity checked before
+  submission. Official Italian public-administration reuse catalogue: erg5-eraclito; IPA arpa. Source
+  repository https://github.com/Arpae-it/erg5-eraclito.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: Rmdbvis; IPA arpa. Source
+  repository https://github.com/Arpae-it/Rmdbvis.git. Account-level public-body identity checked before
+  submission. Official Italian public-administration reuse catalogue: groot; IPA arpa. Source repository
+  https://github.com/Arpae-it/groot.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: mapmulti; IPA arpa. Source repository https://github.com/Arpae-it/mapmulti.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: griberg; IPA arpa. Source repository https://github.com/Arpae-it/griberg.git. Account-level
+  public-body identity checked before submission. Account exists and API type checked 2026-10-20.'
