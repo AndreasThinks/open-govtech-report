@@ -4,6 +4,10 @@ The site is one static page. When the API serves it, every page also has a real 
 /theme/geospatial or /country/norway. Each path returns the same index.html with its own title,
 description and link-preview tags, plus a flag that tells the script to route by path instead of
 by hash. Hosting the static files elsewhere keeps working with #/ routes.
+
+Feeds are how people get notified: the whole index, a theme, a country, an account, or any search
+from the Repositories page (/feeds/repos.xml?country=...&tag=...). Theme, country and account pages
+advertise their own feed, so pasting a page address into a feed reader finds it.
 """
 
 import html
@@ -11,6 +15,7 @@ import os
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from pathlib import Path
+from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
 from fastapi import FastAPI, HTTPException, Request
@@ -66,12 +71,21 @@ STATIC_PAGES = {
     "/data": ("Data and API", "A free, open REST API and MCP endpoint over the index."),
 }
 FEED_SIZE = 50
+WEEK_FEED = ("/feeds/week.xml", "Open GovTech Index: new repositories")
+# Filters a search feed accepts, in the order they appear in its title.
+FEED_FILTERS = ("country", "domain", "tag", "kind", "language", "topic", "owner", "q")
 
 
 def add_site_routes(app: FastAPI, catalogue: Catalogue, insights: Insights, site_dir: Path) -> None:
     template = (site_dir / "index.html").read_text()
 
-    def shell(path: str, title: str, description: str, status: int = 200) -> HTMLResponse:
+    def shell(
+        path: str,
+        title: str,
+        description: str,
+        status: int = 200,
+        feed: tuple[str, str] | None = None,
+    ) -> HTMLResponse:
         full = NAME if title == NAME else f"{title} · {NAME}"
         url = SITE_URL + path
         t, d = html.escape(full), html.escape(description)
@@ -85,8 +99,12 @@ def add_site_routes(app: FastAPI, catalogue: Catalogue, insights: Insights, site
             f'<meta property="og:site_name" content="{NAME}">\n'
             f'<meta property="og:image" content="{SITE_URL}/og.png">\n'
             '<meta name="twitter:card" content="summary_large_image">\n'
-            '<link rel="alternate" type="application/rss+xml" title="Open GovTech Index: this week" href="/feeds/week.xml">\n'
-            "<script>window.OGI_PATHS = true;</script>\n"
+            + "".join(
+                f'<link rel="alternate" type="application/rss+xml" title="{html.escape(ft)}" '
+                f'href="{html.escape(fp)}">\n'
+                for fp, ft in ([feed] if feed else []) + [WEEK_FEED]
+            )
+            + "<script>window.OGI_PATHS = true;</script>\n"
         )
         page = template.replace('<meta charset="utf-8">', '<meta charset="utf-8">\n' + head, 1)
         page = page.replace(f"<title>{NAME}</title>", f"<title>{t}</title>", 1)
@@ -117,7 +135,10 @@ def add_site_routes(app: FastAPI, catalogue: Catalogue, insights: Insights, site
             f"{found['definition']} {found['repos']:,} government repositories in "
             f"{found['countries']} countries.{status}"
         )
-        return shell(f"/theme/{theme}", found["name"], desc)
+        feed = (f"/feeds/theme/{theme}.xml", f"{NAME}: {found['name']}")
+        if not catalogue.decision_model:
+            feed = None
+        return shell(f"/theme/{theme}", found["name"], desc, feed=feed)
 
     @app.get("/repo/{owner:path}/{name}", include_in_schema=False)
     def repo_page(owner: str, name: str):
@@ -138,7 +159,9 @@ def add_site_routes(app: FastAPI, catalogue: Catalogue, insights: Insights, site
             f"Government open source from {label}: {c['maintained']:,} maintained repositories "
             f"across {c['accounts']} accounts."
         )
-        return shell(f"/country/{slug}", label, desc)
+        return shell(
+            f"/country/{slug}", label, desc, feed=(f"/feeds/country/{slug}.xml", f"{NAME}: {label}")
+        )
 
     @app.get("/account/{owner:path}", include_in_schema=False)
     def account_page(owner: str):
@@ -147,28 +170,35 @@ def add_site_routes(app: FastAPI, catalogue: Catalogue, insights: Insights, site
             return shell(f"/account/{owner}", "Not found", DEFAULT_DESCRIPTION, 404)
         canonical = found["items"][0]["full_name"].rsplit("/", 1)[0]
         desc = f"{canonical}, {found['items'][0]['country']}: {found['total']:,} public repositories in the index."
-        return shell(f"/account/{owner}", canonical, desc)
+        feed = (f"/feeds/account/{canonical}.xml", f"{NAME}: {canonical}")
+        return shell(f"/account/{owner}", canonical, desc, feed=feed)
 
     # ------------------------------------------------------------------ feeds
 
-    def feed(path: str, title: str, description: str, **filters) -> Response:
-        items = catalogue.search_repos(
-            include_forks=False,
-            include_archived=False,
-            notable=True,
-            sort="newest",
-            limit=FEED_SIZE,
-            **filters,
-        )["items"]
+    def feed(path: str, page: str, title: str, description: str, **filters) -> Response:
+        """Up to FEED_SIZE notable original repositories, newest first. page is the site page
+        the feed belongs to, used as the channel link."""
+        try:
+            items = catalogue.search_repos(
+                include_forks=False,
+                include_archived=False,
+                notable=True,
+                sort="newest",
+                limit=FEED_SIZE,
+                **filters,
+            )["items"]
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from None
         now = format_datetime(datetime.now(UTC))
         parts = [
             '<?xml version="1.0" encoding="UTF-8"?>',
             '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>',
             f"<title>{escape(title)}</title>",
-            f"<link>{SITE_URL}/week</link>",
+            f"<link>{escape(SITE_URL + page)}</link>",
             f"<description>{escape(description)}</description>",
-            f'<atom:link href="{SITE_URL}{escape(path)}" rel="self" type="application/rss+xml"/>',
+            f'<atom:link href="{escape(SITE_URL + path)}" rel="self" type="application/rss+xml"/>',
             f"<lastBuildDate>{now}</lastBuildDate>",
+            "<ttl>720</ttl>",
         ]
         for r in items:
             created = r["created_at"]
@@ -187,27 +217,38 @@ def add_site_routes(app: FastAPI, catalogue: Catalogue, insights: Insights, site
                 f"<description>{escape(body)}</description></item>"
             )
         parts.append("</channel></rss>")
-        return Response("\n".join(parts), media_type="application/rss+xml")
+        # The data changes at most daily, so readers and caches can hold a copy for an hour.
+        return Response(
+            "\n".join(parts),
+            media_type="application/rss+xml",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    def theme_filter(theme: str) -> dict:
+        if not insights._known(theme) or not catalogue.decision_model:
+            raise HTTPException(status_code=404, detail="No such theme")
+        t = insights._describe(theme)
+        return {"domain" if t["type"] == "domain" else "tag": theme, "_name": t["name"]}
 
     @app.get("/feeds/week.xml", include_in_schema=False)
     def feed_week():
         return feed(
             "/feeds/week.xml",
-            "Open GovTech Index: new repositories",
+            "/week",
+            WEEK_FEED[1],
             "New government repositories worth a look.",
         )
 
     @app.get("/feeds/theme/{theme}.xml", include_in_schema=False)
     def feed_theme(theme: str):
-        if not insights._known(theme) or not catalogue.decision_model:
-            raise HTTPException(status_code=404, detail="No such theme")
-        t = insights._describe(theme)
-        key = "domain" if t["type"] == "domain" else "tag"
+        f = theme_filter(theme)
+        name = f.pop("_name")
         return feed(
             f"/feeds/theme/{theme}.xml",
-            f"Open GovTech Index: {t['name']}",
-            f"New government repositories in {t['name']}.",
-            **{key: theme},
+            f"/theme/{theme}",
+            f"{NAME}: {name}",
+            f"New government repositories in {name}.",
+            **f,
         )
 
     @app.get("/feeds/country/{slug}.xml", include_in_schema=False)
@@ -217,9 +258,58 @@ def add_site_routes(app: FastAPI, catalogue: Catalogue, insights: Insights, site
             raise HTTPException(status_code=404, detail="No such registry label")
         return feed(
             f"/feeds/country/{slug}.xml",
-            f"Open GovTech Index: {label}",
+            f"/country/{slug}",
+            f"{NAME}: {label}",
             f"New government repositories from {label}.",
             country=label,
+        )
+
+    # Accounts on other forges are "{host}/{group}", so the owner may contain slashes.
+    @app.get("/feeds/account/{owner:path}.xml", include_in_schema=False)
+    def feed_account(owner: str):
+        found = catalogue.search_repos(owner=owner, limit=1)
+        if not found["total"]:
+            raise HTTPException(status_code=404, detail="No such account")
+        canonical = found["items"][0]["full_name"].rsplit("/", 1)[0]
+        return feed(
+            f"/feeds/account/{canonical}.xml",
+            f"/account/{canonical}",
+            f"{NAME}: {canonical}",
+            f"New repositories from {canonical}.",
+            owner=canonical,
+        )
+
+    @app.get("/feeds/repos.xml", include_in_schema=False)
+    def feed_search(request: Request):
+        """Any search from the Repositories page as a feed. Sort, forks, archived and
+        maintained are ignored: a feed is always new, notable originals."""
+        filters = {
+            k: v.strip() for k in FEED_FILTERS if (v := request.query_params.get(k, "")).strip()
+        }
+        labels = []
+        for k in FEED_FILTERS:
+            if k not in filters:
+                continue
+            v = filters[k]
+            if k in ("domain", "tag"):
+                f = theme_filter(v)
+                if f.get(k) != v:
+                    raise HTTPException(status_code=404, detail=f"No such {k}")
+                labels.append(f["_name"])
+            elif k == "q":
+                labels.append(f"“{v}”")
+            else:
+                labels.append(v)
+        query = urlencode(filters)
+        path = "/feeds/repos.xml" + (f"?{query}" if query else "")
+        page = "/repos" + (f"?{query}&sort=newest" if query else "?sort=newest")
+        title = f"{NAME}: {' · '.join(labels)}" if labels else WEEK_FEED[1]
+        return feed(
+            path,
+            page,
+            title,
+            f"New government repositories matching {' · '.join(labels) or 'anything'}.",
+            **filters,
         )
 
     # ------------------------------------------------------------------ badge
