@@ -1,0 +1,17 @@
+org: ScuolaNormaleSuperiore
+country: IT
+account_type: org
+description: Scuola Normale Superiore (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.sns.it/it
+notes: 'Official Italian public-administration reuse catalogue: wp-pagopa-gateway-cineca; IPA sns_pi.
+  Source repository https://github.com/ScuolaNormaleSuperiore/wp-pagopa-gateway-cineca.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  Design Laboratori Italia; IPA sns_pi. Source repository https://github.com/ScuolaNormaleSuperiore/design-laboratori-wordpress-theme.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Piattaforma per la gestione dei corsi e delle iniziative di orientamento universitario;
+  IPA sns_pi. Source repository https://github.com/ScuolaNormaleSuperiore/portale-corsi-iniziative-orientamento.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Design ICT Site; IPA sns_pi. Source repository https://github.com/ScuolaNormaleSuperiore/design-ictsite-wp-theme.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

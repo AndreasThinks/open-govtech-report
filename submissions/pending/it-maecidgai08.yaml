@@ -1,0 +1,9 @@
+org: MAECIDGAI08
+country: IT
+account_type: user
+description: Ministero degli Affari Esteri e della Cooperazione Internazionale (Italian public-sector
+  account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: IoVoto; IPA m_ae. Source repository https://github.com/MAECIDGAI08/IoVoto.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

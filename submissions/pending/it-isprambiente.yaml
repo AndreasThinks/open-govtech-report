@@ -1,0 +1,18 @@
+org: isprambiente
+country: IT
+account_type: org
+description: I.S.P.R.A. (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.isprambiente.gov.it
+notes: 'Official Italian public-administration reuse catalogue: Med.Plan.; IPA ispra_rm. Source repository
+  https://github.com/isprambiente/medplan.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: SATOSA-oidcop; IPA unical. Source repository
+  https://github.com/isprambiente/SATOSA-oidcop.git. Account-level public-body identity checked before
+  submission. Official Italian public-administration reuse catalogue: Partecipo; IPA ispra_rm. Source
+  repository https://github.com/isprambiente/Partecipo.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: Domando; IPA ispra_rm. Source
+  repository https://github.com/isprambiente/Domando.git. Account-level public-body identity checked before
+  submission. Official Italian public-administration reuse catalogue: LodView; IPA pcm. Source repository
+  https://github.com/isprambiente/dati-semantic-lodview.git. Account-level public-body identity checked
+  before submission. Account exists and API type checked 2026-10-20.'

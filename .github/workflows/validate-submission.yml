@@ -13,6 +13,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The changed-file step compares against the PR base's merge history.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4

@@ -1,0 +1,10 @@
+org: Consiglio-Regionale-della-Lombardia
+country: IT
+account_type: org
+description: Consiglio regionale della Lombardia (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: GeA; IPA r_lomb. Source repository https://github.com/Consiglio-Regionale-della-Lombardia/GEA.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Gestione Consiglieri (Ge.Co.); IPA r_lomb. Source repository https://github.com/Consiglio-Regionale-della-Lombardia/GeCo.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

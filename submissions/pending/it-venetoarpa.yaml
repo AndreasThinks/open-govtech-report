@@ -1,0 +1,11 @@
+org: venetoarpa
+country: IT
+account_type: org
+description: ARPAV (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: CliNE; IPA arpa_ve. Source repository
+  https://github.com/venetoarpa/arpav-cline-backend.git. Account-level public-body identity checked before
+  submission. Official Italian public-administration reuse catalogue: CliNE; IPA arpa_ve. Source repository
+  https://github.com/venetoarpa/arpav-cline-frontend.git. Account-level public-body identity checked before
+  submission. Account exists and API type checked 2026-10-20.'

@@ -1,0 +1,8 @@
+org: gc-da11yn
+country: CA
+account_type: org
+description: gc-da11yn (Canadian public-sector account)
+evidence:
+- https://github.com/canada-ca/ore-ero/blob/master/_data/code/federal/ssc-spc.yml
+notes: Canadian ORE government-attributed code record; administration ssc-spc; repository https://github.com/gc-da11yn/gc-da11yn.github.io.
+  Generic upstream/personal accounts excluded. Account exists and API type checked 2026-10-20.

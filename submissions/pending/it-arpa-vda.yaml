@@ -1,0 +1,10 @@
+org: ARPA-VdA
+country: IT
+account_type: org
+description: ARPA Valle d'Aosta (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.arpa.vda.it
+notes: 'Official Italian public-administration reuse catalogue: Phenopix; IPA arpa_09. Source repository
+  https://github.com/ARPA-VdA/phenopix.git. Account-level public-body identity checked before submission.
+  Account exists and API type checked 2026-10-20.'

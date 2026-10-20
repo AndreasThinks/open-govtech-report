@@ -1,0 +1,58 @@
+org: regione-marche
+country: IT
+account_type: org
+description: Regione Marche (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: IntermediaMarche; IPA r_marche. Source
+  repository https://github.com/regione-marche/Intermedia.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: praticheUSR-cittadini; IPA
+  r_marche. Source repository https://github.com/regione-marche/praticheUSR-cittadini.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  SIRTE; IPA r_marche. Source repository https://github.com/regione-marche/SIRTE.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: Meetpad;
+  IPA r_marche. Source repository https://github.com/regione-marche/meetpad-public.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  WSAppalti; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-WSAppalti.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: WSBandiEsitiAvvisi; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-WSBandiEsitiAvvisi.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: WSDM; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-WSDM.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: GeneWeb; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-GeneWeb.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: WSCompositore; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-WSCompositore.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: DBScheduler; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-DBScheduler.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Appalti; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-Appalti.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: BANDEU; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-BANDEU.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: VigilanzaComunicazioni; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-VigilanzaComunicazioni.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: WS2Vigilanza; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-WS2Vigilanza.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: appalti-rest; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-appalti-rest.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: BAND; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-BAND.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Pubblicazioni; IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-Pubblicazioni.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: prog-servizi; IPA r_marche. Source repository https://github.com/regione-marche/prog-servizi.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SUAP-SUE Regione Marche CWOL; IPA r_marche. Source repository https://github.com/regione-marche/SUAP-SUE-Regione-Marche-CWOL.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SIGEF; IPA r_marche. Source repository https://github.com/regione-marche/sigef.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: MPay; IPA r_marche. Source repository https://github.com/regione-marche/mpay.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  Programmazione Triennale ed Esecuzione Contratti ed Esecuzione Contratti; IPA r_marche. Source repository
+  https://github.com/regione-marche/e-procurement-Programmazione.git. Account-level public-body identity
+  checked before submission. Official Italian public-administration reuse catalogue: DGUE; IPA r_marche.
+  Source repository https://github.com/regione-marche/e-procurement-DGUE.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: eForms;
+  IPA r_marche. Source repository https://github.com/regione-marche/e-procurement-EFORMS.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  RM_DCIM; IPA R_MARCHE. Source repository https://github.com/regione-marche/DCIMRM.git. Account-level
+  public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

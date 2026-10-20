@@ -1,0 +1,25 @@
+org: INGV
+country: IT
+account_type: org
+description: Istituto Nazionale di Geofisica e Vulcanologia (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: INGV - QuakeML Validator; IPA ingv. Source
+  repository https://github.com/INGV/qml-validator.git. Account-level public-body identity checked before
+  submission. Official Italian public-administration reuse catalogue: INGV - Seismic Tools; IPA ingv.
+  Source repository https://github.com/INGV/seismictools.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: INGV - QuakeML to Hypo71
+  PHS; IPA ingv. Source repository https://github.com/INGV/qml2hypo71phs.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: INGV - QuakeML
+  to NonLinLoc PHS; IPA ingv. Source repository https://github.com/INGV/qml2nllphs.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  INGV - QuakeML to Extended Text Format; IPA ingv. Source repository https://github.com/INGV/qml2extendedtext.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: INGV - apollo; IPA ingv. Source repository https://github.com/INGV/apollo.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  INGV - hyp2000; IPA ingv. Source repository https://github.com/INGV/hyp2000.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: INGV - PyML;
+  IPA ingv. Source repository https://github.com/INGV/pyml.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: INGV - hypoellipse; IPA ingv.
+  Source repository https://github.com/INGV/hypoellipse.git. Account-level public-body identity checked
+  before submission. Account exists and API type checked 2026-10-20.'

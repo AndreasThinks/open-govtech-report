@@ -1,0 +1,12 @@
+org: CittaMetropolitanaVenezia
+country: IT
+account_type: org
+description: Città Metropolitana di Venezia (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: SICLA; IPA p_ve. Source repository https://github.com/CittaMetropolitanaVenezia/DeSK-KitRiuso-SICLA.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SIGEO; IPA p_ve. Source repository https://github.com/CittaMetropolitanaVenezia/DeSK-KitRiuso-SIGEO.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: AppDSS; IPA p_ve. Source repository https://github.com/CittaMetropolitanaVenezia/DeSK-KitRiuso-APPDSS.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

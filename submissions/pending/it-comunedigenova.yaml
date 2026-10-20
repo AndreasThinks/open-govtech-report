@@ -1,0 +1,18 @@
+org: ComuneDiGenova
+country: IT
+account_type: org
+description: Comune di Genova (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.comune.genova.it/
+notes: 'Official Italian public-administration reuse catalogue: Nuovo Sistema Emergenze Protezione Civile;
+  IPA c_d969. Source repository https://github.com/ComuneDiGenova/emergenze-pcge.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: Dispatcher
+  Unificato per AppIO; IPA c_d969. Source repository https://github.com/ComuneDiGenova/DispatcherUnificato.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: NOVA; IPA c_d969. Source repository https://github.com/ComuneDiGenova/NOVA.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  Fabbisogno del Personale; IPA c_d969. Source repository https://github.com/ComuneDiGenova/Fabbisogno_Personale.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Fascicolo del Cittadino; IPA c_d969. Source repository https://github.com/ComuneDiGenova/FascicoloDelCittadino.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

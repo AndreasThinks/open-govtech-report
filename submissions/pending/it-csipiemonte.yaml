@@ -1,0 +1,26 @@
+org: csipiemonte
+country: IT
+account_type: org
+description: CSI Piemonte (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: MACHI; IPA csi_piem. Source repository
+  https://github.com/csipiemonte/machi.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: VIDE; IPA csi_piem. Source repository https://github.com/csipiemonte/vide.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: CarPoolingHub; IPA csi_piem. Source repository https://github.com/csipiemonte/carpool.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Notify; IPA csi_piem. Source repository https://github.com/csipiemonte/notify.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: UnlockPA; IPA csi_piem. Source repository https://github.com/csipiemonte/unlockpa.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Taylor; IPA csi_piem. Source repository https://github.com/csipiemonte/Taylor.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: EPOLL; IPA csi_piem. Source repository https://github.com/csipiemonte/epoll.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  MOOn; IPA csi_piem. Source repository https://github.com/csipiemonte/moon.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: Città Facile;
+  IPA csi_piem. Source repository https://github.com/csipiemonte/citfac.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: Cosmo; IPA
+  csi_piem. Source repository https://github.com/csipiemonte/cosmo.git. Account-level public-body identity
+  checked before submission. Account exists and API type checked 2026-10-20.'

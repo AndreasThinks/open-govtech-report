@@ -1,0 +1,22 @@
+org: pagopa
+country: IT
+account_type: org
+description: PagoPA S.p.A. (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://pagopa.it/
+notes: 'Official Italian public-administration reuse catalogue: IO; IPA 5n2tr557. Source repository https://github.com/pagopa/io-app.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: mui-italia; IPA 5n2tr557. Source repository https://github.com/pagopa/mui-italia.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: IO Design System; IPA 5n2tr557. Source repository https://github.com/pagopa/io-app-design-system.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: One Identity; IPA 5N2TR557. Source repository https://github.com/pagopa/oneidentity.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Firma con IO; IPA 5N2TR557. Source repository https://github.com/pagopa/io-sign.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Piattaforma Digitale Nazione Dati - Interoperabilità; IPA 5N2TR557. Source repository
+  https://github.com/pagopa/interop-be-monorepo.git. Account-level public-body identity checked before
+  submission. Official Italian public-administration reuse catalogue: Piattaforma Unitaria; IPA 5n2tr557.
+  Source repository https://github.com/pagopa/p4pa-doc.git. Account-level public-body identity checked
+  before submission. Account exists and API type checked 2026-10-20.'

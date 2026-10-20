@@ -1,0 +1,15 @@
+org: AUSL-ReggioEmilia
+country: IT
+account_type: org
+description: AUSL-RE (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Docsuite PA; IPA auslre. Source repository
+  https://github.com/AUSL-ReggioEmilia/DocSuitePA.git. Account-level public-body identity checked before
+  submission. Official Italian public-administration reuse catalogue: Dorsale Interoperabile - Clinical
+  Data Repository (CDR), Enterprise Master
+
+  Patient Index (MPI), OrderEntry (OE); IPA auslre. Source repository https://github.com/AUSL-ReggioEmilia/DorsaleInteroperabilePA.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Matilde; IPA auslre. Source repository https://github.com/AUSL-ReggioEmilia/Matilde.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

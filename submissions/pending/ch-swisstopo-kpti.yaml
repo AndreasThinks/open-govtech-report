@@ -1,0 +1,10 @@
+org: swisstopo-kpti
+country: CH
+account_type: org
+description: Federal Office of Topography swisstopo | Process Technology and Innovation | CH-3084 Wabern
+  | Switzerland (Swiss public-sector account)
+evidence:
+- https://raw.githubusercontent.com/swiss/index/7aad3c4cbc46892e8c1aaac275bb8d3072ca00a4/README.md
+- https://www.swisstopo.admin.ch/en/swisstopo/organisation/cartography.html
+notes: Listed in the Swiss Confederation official owner index; federal, project and cantonal public-sector
+  accounts. Account exists and API type checked 2026-10-20.

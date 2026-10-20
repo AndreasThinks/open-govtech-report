@@ -1,0 +1,10 @@
+host: gitlab.com
+platform: gitlab
+owner: marshack
+country: FR
+account_type: org
+description: marshack
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+notes: French public-body registry pso_id 6c2248ec-78e4-4009-abd7-b11e1e053f29. Group identity checked
+  through public GitLab API on 2026-10-20; shared-host ingestion is scoped to this group.

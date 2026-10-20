@@ -1,0 +1,10 @@
+org: INRIM
+country: IT
+account_type: org
+description: Istituto Nazionale di Ricerca Metrologica (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.inrim.it/
+notes: 'Official Italian public-administration reuse catalogue: API Integrazione U-GOV JP - WSACPersonaFisica
+  (SOAP); IPA inrm. Source repository https://github.com/INRIM/api-ugov-persona-fisica.git. Account-level
+  public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

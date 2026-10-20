@@ -1,0 +1,10 @@
+org: signaux-faibles
+country: FR
+account_type: org
+description: Signaux Faibles (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+- https://beta.gouv.fr/startups/signaux-faibles.html
+notes: Listed public-body account in the French registry (pso_id c4195774-f535-4d82-b03f-d5f0c6b08635).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

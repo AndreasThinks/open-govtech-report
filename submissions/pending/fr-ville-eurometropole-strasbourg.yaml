@@ -1,0 +1,10 @@
+org: ville-eurometropole-strasbourg
+country: FR
+account_type: org
+description: Eurométropole de Strasbourg (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+- https://opensource.strasbourg.eu/
+notes: Listed public-body account in the French registry (pso_id db057bfd-ee8f-49eb-83a9-156c8f87bc3a).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

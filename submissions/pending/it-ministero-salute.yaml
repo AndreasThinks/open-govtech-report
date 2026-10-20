@@ -1,0 +1,32 @@
+org: ministero-salute
+country: IT
+account_type: org
+description: Ministero della Salute (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.salute.gov.it
+notes: 'Official Italian public-administration reuse catalogue: VerificaC19 (Android); IPA m_sa. Source
+  repository https://github.com/ministero-salute/it-dgc-verificaC19-android.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: VerificaC19
+  (iOS); IPA m_sa. Source repository https://github.com/ministero-salute/it-dgc-verificaC19-ios.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  DCC-Utils; IPA m_sa. Source repository https://github.com/ministero-salute/dcc-utils.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  Digital Covid Certificate Android SDK; IPA m_sa. Source repository https://github.com/ministero-salute/it-dgc-verificac19-sdk-android.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SDK Flusso Consultori familiari - Engine Contatto; IPA m_sa. Source repository https://github.com/ministero-salute/sdk-engine-sicofcontatto-java.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SDK Flusso Consultori familiari - Engine Prestazione grande gruppo; IPA m_sa. Source
+  repository https://github.com/ministero-salute/sdk-engine-sicofprestgrup-java.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: SDK Flusso
+  Consultori familiari - Engine Prestazione individuale/piccolo gruppo; IPA m_sa. Source repository https://github.com/ministero-salute/sdk-engine-sicofprestind-java.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SDK Flusso Assistenza Riabilitativa Territoriale - Engine Ore annuali professionisti;
+  IPA m_sa. Source repository https://github.com/ministero-salute/sdk-engine-siaroreprof-java.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  SDK Flusso Assistenza Riabilitativa Territoriale - Engine PIC & Valutazione Iniziale; IPA m_sa. Source
+  repository https://github.com/ministero-salute/sdk-engine-siarpicvalini-java.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: SDK Flusso
+  Assistenza Riabilitativa Territoriale - Engine Attività Riabilitazione; IPA m_sa. Source repository
+  https://github.com/ministero-salute/sdk-engine-siarriab-java.git. Account-level public-body identity
+  checked before submission. Account exists and API type checked 2026-10-20.'

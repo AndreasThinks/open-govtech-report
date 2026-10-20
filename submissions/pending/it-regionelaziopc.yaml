@@ -1,0 +1,9 @@
+org: RegioneLazioPC
+country: IT
+account_type: org
+description: RegioneLazioPC (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: WebSOR Lazio; IPA r_lazio. Source repository
+  https://github.com/RegioneLazioPC/websor-riuso.git. Account-level public-body identity checked before
+  submission. Account exists and API type checked 2026-10-20.'

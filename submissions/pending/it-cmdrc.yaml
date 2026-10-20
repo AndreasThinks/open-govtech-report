@@ -1,0 +1,10 @@
+org: cmdrc
+country: IT
+account_type: org
+description: Città Metropolitana di Reggio Calabria (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.cittametropolitana.rc.it/
+notes: 'Official Italian public-administration reuse catalogue: GasPlanetService; IPA cmdrc. Source repository
+  https://github.com/cmdrc/gasplanet.git. Account-level public-body identity checked before submission.
+  Account exists and API type checked 2026-10-20.'

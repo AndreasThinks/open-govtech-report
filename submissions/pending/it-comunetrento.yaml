@@ -1,0 +1,21 @@
+org: ComuneTrento
+country: IT
+account_type: org
+description: Comune di Trento (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Interactive Front-End (IFE); IPA c_l378.
+  Source repository https://github.com/ComuneTrento/SPRINT-IFE.git. Account-level public-body identity
+  checked before submission. Official Italian public-administration reuse catalogue: Authenticazione e
+  Autorizzazione; IPA c_l378. Source repository https://github.com/ComuneTrento/SPRINT-aac.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  Strumenti di Semplificazione; IPA c_l378. Source repository https://github.com/ComuneTrento/SPRINT-Strumenti-di-semplificazione.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Catalogo dei Servizi; IPA c_l378. Source repository https://github.com/ComuneTrento/Catalogo-dei-servizi.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: CPD; IPA c_l378. Source repository https://github.com/ComuneTrento/CPD-Collaborative-Procedure-Design.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Validator Devel; IPA c_l378. Source repository https://github.com/ComuneTrento/Sportello-telematico-Validator-devel.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Area Personale del Comune di Trento; IPA c_l378. Source repository https://github.com/ComuneTrento/Area-personale.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

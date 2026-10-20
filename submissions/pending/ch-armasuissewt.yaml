@@ -1,0 +1,9 @@
+org: armasuissewt
+country: CH
+account_type: org
+description: armasuisse W+T (Swiss public-sector account)
+evidence:
+- https://raw.githubusercontent.com/swiss/index/7aad3c4cbc46892e8c1aaac275bb8d3072ca00a4/README.md
+- https://www.ar.admin.ch/en/armasuisse-wissenschaft-und-technologie-w-t/home.html
+notes: Listed in the Swiss Confederation official owner index; federal, project and cantonal public-sector
+  accounts. Account exists and API type checked 2026-10-20.

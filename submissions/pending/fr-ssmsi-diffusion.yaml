@@ -1,0 +1,10 @@
+org: ssmsi-diffusion
+country: FR
+account_type: org
+description: SSMSI - MI (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+- https://www.interieur.gouv.fr/Interstats/Qui-sommes-nous
+notes: Listed public-body account in the French registry (pso_id eb716654-a790-448f-8a58-5972f589af88).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

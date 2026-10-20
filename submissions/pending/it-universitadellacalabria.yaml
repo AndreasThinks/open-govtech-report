@@ -1,0 +1,44 @@
+org: UniversitaDellaCalabria
+country: IT
+account_type: org
+description: Università della Calabria (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.unical.it
+notes: 'Official Italian public-administration reuse catalogue: pyWSArchiPRO; IPA unical. Source repository
+  https://github.com/UniversitaDellaCalabria/pyWSArchiPRO.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: Procedura Elettronica Online;
+  IPA unical. Source repository https://github.com/UniversitaDellaCalabria/PEO.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: django-ldap-academia-ou-manager;
+  IPA unical. Source repository https://github.com/UniversitaDellaCalabria/django-ldap-academia-ou-manager.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Django Bootstrap Italia template; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/design-django-theme.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: uniAuth; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/uniAuth.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: info-manager; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/info-manager.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: unicalDiscoveryService; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/unicalDiscoveryService.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Shibboleth IdP Bootstrap Italia template; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/design-shibboleth-idp-theme.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Shibboleth IdP Unical template; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/design-unical-shibboleth-idp-theme.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Django-MDQ; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/Django-MDQ.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: django-freeradius-manager; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/django-freeradius-manager.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: django-delivery; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/django-delivery.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: urlShortener; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/urlShortener.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: pyWSTitulus; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/pyWSTitulus.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: uniCMS - Unical storage API handler; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/unicms-unical-storage-handler.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: uniCMS - Editorial Board; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/unicms-editorial-board.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Satosa-Saml2Spid; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/Satosa-Saml2Spid.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SATOSA-oidcop; IPA unical. Source repository https://github.com/UniversitaDellaCalabria/SATOSA-oidcop.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

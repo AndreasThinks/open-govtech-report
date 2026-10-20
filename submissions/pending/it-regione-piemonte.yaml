@@ -1,0 +1,127 @@
+org: regione-piemonte
+country: IT
+account_type: org
+description: Regione Piemonte (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+- https://www.regione.piemonte.it/
+notes: 'Official Italian public-administration reuse catalogue: Deleghe; IPA r_piemon. Source repository
+  https://github.com/regione-piemonte/deleghe.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: Sistema Informativo Tassa Auto Piemonte; IPA
+  r_piemon. Source repository https://github.com/regione-piemonte/tassaauto.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: DECSIRA;
+  IPA r_piemon. Source repository https://github.com/regione-piemonte/decsira.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: SIGAS; IPA
+  r_piemon. Source repository https://github.com/regione-piemonte/sigas.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: Piattaforma
+  Covid 19; IPA r_piemon. Source repository https://github.com/regione-piemonte/gescovid19.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  FINDOM; IPA r_piemon. Source repository https://github.com/regione-piemonte/findom.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  Portale Rilevazioni; IPA r_piemon. Source repository https://github.com/regione-piemonte/portrilev.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: OPERE PUBBLICHE OPEN; IPA r_piemon. Source repository https://github.com/regione-piemonte/moti.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: CONAM; IPA r_piemon. Source repository https://github.com/regione-piemonte/conam.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: PSLP; IPA r_piemon. Source repository https://github.com/regione-piemonte/pslp.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: TAIF; IPA r_piemon. Source repository https://github.com/regione-piemonte/taif.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: BotSan Widget; IPA r_piemon. Source repository https://github.com/regione-piemonte/botsan.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Airstation; IPA r_piemon. Source repository https://github.com/regione-piemonte/airstation.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: GFU; IPA r_piemon. Source repository https://github.com/regione-piemonte/gfu.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  FE Servizi Salute Regione Piemonte e Backend API Servizi Salute; IPA r_piemon. Source repository https://github.com/regione-piemonte/apisan.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: PRODIS; IPA r_piemon. Source repository https://github.com/regione-piemonte/prodis.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Configuratore Operatori; IPA r_piemon. Source repository https://github.com/regione-piemonte/lcce.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Immagini in Rete del FSE; IPA r_piemon. Source repository https://github.com/regione-piemonte/imr-fse.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Aircentral; IPA r_piemon. Source repository https://github.com/regione-piemonte/aircentral.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Mèmora Backend; IPA r_piemon. Source repository https://github.com/regione-piemonte/CABE.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Fonti del Fascicolo Sanitario Elettronico; IPA r_piemon. Source repository https://github.com/regione-piemonte/fonti-fse.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: QGISAGRI; IPA r_piemon. Source repository https://github.com/regione-piemonte/qgisagri.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: IUFFI; IPA r_piemon. Source repository https://github.com/regione-piemonte/iuffi.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Airauth; IPA r_piemon. Source repository https://github.com/regione-piemonte/airauth.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SOL Assistenza; IPA r_piemon. Source repository https://github.com/regione-piemonte/SOLAssistenzaSalute.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Consensi; IPA r_piemon. Source repository https://github.com/regione-piemonte/conspref.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SCEREV; IPA r_piemon. Source repository https://github.com/regione-piemonte/scerev.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Esenzione; IPA r_piemon. Source repository https://github.com/regione-piemonte/esenzione.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SENTINELSCRIPT; IPA r_piemon. Source repository https://github.com/regione-piemonte/sentinel.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: REBUS; IPA r_piemon. Source repository https://github.com/regione-piemonte/rebus.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: NotifySan; IPA r_piemon. Source repository https://github.com/regione-piemonte/notifysan.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: COMONL; IPA r_piemon. Source repository https://github.com/regione-piemonte/comonl.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Epico; IPA r_piemon. Source repository https://github.com/regione-piemonte/epico.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: FIRMIP; IPA r_piemon. Source repository https://github.com/regione-piemonte/firmip.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Airvalidfe; IPA r_piemon. Source repository https://github.com/regione-piemonte/airvalidfe.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Webapp operatori sanitari; IPA r_piemon. Source repository https://github.com/regione-piemonte/webappmed-fse.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Consegna ricette in farmacia; IPA r_piemon. Source repository https://github.com/regione-piemonte/farab-fse.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: TSDDR; IPA r_piemon. Source repository https://github.com/regione-piemonte/tsddr.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Catasto Impianti Termici (CIT); IPA r_piemon. Source repository https://github.com/regione-piemonte/cit.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Stilo; IPA r_piemon. Source repository https://github.com/regione-piemonte/stilo.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: FE Servizi Salute Regione Piemonte e Backend API Servizi Salute; IPA r_piemon. Source
+  repository https://github.com/regione-piemonte/apisansol.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: buonodom; IPA r_piemon. Source
+  repository https://github.com/regione-piemonte/buonodom.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: Piemonte Pay; IPA r_piemon.
+  Source repository https://github.com/regione-piemonte/piemontepay.git. Account-level public-body identity
+  checked before submission. Official Italian public-administration reuse catalogue: Infrastruttura Dati
+  Forestali; IPA r_piemon. Source repository https://github.com/regione-piemonte/idf.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  SILAP; IPA r_piemon. Source repository https://github.com/regione-piemonte/silap.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  PBANDI; IPA r_piemon. Source repository https://github.com/regione-piemonte/pbandi.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  SREG; IPA r_piemon. Source repository https://github.com/regione-piemonte/sreg.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: buonores;
+  IPA r_piemon. Source repository https://github.com/regione-piemonte/buonores.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: VIGILSAN;
+  IPA r_piemon. Source repository https://github.com/regione-piemonte/vigilsan.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: RISCA; IPA
+  r_piemon. Source repository https://github.com/regione-piemonte/risca.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: MONPNRR;
+  IPA r_piemon. Source repository https://github.com/regione-piemonte/monpnrr.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: PGMEAS;
+  IPA r_piemon. Source repository https://github.com/regione-piemonte/pgmeas.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: VIFO; IPA
+  r_piemon. Source repository https://github.com/regione-piemonte/vifo.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: MUDEOPEN;
+  IPA r_piemon. Source repository https://github.com/regione-piemonte/mudeopen.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: PSLP V2;
+  IPA r_piemon. Source repository https://github.com/regione-piemonte/pslp-2.3.2.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: GNSSCOMP;
+  IPA r_piemon. Source repository https://github.com/regione-piemonte/retegnss.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: SERSE; IPA
+  r_piemon. Source repository https://github.com/regione-piemonte/serse.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: REEA (Registro
+  Ex Esposti Amianto); IPA r_piemon. Source repository https://github.com/regione-piemonte/reea.git. Account-level
+  public-body identity checked before submission. Official Italian public-administration reuse catalogue:
+  auxiliapiemonte; IPA r_piemon. Source repository https://github.com/regione-piemonte/auxiliapiemonte.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

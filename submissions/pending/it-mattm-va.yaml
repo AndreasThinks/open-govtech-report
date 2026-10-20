@@ -1,0 +1,9 @@
+org: MATTM-VA
+country: IT
+account_type: org
+description: MATTM-VA (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Portale delle valutazioni ambientali VAS-VIA-AIA;
+  IPA m_amte. Source repository https://github.com/MATTM-VA/PORTALE_VA.git. Account-level public-body
+  identity checked before submission. Account exists and API type checked 2026-10-20.'

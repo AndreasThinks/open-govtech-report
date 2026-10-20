@@ -1,0 +1,12 @@
+org: ARPALit
+country: IT
+account_type: user
+description: ARPAL (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: SIAPI; IPA arlpa_ge. Source repository
+  https://github.com/ARPALit/SIAPI.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: SICAMPIONA; IPA arlpa_ge. Source repository
+  https://github.com/ARPALit/SICAMPIONA.git. Account-level public-body identity checked before submission.
+  Official Italian public-administration reuse catalogue: SIASS; IPA arlpa_ge. Source repository https://github.com/ARPALit/SIASS.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

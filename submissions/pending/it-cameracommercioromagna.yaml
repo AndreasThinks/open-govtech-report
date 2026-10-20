@@ -1,0 +1,9 @@
+org: CameraCommercioRomagna
+country: IT
+account_type: org
+description: Camera di Commercio della Romagna (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: JAVA CMS Camera di Commercio; IPA ccrfcr.
+  Source repository https://github.com/CameraCommercioRomagna/JAVA-CMS-Camera-di-Commercio.git. Account-level
+  public-body identity checked before submission. Account exists and API type checked 2026-10-20.'

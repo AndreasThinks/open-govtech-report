@@ -1,0 +1,10 @@
+org: viginum-fr
+country: FR
+account_type: org
+description: VIGINUM (French public-sector account)
+evidence:
+- https://raw.githubusercontent.com/codegouvfr/codegouvfr-data/992d9953246c164bd749161f383c501d972c8694/comptes-organismes-publics.yml
+- https://www.sgdsn.gouv.fr/notre-organisation/composantes/service-de-vigilance-et-protection-contre-les-ingerences-numeriques
+notes: Listed public-body account in the French registry (pso_id 9b5ab0f6-220f-4f41-9ebb-6268c8be2287).
+  Includes public research/education; registry maintenance warning requires account validation. Account
+  exists and API type checked 2026-10-20.

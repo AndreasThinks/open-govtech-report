@@ -1,0 +1,31 @@
+org: comunedibari
+country: IT
+account_type: org
+description: comunedibari (Italian public-sector account)
+evidence:
+- https://developers.italia.it/en/software
+notes: 'Official Italian public-administration reuse catalogue: Kit di riuso PayFlowPA; IPA c_a662. Source
+  repository https://github.com/comunedibari/payflowpa.git. Account-level public-body identity checked
+  before submission. Official Italian public-administration reuse catalogue: ADOC2_AVMTB; IPA c_a662.
+  Source repository https://github.com/comunedibari/ADOC2_AVMTB.git. Account-level public-body identity
+  checked before submission. Official Italian public-administration reuse catalogue: La Mia Città; IPA
+  c_a662. Source repository https://github.com/comunedibari/lamiacitta.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: osapulie;
+  IPA c_a662. Source repository https://github.com/comunedibari/osapulie.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: Sistema
+  Informativo Territoriale Città metropolitana di Bari (E-GOV 2 Servizi
+
+  interattivi); IPA c_a662. Source repository https://github.com/comunedibari/SIT.git. Account-level public-body
+  identity checked before submission. Official Italian public-administration reuse catalogue: Cruscotto
+  geospaziale; IPA c_a662. Source repository https://github.com/comunedibari/cruscotto_geospaziale.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Gestione autorizzazioni; IPA c_a662. Source repository https://github.com/comunedibari/gestione-autorizzazioni.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: SGVP Gestione e Verifica Pass; IPA c_a662. Source repository https://github.com/comunedibari/sgvp.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Gestionale Passi Carrabili; IPA c_a662. Source repository https://github.com/comunedibari/gestionale-passi-carrabili.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: Occupazione Suolo Pubblico; IPA c_a662. Source repository https://github.com/comunedibari/occupazione-suolo-pubblico.git.
+  Account-level public-body identity checked before submission. Official Italian public-administration
+  reuse catalogue: NotificatoreIO; IPA c_a662. Source repository https://github.com/comunedibari/notificatoreIO.git.
+  Account-level public-body identity checked before submission. Account exists and API type checked 2026-10-20.'
