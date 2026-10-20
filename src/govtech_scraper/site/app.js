@@ -1129,6 +1129,39 @@
         ${pr.items.map(c => `<tr><td><a class="plain" href="${countryHref(c.slug)}">${esc(c.label)}</a><small>${esc(LEVEL_NAMES[c.level])}</small></td><td class="r">${num(c.maintained)}</td><td>${bar(c.licensed_share, ix.licensed_share)}</td><td>${bar(c.described_share, ix.described_share)}</td><td>${bar(c.topics_share, ix.topics_share)}</td><td class="r">${pc(c.archived_share)}</td><td class="r"><b>${pc(c.score)}</b></td></tr>`).join("")}
       </tbody></table></div>
       <p class="cap" style="margin-top:12px">The black mark on each bar is the whole index. ${esc(pr.definitions.archived_share)} Coming next: README, contributing guide and security policy, from GitHub's community profile.</p>
+    </div></section>
+    ${pr.licences ? licenceSection(pr.licences) : ""}`;
+  }
+
+  // Licence families: one bar for the index, then one per large label, most copyleft first.
+  const LICENCE_FAMILIES = [
+    ["permissive", "Permissive", "MIT, Apache, BSD"],
+    ["copyleft", "Copyleft", "EUPL, GPL, AGPL, MPL"],
+    ["public_domain", "Public domain and content", "CC0, CC-BY, Unlicense"],
+    ["unclear", "Unclear", "A licence file that matches no standard licence"],
+    ["none", "No licence", "No stated reuse terms"],
+  ];
+  function licenceSection(lic) {
+    const ix = lic.index;
+    const pct = v => (v < 10 ? v.toFixed(1) : Math.round(v)) + "%";
+    const tip = f => LICENCE_FAMILIES.map(([k, name]) => `${name} ${f[k]}%`).join(", ");
+    const mix = (f, cls = "") => `<div class="lmix ${cls}" role="img" aria-label="${esc(tip(f))}">${LICENCE_FAMILIES.filter(([k]) => f[k] > 0).map(([k, name]) => `<i class="lf-${k}" style="flex:${f[k]} 1 0" title="${esc(name)}: ${f[k]}%"></i>`).join("")}</div>`;
+    const row = (name, n, f, top, cls = "") => `<div class="lrow ${cls}" title="${esc(tip(f))}"><span class="nm">${name}<small>${num(n)}</small></span>${mix(f)}<code>${esc(top || "–")}</code></div>`;
+    return `
+    <section class="sec pad"><div class="in">
+      <h2>Licences</h2>
+      <p class="sub">Which licences ${num(ix.maintained)} maintained original repositories use. ${esc(pct(ix.families.permissive))} are permissive and ${esc(pct(ix.families.none))} have no licence at all. The most used are ${ix.top.slice(0, 3).map(t => `<code>${esc(t.id)}</code>`).join(", ")}.</p>
+      <div class="card">
+        ${mix(ix.families, "big")}
+        <div class="lkey">${LICENCE_FAMILIES.map(([k, name, eg]) => `<div><b><i class="lf-${k}"></i>${pct(ix.families[k])}</b><span>${name}</span><small>${eg}</small></div>`).join("")}</div>
+      </div>
+      <h3 style="margin:28px 0 4px;font-size:16px;font-weight:900">Who picks which kind of licence</h3>
+      <p class="cap" style="margin:0 0 10px">Labels with at least ${num(lic.minimum_maintained)} maintained repositories, most copyleft first. Hover a row for exact shares.</p>
+      <div class="lrows">
+        <div class="lrow hd"><span>Label · maintained</span><span>Licence families</span><span>Most used</span></div>
+        ${row("<span>Whole index</span>", ix.maintained, ix.families, ix.top[0] && ix.top[0].id, "ix")}
+        ${lic.labels.map(l => row(`<a class="plain" href="${countryHref(l.slug)}">${esc(l.label)}</a>`, l.maintained, l.families, l.top)).join("")}
+      </div>
     </div></section>`;
   }
 

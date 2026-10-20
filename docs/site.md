@@ -26,7 +26,7 @@ moved to paths automatically.
 | `/reuse` | Government forks of other governments' code: flows and most reused repos |
 | `/compare` | Two labels or two themes side by side |
 | `/building-blocks` | Hand-picked components from `api/building_blocks.yaml`, with live figures |
-| `/practice` | Licence, description and topic shares by label |
+| `/practice` | Licence, description and topic shares by label, and which kinds of licence each label uses |
 | `/submit` | Builds a `submissions/pending/*.yaml` file and opens it on GitHub |
 | `/about`, `/data` | Why the index exists, who runs it, supporters and the method (`/method` redirects); API, MCP, feeds and badges |
 
