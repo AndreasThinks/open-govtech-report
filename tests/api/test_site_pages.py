@@ -148,6 +148,10 @@ def test_practice_and_building_blocks(client):
     practice = client.get("/v1/practice").json()
     assert practice["index"]["maintained"] == 4
     assert practice["index"]["licensed_share"] == 75.0
+    lic = practice["licences"]
+    assert lic["index"]["maintained"] == 4
+    assert sum(lic["index"]["counts"].values()) == 4 and lic["index"]["counts"]["none"] == 1
+    assert lic["labels"] == []  # every fixture label is below the minimum
     blocks = client.get("/v1/building-blocks").json()
     assert blocks["groups"] and all(g["picks"] == [] for g in blocks["groups"])
 
@@ -236,3 +240,12 @@ def test_forge_repos_are_left_out_of_classification(forge_client):
     cov = forge_client.get("/v1/overview").json()["classification"]
     assert cov["current_total_repos"] == 1  # only the GitHub original
     assert forge_client.get("/v1/repos/gitlab.com/commonground/sub/api").json()["classification"] is None
+
+
+def test_licence_names_and_families():
+    from govtech_scraper.api.insights import licence_family, licence_id
+
+    assert licence_id("apache-2.0") == licence_id("Apache-2.0") == "Apache-2.0"
+    assert licence_id("gpl-3.0+") == "GPL-3.0-OR-LATER" and licence_id("NOASSERTION") is None
+    assert [licence_family(v) for v in ("MIT", "eupl-1.2", "CC0-1.0", "other", "Elastic-2.0", None, "")] == [
+        "permissive", "copyleft", "public_domain", "unclear", "unclear", "none", "none"]

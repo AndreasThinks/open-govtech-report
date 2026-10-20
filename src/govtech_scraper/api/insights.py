@@ -39,7 +39,39 @@ BREADTH_MIN = 5  # accounts creating new work before a rise counts as emerging
 CONCENTRATED_SHARE = 50  # top account's share of new work, in percent, above which a rise is one team's
 PRACTICE_MIN = 25  # maintained repositories a label needs to appear on the practice table
 UNLICENSED = ("", "NOASSERTION", "other", "Other")
+LICENCE_MIN = 150  # maintained repositories a label needs to appear in the licence chart
+LICENCE_FAMILIES = ("permissive", "copyleft", "public_domain", "unclear", "none")
+_PERMISSIVE = ("MIT", "APACHE", "BSD", "ISC", "0BSD", "ZLIB", "BSL", "WTFPL", "POSTGRESQL", "PSF", "X11")
+_COPYLEFT = ("EUPL", "GPL", "AGPL", "LGPL", "MPL", "EPL", "CECILL", "OSL")
+_PUBLIC_DOMAIN = ("CC0", "UNLICENSE", "CC-", "DL-DE", "OFL", "ETALAB", "OGL", "ODBL")
 FORGE_HOSTS_PATH = Path(__file__).parent.parent / "forge_hosts.yaml"
+
+
+def licence_id(value: str | None) -> str | None:
+    """One spelling per licence: other forges report lower-case SPDX ids and "+" for "or later"."""
+    if value is None or value in UNLICENSED:
+        return None
+    lid = value.strip().upper().replace("+", "-OR-LATER")
+    lid = lid.removesuffix("-ONLY")
+    return {"UNLICENSE": "Unlicense", "APACHE-2.0": "Apache-2.0", "BSD-3-CLAUSE": "BSD-3-Clause",
+            "BSD-2-CLAUSE": "BSD-2-Clause"}.get(lid, lid)
+
+
+def licence_family(value: str | None) -> str:
+    """Permissive, copyleft, public domain (and open content), unclear or none, from a raw licence."""
+    if value is None or value.strip() == "":
+        return "none"
+    lid = licence_id(value)
+    if lid is None:
+        return "unclear"
+    upper = lid.upper()
+    if upper.startswith(_PERMISSIVE):
+        return "permissive"
+    if upper.startswith(_COPYLEFT):
+        return "copyleft"
+    if upper.startswith(_PUBLIC_DOMAIN):
+        return "public_domain"
+    return "unclear"  # recognised but rare and non-standard, e.g. Elastic-2.0
 
 
 def _iso(dt: datetime) -> str:
@@ -1064,6 +1096,11 @@ class Insights:
                     [year_ago] * 4,
                 ).fetchall()
                 total = conn.execute(f"SELECT {cols} FROM repositories {where}", [year_ago] * 4).fetchone()
+                by_licence = conn.execute(
+                    f"""SELECT country AS label, license, COUNT(*) AS n FROM repositories
+                        {where} AND {maint} GROUP BY country, license""",
+                    [year_ago],
+                ).fetchall()
 
             def shares(r) -> dict:
                 m = r["maintained"] or 0
@@ -1082,6 +1119,7 @@ class Insights:
             items = [{**place(r["label"]), **shares(r)} for r in rows if (r["maintained"] or 0) >= PRACTICE_MIN]
             items.sort(key=lambda x: -(x["score"] or 0))
             return {
+                "licences": self._licences(by_licence),
                 "as_of": _iso(ref),
                 "minimum_maintained": PRACTICE_MIN,
                 "index": shares(total),
@@ -1092,10 +1130,45 @@ class Insights:
                     "topics_share": "Maintained original repositories with at least one GitHub topic.",
                     "archived_share": "Original repositories archived by their owner, a sign of tidy retirement.",
                     "score": "Average of the licensed, described and topics shares.",
+                    "licences": "Licence families of maintained original repositories. Unclear is a licence file "
+                    "that could not be matched to a standard licence, or a rare non-standard one.",
                 },
             }
 
         return self._once("practice", build)
+
+    @staticmethod
+    def _licences(rows) -> dict:
+        """Licence families and the most used licences, for the index and each large label."""
+        fams: dict[str, Counter] = {}
+        ids: dict[str, Counter] = {}
+        for r in rows:
+            fams.setdefault(r["label"], Counter())[licence_family(r["license"])] += r["n"]
+            if (lid := licence_id(r["license"])) is not None:
+                ids.setdefault(r["label"], Counter())[lid] += r["n"]
+
+        def mix(f: Counter) -> dict:
+            n = sum(f.values())
+            return {k: round(f[k] / n * 100, 1) if n else 0.0 for k in LICENCE_FAMILIES}
+
+        all_fams, all_ids = sum(fams.values(), Counter()), sum(ids.values(), Counter())
+        labels = []
+        for label, f in fams.items():
+            n = sum(f.values())
+            if n >= LICENCE_MIN:
+                top = ids.get(label, Counter()).most_common(1)
+                labels.append({**place(label), "maintained": n, "families": mix(f), "top": top[0][0] if top else None})
+        labels.sort(key=lambda x: (-x["families"]["copyleft"], x["label"]))
+        return {
+            "minimum_maintained": LICENCE_MIN,
+            "index": {
+                "maintained": sum(all_fams.values()),
+                "families": mix(all_fams),
+                "counts": {k: all_fams[k] for k in LICENCE_FAMILIES},
+                "top": [{"id": k, "repos": v} for k, v in all_ids.most_common(10)],
+            },
+            "labels": labels,
+        }
 
     # ------------------------------------------------------------------ building blocks
 

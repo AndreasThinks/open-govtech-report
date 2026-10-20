@@ -40,7 +40,7 @@ publication (`HfApi().restart_space(...)`).
 | `GET /v1/accounts/{owner}` | One GitHub account: themes, languages, reuse both ways, top and recent repos |
 | `GET /v1/reuse` | Government forks of other governments' code: flows between labels, most reused repos |
 | `GET /v1/week` | Latest scrape: notable new repos, archived repos, star movers, fastest-growing themes |
-| `GET /v1/practice` | Licence, description, topic and archive shares by label |
+| `GET /v1/practice` | Licence, description, topic and archive shares by label, plus licence families (`licences`) for the index and each label with 150+ maintained repositories |
 | `GET /v1/building-blocks` | Hand-picked components with live figures |
 | `GET /v1/taxonomy` | Domains, tags and kinds, with repo counts |
 | `GET /v1/stats` | Headline numbers |
