@@ -845,10 +845,14 @@ class OpenRouterBudget:
             self.mark_uncertain(claim_id, "OpenRouter usage/cost missing")
             raise UnreconciledBilling("OpenRouter response omitted verified usage/cost")
         row = self.conn.execute(
-            "SELECT reserved_usd FROM openrouter_budget_ledger WHERE id=?", (claim_id,)
+            "SELECT reserved_usd, status FROM openrouter_budget_ledger WHERE id=?", (claim_id,)
         ).fetchone()
         if row is None:
             raise AccountingBreach(f"OpenRouter budget claim {claim_id} not found")
+        if row["status"] == "completed":
+            # Receipt replays settle the same claim again; a settled row must stay byte-for-byte
+            # unchanged, since the nightly wrapper pins the historical ledger's digest.
+            return
         reserved = float(row["reserved_usd"])
         if cost > reserved + 1e-12:
             self.conn.execute(
