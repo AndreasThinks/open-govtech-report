@@ -169,11 +169,6 @@
     return (d > 0 ? "+" : d < 0 ? "−" : "") + Math.abs(d) + "%";
   }
   const indexPaceText = () => { const p = state.themes.index_pace; return p ? `${p >= 1 ? "up" : "down"} ${Math.abs(Math.round((p - 1) * 100))}%` : "unchanged"; };
-  function paceColour(p) {
-    if (p == null) return `color-mix(in srgb,var(--faint) 22%,var(--bg))`;
-    const s = Math.max(-1, Math.min(1, Math.log(p) / Math.log(2)));
-    return s >= 0 ? `color-mix(in srgb,var(--hot) ${Math.round(8 + s * 82)}%,var(--bg))` : `color-mix(in srgb,var(--cool) ${Math.round(8 - s * 62)}%,var(--bg))`;
-  }
 
   // ------------------------------------------------------------------ charts
   function spark(vals, color) {
@@ -199,26 +194,203 @@
     }
     return out;
   }
-  function treemap(svg) {
-    const W = 720, H = 470;
-    const cells = squarify(tags().sort((a, b) => b.repos - a.repos).map(t => ({ t, v: t.repos })), 0, 0, W, H);
-    const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-    cells.forEach(c => {
-      const t = c.t, g = el("g", { class: "tile" });
-      linkify(g, themeHref(t.id), `${t.name}: ${t.repos} repositories, ${paceText(t.pace, true)}`);
-      g.append(el("rect", { x: c.x, y: c.y, width: Math.max(0, c.w), height: Math.max(0, c.h), rx: 4, style: `fill:${paceColour(t.pace)}` }));
-      const strong = t.pace != null && Math.abs(Math.log(t.pace) / Math.log(2)) > .5;
-      const fg = strong ? (dark ? "#111" : "#fff") : css("--ink");
-      const fit = (s, px) => { const m = Math.floor((c.w - 16) / px); return s.length <= m ? s : s.slice(0, Math.max(1, m - 1)) + "…"; };
-      if (c.w > 40 && c.h > 26) {
-        g.append(txt({ x: c.x + 8, y: c.y + 19, fill: fg }, fit(t.name, 7.4)));
-        if (c.h > 48) g.append(txt({ x: c.x + 9, y: c.y + 37, class: "s", fill: fg, "fill-opacity": .85 }, fit(`${num(t.repos)} · ${paceText(t.pace)}`, 7.2)));
-      }
-      hover(g, `<b>${esc(t.name)}</b>${num(t.repos)} repositories · ${t.countries} countries<br>${esc(paceText(t.pace, true))} · ${STATUS[t.status] || ""}<br>${esc(t.domain_name)}`);
-      svg.append(g);
-    });
-    return [.5, .7, .85, 1, 1.2, 1.4, 2].map(p => `<i style="background:${paceColour(p)}"></i>`).join("");
+  // ------------------------------------------------------------------ index map
+  // Opens on the policy areas, sized by original repositories (each has one area) and coloured by pace;
+  // selecting one zooms into its themes. Themes can overlap, since a repository carries any number of tags.
+  // The ranked list below follows the zoom, so the map and the list are one view of the index.
+  const indexMap = { zoom: null, pick: null, sort: "size", all: false, width: 0, observer: null };
+  const reduceMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const hexRgb = h => { h = String(h).trim().replace("#", ""); if (h.length === 3) h = h.replace(/./g, "$&$&"); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) || 0); };
+  const mixHex = (a, b, t) => { const x = hexRgb(a), y = hexRgb(b); return "#" + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, "0")).join(""); };
+  const luma = h => { const c = hexRgb(h).map(v => (v /= 255) <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4); return .2126 * c[0] + .7152 * c[1] + .0722 * c[2]; };
+  const contrast = (a, b) => { const x = luma(a), y = luma(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
+  // Seven steps, one per third of a doubling either way, through a neutral middle. Unknown pace is hatched.
+  const paceStep = p => Math.max(-3, Math.min(3, Math.round(Math.log2(p) * 3)));
+  const stepColour = k => mixHex(css("--mid"), css(k > 0 ? "--hot" : "--cool"), Math.abs(k) / 3);
+  const paceFill = p => p == null ? "url(#hatch)" : stepColour(paceStep(p));
+  const inkOn = f => f[0] !== "#" || contrast(f, css("--ink")) >= contrast(f, css("--bg")) ? css("--ink") : css("--bg");
+  const paceLegend = note => `<div class="dlegend"><span class="ramp"><span>Slowing</span><span class="sw">${[-3, -2, -1, 0, 1, 2, 3].map(k => `<i style="background:${stepColour(k)}"></i>`).join("")}</span><span>Picking up</span><span class="ticks"><span>×0.5</span><span>same</span><span>×2</span></span></span><span><i class="hatch"></i>Too few to tell</span>${note ? `<span class="note">${note}</span>` : ""}</div>`;
+
+  let measure;
+  function textWidth(s, px, mono) {
+    if (measure === undefined) try { measure = document.createElement("canvas").getContext("2d"); } catch (e) { measure = null; }
+    if (!measure) return s.length * px * (mono ? .62 : .56);
+    measure.font = `${mono ? 600 : 700} ${px}px ${css(mono ? "--mono" : "--body") || "sans-serif"}`;
+    return measure.measureText(s).width;
   }
+  function wrapText(s, px, width, maxLines) {
+    const lines = []; let cur = "";
+    for (const w of s.split(" ")) {
+      const t = cur ? cur + " " + w : w;
+      if (textWidth(t, px) <= width) cur = t;
+      else { if (!cur || textWidth(w, px) > width) return null; lines.push(cur); cur = w; }
+    }
+    lines.push(cur);
+    return lines.length <= maxLines ? lines : null;
+  }
+  // The largest size at which the whole name fits, wrapped to at most three lines; never a cut-off name.
+  function fitLabel(w, h, name, sub, sizes = [14, 13, 12, 11, 10]) {
+    const pad = w < 70 ? 3 : w < 90 ? 5 : 7, iw = w - 2 * pad, ih = h - 2 * pad;
+    if (iw < 24 || ih < 12) return null;
+    for (const fs of sizes) {
+      const lines = wrapText(name, fs, iw, Math.min(3, Math.floor(ih / (fs * 1.18))));
+      if (!lines) continue;
+      return { fs, pad, lines, sub: sub && ih - lines.length * fs * 1.18 >= 15 && textWidth(sub, 11, true) <= iw ? sub : null };
+    }
+    return null;
+  }
+  function drawLabel(g, x, y, lab, fill) {
+    let ly = y + lab.pad + lab.fs * .95;
+    lab.lines.forEach(l => { g.append(txt({ x: x + lab.pad, y: ly, fill, style: `font-size:${lab.fs}px` }, l)); ly += lab.fs * 1.18; });
+    if (lab.sub) g.append(txt({ x: x + lab.pad, y: ly + 2, class: "s", fill, "fill-opacity": .85 }, lab.sub));
+  }
+  // Tooltips follow a mouse only; a tap selects instead of leaving a tooltip stuck on screen.
+  function mouseTip(node, html) {
+    node.addEventListener("pointermove", e => { if (e.pointerType === "mouse") showTip(html, e); });
+    node.addEventListener("pointerleave", hideTip);
+  }
+  const areaKids = d => tags().filter(t => t.domain === d.id);
+  const AREA_SHORT = { "00": "Cross-government", "01": "Public services", "02": "Defence", "03": "Public order", "04": "Economy", "05": "Environment", "06": "Housing", "07": "Health", "08": "Culture", "09": "Education", "10": "Social protection" };
+  const areas = () => domains().filter(d => d.repos > 0);
+  const themeTip = t => `<b>${esc(t.name)}</b>${num(t.repos)} repositories · ${t.countries} countries<br>${t.pace == null ? "" : esc(paceText(t.pace, true)) + " · "}${STATUS[t.status] || ""}`;
+
+  function mapSize(svg) {
+    const W = Math.max(280, Math.round((svg.parentNode && svg.parentNode.clientWidth) || 720));
+    const H = Math.round(W < 560 ? Math.min(520, W * 1.2) : Math.max(380, Math.min(520, W * .6)));
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML = `<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" style="fill:var(--tint)"/><rect width="2" height="6" style="fill:var(--line)"/></pattern></defs>`;
+    indexMap.width = W;
+    return [W, H];
+  }
+  function mapCell(svg, c, t, act, opts = {}) {
+    const f = paceFill(t.pace), ink = inkOn(f), g = el("g", { class: "tile", tabindex: 0, role: "button", "aria-label": opts.label || `${t.name}: ${num(t.repos)} repositories, ${t.pace == null ? STATUS.too_small : paceText(t.pace, true)}` });
+    g.append(el("rect", { x: c.x, y: c.y, width: Math.max(0, c.w), height: Math.max(0, c.h), rx: 4, style: `fill:${f}` }));
+    if (opts.inner) opts.inner.forEach(ic => g.append(el("rect", { class: "inner", x: ic.x, y: ic.y, width: Math.max(0, ic.w), height: Math.max(0, ic.h), rx: 2, style: `stroke:${ink}` })));
+    const sub = `${num(t.repos)} · ${t.pace == null ? "too few" : paceText(t.pace)}`;
+    const lab = fitLabel(c.w, c.h, t.name, sub, opts.sizes) || (AREA_SHORT[t.id] && t.type === "domain" ? fitLabel(c.w, c.h, AREA_SHORT[t.id], sub, opts.sizes) : null);
+    if (lab) {
+      // Area names sit on a plate so the theme outlines behind them never cross the text.
+      if (opts.inner) g.append(el("rect", { class: "plate", x: c.x + 3, y: c.y + 3, width: Math.min(c.w - 6, Math.max(...lab.lines.map(l => textWidth(l, lab.fs)), lab.sub ? textWidth(lab.sub, 11, true) : 0) + 2 * lab.pad - 4), height: lab.lines.length * lab.fs * 1.18 + (lab.sub ? 17 : 0) + 2 * lab.pad - 4, rx: 3, style: `fill:${f}` }));
+      drawLabel(g, c.x, c.y, lab, ink);
+    }
+    if (indexMap.pick && indexMap.pick.id === t.id) g.classList.toggle("on", true);
+    mouseTip(g, opts.tip || themeTip(t));
+    g.addEventListener("click", () => { hideTip(); act(); });
+    g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); } });
+    svg.append(g);
+    return g;
+  }
+  const areaLayout = (W, H) => squarify(areas().map(d => ({ d, v: d.repos })), 0, 0, W, H);
+  const insideLayout = c => squarify(areaKids(c.d).map(t => ({ t, v: t.repos })), c.x + 4, c.y + 4, c.w - 8, c.h - 8);
+  function drawMap(from, focus) {
+    const svg = document.getElementById("tm"); if (!svg) return;
+    const [W, H] = mapSize(svg), z = indexMap.zoom;
+    if (!z) {
+      areaLayout(W, H).forEach(c => mapCell(svg, c, c.d, () => setZoom(c.d, c), {
+        inner: insideLayout(c), sizes: [16, 15, 14, 13, 12, 11],
+        label: `${c.d.name}: ${num(c.d.repos)} repositories, ${areaKids(c.d).length} themes. Show its themes.`,
+        tip: `${themeTip(c.d)}<br>${areaKids(c.d).length} themes · select to zoom in` }));
+      if (focus) { const f = svg.querySelector(".tile"); if (f) f.focus(); }
+      return;
+    }
+    const end = squarify(areaKids(z).map(t => ({ t, v: t.repos })), 0, 0, W, H);
+    const draw = () => { mapSize(svg); end.forEach(c => mapCell(svg, c, c.t, () => pickTheme(c.t))); if (focus) { const f = svg.querySelector(".tile"); if (f) f.focus(); } };
+    if (!from || reduceMotion() || !window.requestAnimationFrame) return draw();
+    // Grow each theme from its outline inside the area block to its place on the full map.
+    const start = insideLayout(from), rects = end.map(e => {
+      const s = start.find(x => x.t.id === e.t.id) || { x: from.x, y: from.y, w: 0, h: 0 };
+      const r = el("rect", { rx: 4, style: `fill:${paceFill(e.t.pace)};stroke:var(--bg);stroke-width:2` }); svg.append(r); return { s, e, r };
+    });
+    const set = k => rects.forEach(({ s, e, r }) => { r.setAttribute("x", s.x + (e.x - s.x) * k); r.setAttribute("y", s.y + (e.y - s.y) * k); r.setAttribute("width", Math.max(0, s.w + (e.w - s.w) * k)); r.setAttribute("height", Math.max(0, s.h + (e.h - s.h) * k)); });
+    const t0 = performance.now(), tick = now => { const k = Math.min(1, (now - t0) / 480); set(1 - Math.pow(1 - k, 3)); if (k < 1) requestAnimationFrame(tick); else if (indexMap.zoom === z) draw(); };
+    set(0); requestAnimationFrame(tick);
+  }
+  function mapSide() {
+    const box = document.getElementById("zside"); if (!box) return;
+    const t = indexMap.pick, z = indexMap.zoom, badge = s => `<span class="b ${s === "emerging" || s === "concentrated" ? "hot" : s === "cooling" ? "cool" : ""}">${STATUS[s] || ""}</span>`;
+    if (t) {
+      box.innerHTML = `<div class="k">${esc(t.domain_name)}</div><h3>${esc(t.name)}</h3><div>${badge(t.status)}</div>
+        <p>${num(t.repos)} repositories · ${num(t.countries)} countries</p>
+        ${t.pace == null ? `<p class="m">Too few new repositories to judge pace.</p>` : `<p><b>${esc(paceText(t.pace, true))}</b>${t.pace_low != null ? `<br><span class="m">80% interval ×${t.pace_low.toFixed(2)} to ×${t.pace_high.toFixed(2)}</span>` : ""}</p>`}
+        <p>${num(t.new_window)} new in 12 months, ${num(t.new_prior)} the year before${t.accounts_window ? ` · ${num(t.accounts_window)} accounts${t.top_account ? `, busiest ${esc(t.top_account)} (${t.top_account_share}%)` : ""}` : ""}</p>
+        ${t.trend && t.trend.length ? trendLine(t.trend, t.status) + `<p class="m">New repositories a month, last 24 months, with the last 12 shaded.</p>` : ""}
+        <a class="go" href="${themeHref(t.id)}">Open ${esc(t.name)} →</a>`;
+    } else if (z) {
+      const kids = areaKids(z).sort((a, b) => (b.pace ?? 0) - (a.pace ?? 0)), up = kids.filter(k => k.status === "emerging" || k.status === "concentrated");
+      box.innerHTML = `<div class="k">Area</div><h3>${esc(z.name)}</h3><div>${badge(z.status)}</div>
+        <p>${num(z.repos)} repositories · ${kids.length} themes${z.pace == null ? "" : `<br><b>${esc(paceText(z.pace, true))}</b>`}</p>
+        ${z.definition ? `<p class="m">${esc(z.definition)}</p>` : ""}
+        ${up.length ? `<p>Growing: ${up.map(k => `<a href="${themeHref(k.id)}">${esc(k.name)}</a>`).join(", ")}</p>` : ""}
+        <p class="m">Select a theme for its numbers.</p><a class="go" href="${themeHref(z.id)}">Open ${esc(z.name)} →</a>`;
+    } else {
+      const ds = areas(), total = ds.reduce((a, d) => a + d.repos, 0), fast = ds.filter(d => d.pace != null).sort((a, b) => b.pace - a.pace)[0];
+      box.innerHTML = `<div class="k">The whole index</div><h3 class="big">${num(total)}</h3><p>classified original repositories in ${ds.length} areas of government</p>
+        ${fast ? `<p>Fastest area: <b>${esc(fast.name)}</b>, ${esc(paceText(fast.pace, true))}.</p>` : ""}
+        <p class="m">Each block is an area. The outlines inside it are its themes; select an area to see them.</p>`;
+    }
+    fixLinks(box);
+  }
+  function mapChips() {
+    const box = document.getElementById("zchips"); if (!box) return;
+    box.innerHTML = [null, ...areas().sort((a, b) => b.repos - a.repos)].map(d => `<button type="button" data-area="${d ? esc(d.id) : ""}" aria-pressed="${(indexMap.zoom ? indexMap.zoom.id : "") === (d ? d.id : "")}">${d ? esc(d.name) : "All areas"}</button>`).join("");
+    const on = box.querySelector('[aria-pressed="true"]');
+    if (on && on.scrollIntoView && box.scrollWidth > box.clientWidth) box.scrollTo({ left: on.offsetLeft - box.firstElementChild.offsetWidth - 22, behavior: reduceMotion() ? "auto" : "smooth" });
+  }
+  function setZoom(d, from) {
+    const svg = document.getElementById("tm"), focus = !!(svg && svg.contains(document.activeElement));
+    indexMap.zoom = d || null; indexMap.pick = null; indexMap.all = false;
+    mapChips(); mapSide(); themeRows(); drawMap(from, focus);
+  }
+  function pickTheme(t) {
+    indexMap.pick = t;
+    document.querySelectorAll("#tm .tile").forEach(g => g.classList.toggle("on", g.getAttribute("aria-label").startsWith(t.name + ":")));
+    mapSide();
+    const side = document.getElementById("zside");
+    if (side && innerWidth < 980 && side.scrollIntoView) side.scrollIntoView({ block: "nearest", behavior: reduceMotion() ? "auto" : "smooth" });
+  }
+
+  // Every theme as a row: a bar for size and a dot for pace with its 80% interval, on one shared scale.
+  const PACE_LO = .4, PACE_HI = 2.6, paceX = p => (Math.log(Math.max(PACE_LO, Math.min(PACE_HI, p))) - Math.log(PACE_LO)) / (Math.log(PACE_HI) - Math.log(PACE_LO)) * 100;
+  const ROWS = 15;
+  function themeRows() {
+    const box = document.getElementById("trows"); if (!box) return;
+    const z = indexMap.zoom, list = (z ? areaKids(z) : tags()).sort(indexMap.sort === "pace" ? (a, b) => (b.pace != null) - (a.pace != null) || (b.pace ?? 0) - (a.pace ?? 0) || b.repos - a.repos : (a, b) => b.repos - a.repos);
+    const shown = indexMap.all || list.length <= ROWS + 3 ? list : list.slice(0, ROWS), mx = Math.max(1, ...list.map(t => t.repos));
+    const grid = [.5, 1, 2].map(v => `<line x1="${paceX(v)}%" x2="${paceX(v)}%" y1="0" y2="18" class="${v === 1 ? "mid" : ""}"/>`).join("");
+    const colour = t => t.status === "emerging" || t.status === "concentrated" ? "var(--hot)" : t.status === "cooling" ? "var(--cool)" : "var(--faint)";
+    document.getElementById("trowsh").textContent = z ? `Themes in ${z.name}` : "Every theme";
+    box.innerHTML = `<div class="trow th" aria-hidden="true"><span class="tn">Theme</span><span class="tb">Repositories</span><span class="tp"><svg>${[[.5, "×0.5"], [1, "index"], [2, "×2"]].map(([v, l]) => `<text x="${paceX(v)}%" y="13" text-anchor="middle">${l}</text>`).join("")}</svg><em></em></span></div>` +
+      shown.map(t => `<a class="trow" href="${themeHref(t.id)}"><span class="tn"><b>${esc(t.name)}</b><small>${z ? "" : esc(t.domain_name)}${t.status === "concentrated" ? `${z ? "" : " · "}Mostly ${esc(t.top_account)}` : t.status === "emerging" || t.status === "cooling" ? `${z ? "" : " · "}${STATUS[t.status]}` : ""}</small></span>` +
+        `<span class="tb"><i style="width:${Math.max(1, t.repos / mx * 72).toFixed(1)}%"></i><em>${num(t.repos)}</em></span>` +
+        `<span class="tp">${t.pace == null ? `<svg aria-hidden="true">${grid}</svg><em>too few</em>` : `<svg role="img" aria-label="${esc(paceText(t.pace, true))}">${grid}${t.pace_low != null ? `<line x1="${paceX(t.pace_low)}%" x2="${paceX(t.pace_high)}%" y1="9" y2="9" class="ci" style="stroke:${colour(t)}"/>` : ""}<circle cx="${paceX(t.pace)}%" cy="9" r="5" style="fill:${colour(t)}"/></svg><em>${paceText(t.pace)}</em>`}</span></a>`).join("");
+    const more = document.getElementById("tmore");
+    more.hidden = shown.length === list.length && !indexMap.all;
+    more.textContent = indexMap.all ? `Show the top ${ROWS}` : `Show all ${list.length} themes`;
+    fixLinks(box);
+  }
+  function indexExplorer() {
+    indexMap.zoom = indexMap.zoom && areas().find(d => d.id === indexMap.zoom.id) || null;
+    indexMap.pick = indexMap.pick && tags().find(t => t.id === indexMap.pick.id) || null;
+    mapChips(); mapSide(); themeRows(); drawMap();
+    const chips = document.getElementById("zchips"), sort = document.getElementById("tsort"), more = document.getElementById("tmore");
+    chips.addEventListener("click", e => { const b = e.target.closest("button"); if (b) setZoom(areas().find(d => d.id === b.dataset.area)); });
+    sort.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; indexMap.sort = b.dataset.sort; sort.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); themeRows(); });
+    sort.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x.dataset.sort === indexMap.sort));
+    more.addEventListener("click", () => {
+      indexMap.all = !indexMap.all; themeRows();
+      if (!indexMap.all) { const h = document.getElementById("trowsh"); if (h && h.scrollIntoView) h.scrollIntoView({ block: "nearest" }); }
+    });
+    // Redraw on width changes only, so a phone's address bar showing and hiding doesn't relayout the map.
+    if (indexMap.observer) indexMap.observer.disconnect();
+    const svg = document.getElementById("tm");
+    if (window.ResizeObserver && svg) {
+      indexMap.observer = new ResizeObserver(() => { if (!svg.isConnected) return indexMap.observer.disconnect(); if (Math.abs(svg.parentNode.clientWidth - indexMap.width) > 1) drawMap(); });
+      indexMap.observer.observe(svg.parentNode);
+    }
+    // Label widths are measured, so measure again once the web fonts are in.
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (svg && svg.isConnected) drawMap(); });
+  }
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && indexMap.zoom && document.getElementById("tm")) { setZoom(null); } });
   function lineChart(svg, points, opts) {
     // points: [{label, value}]
     const W = opts.w || 440, H = opts.h || 210, M = { l: 48, r: 12, t: 10, b: 24 }, n = points.length;
@@ -451,15 +623,24 @@
 
     <section class="sec pad"><div class="in">
       <h2>Everything in the index</h2>
-      <p class="sub">Each block is a theme, sized by original repositories and coloured by pace: how fast new repositories are arriving compared with the index as a whole. Select one to open its page.</p>
-      <div class="ov">
-        <div class="card"><svg class="fill" id="tm" viewBox="0 0 720 470" role="img" aria-label="Treemap of themes"></svg>
-          <div class="dlegend"><span>Slowing</span><span class="bar" id="dbar"></span><span>Picking up</span><span style="margin-left:auto">Area = original repositories</span></div>
-          ${chartTable("Themes by size and pace", ["Theme", "Repositories", "Pace against the index", "Countries"], ts.slice().sort((a, b) => b.repos - a.repos).map(t => [`<a href="${themeHref(t.id)}">${esc(t.name)}</a>`, num(t.repos), paceText(t.pace), num(t.countries)]))}</div>
-        <div class="stack">
-          <div class="card"><h3>Original repositories over time</h3><p class="cap">By creation date, last three years. ${pct(growth, 1)} in 12 months.</p><svg class="fill" id="tot" viewBox="0 0 440 210" role="img" aria-label="Line chart of original repositories over three years"></svg></div>
-          <div class="card"><h3>Where things stand</h3><p class="cap">Original repositories by status.</p><ul class="rows" id="flow"></ul></div>
+      <p class="sub">Each block is an area of government, sized by original repositories and coloured by pace: how fast new repositories are arriving compared with the index as a whole. Select an area to see its themes, and a theme for its numbers.</p>
+      <div class="card zmap">
+        <div class="zchips" id="zchips" role="toolbar" aria-label="Choose an area"></div>
+        <div class="zgrid">
+          <div class="zcanvas"><svg class="zsvg" id="tm" role="group" aria-label="Map of the index by area and theme"></svg></div>
+          <aside class="zside" id="zside" aria-live="polite"></aside>
         </div>
+        ${paceLegend("Area = original repositories")}
+      </div>
+      <div class="card tlist">
+        <div class="thead"><h3 id="trowsh">Every theme</h3><div class="seg" id="tsort" role="group" aria-label="Sort themes"><button type="button" data-sort="size">Largest</button><button type="button" data-sort="pace">Fastest</button></div></div>
+        <p class="cap">Bars are original repositories. Dots are pace against the index, with lines for the 80% interval: a line that crosses the index mark could be chance.</p>
+        <div id="trows"></div>
+        <button class="more-btn" id="tmore" type="button" hidden></button>
+      </div>
+      <div class="two even">
+        <div class="card"><h3>Original repositories over time</h3><p class="cap">By creation date, last three years. ${pct(growth, 1)} in 12 months.</p><svg class="fill" id="tot" viewBox="0 0 440 210" role="img" aria-label="Line chart of original repositories over three years"></svg></div>
+        <div class="card"><h3>Where things stand</h3><p class="cap">Original repositories by status.</p><ul class="rows" id="flow"></ul></div>
       </div>
     </div></section>
 
@@ -491,7 +672,7 @@
         <a href="#/practice"><b>Open-source practice</b><span>Licences, descriptions and topics</span></a>
       </nav>
     </div></section>`;
-    document.getElementById("dbar").innerHTML = treemap(document.getElementById("tm"));
+    indexExplorer();
     lineChart(document.getElementById("tot"), tl.map(m => ({ label: monthLabel(m.month), value: m.total, n: m.new })), { tip: p => `<b>${num(p.value)} repositories</b>${p.label} · ${num(p.n)} created` });
     const s = o.status, F = [["Created in the last 12 months", s.new_12m, "var(--ok)"], ["Active (pushed in the last 12 months)", s.active, "var(--cobalt)"], ["Dormant (no push in 12 months)", s.dormant, "var(--cool)"], ["Archived", s.archived, "var(--faint)"]];
     const fmax = Math.max(...F.map(f => f[1]), 1);

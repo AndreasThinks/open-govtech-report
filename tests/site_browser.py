@@ -192,6 +192,20 @@ class Desktop(unittest.TestCase):
         expect(self.page.locator("#hist polyline").first).to_be_visible()
         self.layout()
 
+    def test_overview_map_zooms_into_an_area(self):
+        self.go("/")
+        expect(self.page.locator("#tm .tile").first).to_be_visible()
+        expect(self.page.locator("#zside")).to_contain_text("The whole index")
+        self.page.locator("#zchips button").nth(1).click()
+        expect(self.page.locator('#zchips button[aria-pressed="true"]')).to_have_count(1)
+        expect(self.page.locator("#trowsh")).to_contain_text("Themes in")
+        self.page.locator("#tm .tile").first.click()
+        expect(self.page.locator("#zside a.go")).to_be_visible()
+        self.layout()
+        self.page.keyboard.press("Escape")
+        expect(self.page.locator("#trowsh")).to_have_text("Every theme")
+        expect(self.page.locator("#trows a.trow").first).to_be_visible()
+
     def test_evidence_uncertainty_is_explicit(self):
         cls = self.fixtures['repo']['classification']
         cls.update(confidence_mode='evidence', tags=[],
