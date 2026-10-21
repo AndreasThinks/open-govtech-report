@@ -199,3 +199,29 @@ def test_zero_cost_valid_but_negative_nan_and_missing_are_not_zero(tmp_db):
         claim = budget.reserve(model=DEFAULT_MODEL, request_hash=name, estimated_input_tokens=1, max_output_tokens=1)
         with pytest.raises(BudgetExhausted):
             budget.complete(claim.id, usage)
+
+
+async def test_replaying_a_settled_receipt_leaves_its_ledger_row_unchanged(tmp_db, sample_repos):
+    source = source_from_repo(sample_repos[0], readme="GOV.UK Notify - sending emails and SMS")
+    transport = RawTransport(
+        [
+            {
+                "id": "gen-ok",
+                "choices": [{"finish_reason": "stop", "message": {"content": json.dumps(valid_body())}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 40, "total_cost": 0.0002},
+            }
+        ]
+    )
+    classifier = EvidenceClassifier(
+        client=OpenRouterClient(api_key="secret", transport=transport),
+        budget=OpenRouterBudget(tmp_db, ceiling_usd=1.0, run_id="settled-replay"),
+        model=DEFAULT_MODEL,
+        taxonomy=load_taxonomy(),
+    )
+    assert (await classify_inputs(tmp_db, classifier, [source])).scored == 1
+    before = [tuple(r) for r in tmp_db.conn.execute("SELECT * FROM openrouter_budget_ledger")]
+
+    await classifier.classify_source(source)
+
+    assert [tuple(r) for r in tmp_db.conn.execute("SELECT * FROM openrouter_budget_ledger")] == before
+    assert len(transport.requests) == 1
