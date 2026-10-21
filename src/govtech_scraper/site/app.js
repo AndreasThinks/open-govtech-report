@@ -212,10 +212,10 @@
   const paceLegend = note => `<div class="dlegend"><span class="ramp"><span>Slowing</span><span class="sw">${[-3, -2, -1, 0, 1, 2, 3].map(k => `<i style="background:${stepColour(k)}"></i>`).join("")}</span><span>Picking up</span><span class="ticks"><span>×0.5</span><span>same</span><span>×2</span></span></span><span><i class="hatch"></i>Too few to tell</span>${note ? `<span class="note">${note}</span>` : ""}</div>`;
 
   let measure;
-  function textWidth(s, px, mono) {
+  function textWidth(s, px, mono, weight) {
     if (measure === undefined) try { measure = document.createElement("canvas").getContext("2d"); } catch (e) { measure = null; }
     if (!measure) return s.length * px * (mono ? .62 : .56);
-    measure.font = `${mono ? 600 : 700} ${px}px ${css(mono ? "--mono" : "--body") || "sans-serif"}`;
+    measure.font = `${weight || (mono ? 600 : 700)} ${px}px ${css(mono ? "--mono" : "--body") || "sans-serif"}`;
     return measure.measureText(s).width;
   }
   function wrapText(s, px, width, maxLines) {
@@ -265,13 +265,22 @@
   function mapCell(svg, c, t, act, opts = {}) {
     const f = paceFill(t.pace), ink = inkOn(f), g = el("g", { class: "tile", tabindex: 0, role: "button", "aria-label": opts.label || `${t.name}: ${num(t.repos)} repositories, ${t.pace == null ? STATUS.too_small : paceText(t.pace, true)}` });
     g.append(el("rect", { x: c.x, y: c.y, width: Math.max(0, c.w), height: Math.max(0, c.h), rx: 4, style: `fill:${f}` }));
-    if (opts.inner) opts.inner.forEach(ic => g.append(el("rect", { class: "inner", x: ic.x, y: ic.y, width: Math.max(0, ic.w), height: Math.max(0, ic.h), rx: 2, style: `stroke:${ink}` })));
     const sub = `${num(t.repos)} · ${t.pace == null ? "too few" : paceText(t.pace)}`;
     const lab = fitLabel(c.w, c.h, t.name, sub, opts.sizes) || (AREA_SHORT[t.id] && t.type === "domain" ? fitLabel(c.w, c.h, AREA_SHORT[t.id], sub, opts.sizes) : null);
     if (lab) {
-      // Area names sit on a plate so the theme outlines behind them never cross the text.
-      if (opts.inner) g.append(el("rect", { class: "plate", x: c.x + 3, y: c.y + 3, width: Math.min(c.w - 6, Math.max(...lab.lines.map(l => textWidth(l, lab.fs)), lab.sub ? textWidth(lab.sub, 11, true) : 0) + 2 * lab.pad - 4), height: lab.lines.length * lab.fs * 1.18 + (lab.sub ? 17 : 0) + 2 * lab.pad - 4, rx: 3, style: `fill:${f}` }));
       drawLabel(g, c.x, c.y, lab, ink);
+      // An area names its biggest themes under its label, up to five and as many as fit, then a count of the rest.
+      if (opts.kids && opts.kids.length) {
+        const lh = 15, iw = c.w - 2 * lab.pad, bottom = c.y + c.h - 6;
+        let y = c.y + lab.pad + lab.lines.length * lab.fs * 1.18 + (lab.sub ? 17 : 0) + 10;
+        const room = Math.floor((bottom - y) / lh), kids = opts.kids;
+        if (room >= 1) {
+          const n = Math.min(kids.length, room, 5), shown = kids.slice(0, n < kids.length ? n - 1 : n).filter(k => textWidth(k.name, 11.5, false, 600) <= iw);
+          shown.forEach(k => { g.append(txt({ x: c.x + lab.pad, y: y + 11, class: "k", fill: ink, "fill-opacity": .8 }, k.name)); y += lh; });
+          const rest = kids.length - shown.length, more = shown.length ? `+${rest} more` : `${kids.length} themes`;
+          if (rest && y + lh <= bottom + 2 && textWidth(more, 11.5, false, 600) <= iw) g.append(txt({ x: c.x + lab.pad, y: y + 11, class: "k", fill: ink, "fill-opacity": .62 }, more));
+        }
+      }
     }
     if (indexMap.pick && indexMap.pick.id === t.id) g.classList.toggle("on", true);
     mouseTip(g, opts.tip || themeTip(t));
@@ -287,7 +296,7 @@
     const [W, H] = mapSize(svg), z = indexMap.zoom;
     if (!z) {
       areaLayout(W, H).forEach(c => mapCell(svg, c, c.d, () => setZoom(c.d, c), {
-        inner: insideLayout(c), sizes: [16, 15, 14, 13, 12, 11],
+        kids: areaKids(c.d).sort((a, b) => b.repos - a.repos), sizes: [16, 15, 14, 13, 12, 11],
         label: `${c.d.name}: ${num(c.d.repos)} repositories, ${areaKids(c.d).length} themes. Show its themes.`,
         tip: `${themeTip(c.d)}<br>${areaKids(c.d).length} themes · select to zoom in` }));
       if (focus) { const f = svg.querySelector(".tile"); if (f) f.focus(); }
@@ -296,7 +305,7 @@
     const end = squarify(areaKids(z).map(t => ({ t, v: t.repos })), 0, 0, W, H);
     const draw = () => { mapSize(svg); end.forEach(c => mapCell(svg, c, c.t, () => pickTheme(c.t))); if (focus) { const f = svg.querySelector(".tile"); if (f) f.focus(); } };
     if (!from || reduceMotion() || !window.requestAnimationFrame) return draw();
-    // Grow each theme from its outline inside the area block to its place on the full map.
+    // Grow each theme from its place inside the area block to its place on the full map.
     const start = insideLayout(from), rects = end.map(e => {
       const s = start.find(x => x.t.id === e.t.id) || { x: from.x, y: from.y, w: 0, h: 0 };
       const r = el("rect", { rx: 4, style: `fill:${paceFill(e.t.pace)};stroke:var(--bg);stroke-width:2` }); svg.append(r); return { s, e, r };
@@ -326,7 +335,7 @@
       const ds = areas(), total = ds.reduce((a, d) => a + d.repos, 0), fast = ds.filter(d => d.pace != null).sort((a, b) => b.pace - a.pace)[0];
       box.innerHTML = `<div class="k">The whole index</div><h3 class="big">${num(total)}</h3><p>classified original repositories in ${ds.length} areas of government</p>
         ${fast ? `<p>Fastest area: <b>${esc(fast.name)}</b>, ${esc(paceText(fast.pace, true))}.</p>` : ""}
-        <p class="m">Each block is an area. The outlines inside it are its themes; select an area to see them.</p>`;
+        <p class="m">Each block is an area, with its biggest themes named. Select an area to see all of them.</p>`;
     }
     fixLinks(box);
   }

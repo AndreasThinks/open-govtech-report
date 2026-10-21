@@ -64,8 +64,7 @@ h2{font-weight:900;font-size:24px;letter-spacing:-.02em;margin:0 0 4px}
 svg.fill{display:block;width:100%;height:auto}
 .tile{cursor:pointer;outline:none}
 .tile rect{stroke:var(--bg);stroke-width:2}
-.tile rect.inner{fill:none;stroke-width:1;stroke-opacity:.18}
-.tile rect.plate{stroke:none}
+.tile text.k{font:600 11.5px var(--body)}
 .tile:hover>rect:first-child,.tile:focus-visible>rect:first-child,.tile.on>rect:first-child{stroke:var(--ink);stroke-width:2.5}
 .tile:focus-visible>rect:first-child{stroke:var(--cobalt);stroke-width:3}
 .tile text{font:700 12.5px var(--body);pointer-events:none}
