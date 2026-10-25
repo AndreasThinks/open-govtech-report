@@ -2,6 +2,7 @@
 import copy
 import io
 import json
+from email.message import Message
 
 import pytest
 
@@ -96,6 +97,34 @@ def setup(bundle):
                     'db_sha256': receipt['artifacts']['data/govtech.db']['sha256'], 'source_commit': CODE}
         return receipt['stats']
     return hub, receipt, transport, client, fetch, seen
+
+
+def test_railway_http_error_reports_status_without_credentials():
+    def fail(request, timeout):
+        import urllib.error
+        raise urllib.error.HTTPError(request.full_url, 401, 'Unauthorized', Message(), None)
+
+    client = rr.RailwayClient(rr.RolloutConfig.from_env(env()), transport=fail)
+    with pytest.raises(RuntimeError, match=r'Railway API HTTP 401') as exc:
+        client._request('query { projectToken { projectId } }', {})
+    assert 'test-secret' not in str(exc.value)
+
+
+def test_railway_graphql_error_is_bounded_and_redacts_token():
+    def respond(request, timeout):
+        return io.BytesIO(json.dumps({'errors': [
+            {'message': 'invalid token test-secret'},
+            {'message': 'secondary detail'},
+            {'message': 'third detail'},
+            {'message': 'unbounded fourth detail'},
+        ]}).encode())
+
+    client = rr.RailwayClient(rr.RolloutConfig.from_env(env()), transport=respond)
+    with pytest.raises(RuntimeError, match='Railway GraphQL error') as exc:
+        client._request('query { projectToken { projectId } }', {})
+    assert 'test-secret' not in str(exc.value)
+    assert '[REDACTED]' in str(exc.value)
+    assert 'unbounded fourth detail' not in str(exc.value)
 
 
 def test_default_and_combined(setup):
