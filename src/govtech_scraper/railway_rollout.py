@@ -9,6 +9,7 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
@@ -109,11 +110,27 @@ class RailwayClient:
         try:
             with self.transport(request, timeout=20) as response:
                 result = json.loads(response.read(2 * 1024 * 1024))
-            if result.get('errors') or not isinstance(result.get('data'), dict):
-                raise ValueError()
-            return result['data']
-        except Exception:
-            raise RuntimeError('Railway API request failed') from None
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(f'Railway API HTTP {exc.code}') from None
+        except Exception as exc:
+            # Exception text can contain request URLs or credentials. Expose only its type.
+            raise RuntimeError(f'Railway API transport failed ({type(exc).__name__})') from None
+        if not isinstance(result, dict):
+            raise RuntimeError('Railway API returned a malformed response')
+        errors = result.get('errors')
+        if errors:
+            messages = []
+            for item in errors[:3] if isinstance(errors, list) else []:
+                if isinstance(item, dict) and isinstance(item.get('message'), str):
+                    message = item['message'][:240]
+                    if self.config.token:
+                        message = message.replace(self.config.token, '[REDACTED]')
+                    messages.append(message)
+            detail = '; '.join(messages) or 'GraphQL errors returned'
+            raise RuntimeError(f'Railway GraphQL error: {detail}')
+        if not isinstance(result.get('data'), dict):
+            raise RuntimeError('Railway API response missing data')
+        return result['data']
 
     def inspect(self):
         result = self.call('''query($projectId:String!,$environmentId:String!,$serviceId:String!){
