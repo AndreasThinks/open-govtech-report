@@ -602,6 +602,13 @@ def test_failure_reason_keeps_fixed_messages_only():
     from govtech_scraper.operations import failure_reason
     assert failure_reason(RuntimeError('Railway write readback unresolved; operator review required')) == \
         'RuntimeError: Railway write readback unresolved; operator review required'
+    assert failure_reason(RuntimeError('Railway API HTTP 401')) == \
+        'RuntimeError: Railway API HTTP 401'
+    assert failure_reason(RuntimeError('Railway API transport failed (TimeoutError)')) == \
+        'RuntimeError: Railway API transport failed (TimeoutError)'
+    assert failure_reason(RuntimeError('Railway GraphQL error: invalid project token')) == \
+        'RuntimeError: Railway GraphQL error: invalid project token'
+    assert failure_reason(RuntimeError('arbitrary: potentially secret')) == 'RuntimeError'
     assert failure_reason(RuntimeError('401 for https://x?token=abc')) == 'RuntimeError'
     assert failure_reason(KeyError('secret')) == 'KeyError'
 

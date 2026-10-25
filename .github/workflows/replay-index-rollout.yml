@@ -1,0 +1,69 @@
+name: Replay GovTech Index rollout
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: GitHub Actions run that retained the immutable publication receipt
+        required: true
+        type: string
+      receipt_artifact_name:
+        description: Exact receipt artifact name, for example govtech-receipts-34-1
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  replay-index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.11.7"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: |
+          uv lock --check
+          uv sync --frozen --dev --extra api
+
+      - name: Test before external writes
+        run: uv run --frozen pytest tests/ -q
+
+      - name: Download immutable receipt from completed publication run
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.receipt_artifact_name }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: replay
+
+      - name: Update and verify Index from retained receipt
+        env:
+          GOVTECH_RAILWAY_ROLLOUT_ENABLED: ${{ vars.GOVTECH_RAILWAY_ROLLOUT_ENABLED }}
+          GOVTECH_RAILWAY_PROJECT_ID: ${{ vars.GOVTECH_RAILWAY_PROJECT_ID }}
+          GOVTECH_RAILWAY_ENVIRONMENT_ID: ${{ vars.GOVTECH_RAILWAY_ENVIRONMENT_ID }}
+          GOVTECH_RAILWAY_WEB_SERVICE_ID: ${{ vars.GOVTECH_RAILWAY_WEB_SERVICE_ID }}
+          GOVTECH_RAILWAY_WEB_URL: ${{ vars.GOVTECH_RAILWAY_WEB_URL }}
+          GOVTECH_RAILWAY_API_TOKEN: ${{ secrets.GOVTECH_RAILWAY_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: uv run --frozen python scripts/update_index.py --receipt replay/publication/receipt.json --attempts 60
+
+      - name: Retain replay verification result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: govtech-index-replay-${{ github.run_number }}-${{ github.run_attempt }}
+          path: replay/publication/index-verification.json
+          if-no-files-found: warn
+          retention-days: 90
