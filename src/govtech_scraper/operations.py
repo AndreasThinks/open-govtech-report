@@ -170,9 +170,18 @@ def update_index(receipt, api, *, fetch=read_stats, attempts=30, sleep=time.slee
 
 
 def failure_reason(exc):
-    """Our own fixed failure sentences are safe to log; anything else is reduced to its type."""
+    """Keep known fixed messages and the sanitized Railway diagnostics safe to log."""
     message = str(exc) if isinstance(exc, (RuntimeError, ValueError)) else ''
-    if len(message) <= 160 and re.fullmatch(r"[A-Za-z0-9 ;,.()'/-]+", message):
+    safe_text = r"[A-Za-z0-9 ;,.()'/-]+"
+    safe_railway = (
+        r'Railway API HTTP [1-5][0-9]{2}',
+        r'Railway API transport failed \([A-Za-z_][A-Za-z0-9_]*\)',
+        r'Railway GraphQL error: ' + safe_text,
+        r'Railway API (?:returned a malformed response|response missing data)',
+    )
+    if (len(message) <= 160 and
+            (re.fullmatch(safe_text, message)
+             or any(re.fullmatch(pattern, message) for pattern in safe_railway))):
         return f'{type(exc).__name__}: {message}'
     return type(exc).__name__
 
