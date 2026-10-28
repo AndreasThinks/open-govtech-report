@@ -225,3 +225,77 @@ async def test_replaying_a_settled_receipt_leaves_its_ledger_row_unchanged(tmp_d
 
     assert [tuple(r) for r in tmp_db.conn.execute("SELECT * FROM openrouter_budget_ledger")] == before
     assert len(transport.requests) == 1
+
+
+@pytest.mark.parametrize("trailer", ["\n" + json.dumps(valid_body()), "\n```", " {}"])
+async def test_reply_with_data_after_the_json_answer_is_scored(tmp_db, sample_repos, trailer):
+    source = source_from_repo(sample_repos[0], readme="GOV.UK Notify - sending emails and SMS")
+    transport = RawTransport(
+        [
+            {
+                "id": "gen-extra",
+                "choices": [{"finish_reason": "stop", "message": {"content": json.dumps(valid_body()) + trailer}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 40, "total_cost": 0.0002},
+            }
+        ]
+    )
+    classifier = EvidenceClassifier(
+        client=OpenRouterClient(api_key="secret", transport=transport),
+        budget=OpenRouterBudget(tmp_db, ceiling_usd=1.0, run_id="extra-data"),
+        model=DEFAULT_MODEL,
+        taxonomy=load_taxonomy(),
+    )
+
+    assert (await classify_inputs(tmp_db, classifier, [source])).scored == 1
+
+
+async def test_stored_reply_with_extra_data_replays_without_new_post(tmp_db, sample_repos, monkeypatch):
+    source = source_from_repo(sample_repos[0], readme="GOV.UK Notify - sending emails and SMS")
+    content = json.dumps(valid_body()) + "\n" + json.dumps(valid_body())
+    transport = RawTransport(
+        [
+            {
+                "id": "gen-extra",
+                "choices": [{"finish_reason": "stop", "message": {"content": content}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 40, "total_cost": 0.0002},
+            }
+        ]
+    )
+    classifier = EvidenceClassifier(
+        client=OpenRouterClient(api_key="secret", transport=transport),
+        budget=OpenRouterBudget(tmp_db, ceiling_usd=1.0, run_id="extra-replay"),
+        model=DEFAULT_MODEL,
+        taxonomy=load_taxonomy(),
+    )
+    original_complete = OpenRouterBudget.complete
+
+    def crash_after_receipt(self, claim_id, usage):
+        raise RuntimeError("crash before settlement")
+
+    monkeypatch.setattr(OpenRouterBudget, "complete", crash_after_receipt)
+    assert (await classify_inputs(tmp_db, classifier, [source])).failed == 1
+
+    monkeypatch.setattr(OpenRouterBudget, "complete", original_complete)
+    assert (await classify_inputs(tmp_db, classifier, [source])).scored == 1
+    assert len(transport.requests) == 1
+
+
+async def test_invalid_json_reply_still_fails(tmp_db, sample_repos):
+    source = source_from_repo(sample_repos[0], readme="GOV.UK Notify - sending emails and SMS")
+    transport = RawTransport(
+        [
+            {
+                "id": "gen-bad",
+                "choices": [{"finish_reason": "stop", "message": {"content": '{"domain": '}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 40, "total_cost": 0.0002},
+            }
+        ]
+    )
+    classifier = EvidenceClassifier(
+        client=OpenRouterClient(api_key="secret", transport=transport),
+        budget=OpenRouterBudget(tmp_db, ceiling_usd=1.0, run_id="bad-json"),
+        model=DEFAULT_MODEL,
+        taxonomy=load_taxonomy(),
+    )
+
+    assert (await classify_inputs(tmp_db, classifier, [source])).failed == 1
