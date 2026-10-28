@@ -1118,7 +1118,7 @@ class OpenRouterClient:
             )
         content = choices[0].get("message", {}).get("content")
         try:
-            body = json.loads(content) if isinstance(content, str) else content
+            body = _loads_model_json(content) if isinstance(content, str) else content
         except json.JSONDecodeError as e:
             raise BilledResponseError(
                 f"OpenRouter response was not valid JSON: {e}", usage=usage, response=data
@@ -1456,8 +1456,23 @@ def _response_body(response: dict) -> Any:
     choices = response.get("choices")
     if isinstance(choices, list) and choices:
         content = choices[0].get("message", {}).get("content")
-        return json.loads(content) if isinstance(content, str) else content
+        return _loads_model_json(content) if isinstance(content, str) else content
     raise ValidationError("stored OpenRouter receipt omitted response content")
+
+
+def _loads_model_json(content: str) -> Any:
+    """Parse the first JSON value in a model reply.
+
+    Some replies carry text or a second object after a complete JSON answer
+    ("Extra data"). The first value still has to pass output validation.
+    """
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as e:
+        if not e.msg.startswith("Extra data"):
+            raise
+    body, _end = json.JSONDecoder().raw_decode(content.lstrip())
+    return body
 
 
 def estimate_prompt_tokens_upper_bound(messages: list[dict], response_schema: dict) -> int:
