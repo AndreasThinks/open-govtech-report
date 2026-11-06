@@ -143,6 +143,21 @@ def test_metadata_merge_is_idempotent_and_preserves_private_state(tmp_db, tmp_pa
     assert tmp_db.conn.execute('SELECT stars FROM repositories').fetchone()[0] == 123
 
 
+def test_merge_copies_forks_and_retirements(tmp_db, tmp_path, sample_repo):
+    """Production 2026-10-20: the worker's publication lost new forks and revived retired repos."""
+    gone = replace(sample_repo, html_url='https://github.com/gov/gone', name='gone')
+    tmp_db.save_repositories([gone])
+    public = Database(str(tmp_path / 'public.db'))
+    fork = replace(sample_repo, html_url='https://github.com/gov/fork', name='fork', fork=True)
+    public.save_repositories([gone, fork])
+    stamp = tmp_db.conn.execute('SELECT last_scraped FROM repositories').fetchone()[0]
+    public.conn.execute('UPDATE repositories SET last_scraped=?, current=0 WHERE name=?', (stamp, 'gone'))
+    public.conn.commit()
+    merge_public_metadata(tmp_db, public.db_path)
+    rows = dict(tmp_db.conn.execute('SELECT name, current FROM repositories').fetchall())
+    assert rows == {'gone': 0, 'fork': 1}
+
+
 def test_history_merge_lookup_constrains_url_and_timestamp(tmp_db, tmp_path, sample_repo):
     # Model a scrape-wide timestamp bucket, without production data or timings.
     tmp_db.conn.executemany('''INSERT INTO repository_snapshots

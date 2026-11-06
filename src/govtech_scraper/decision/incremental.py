@@ -205,11 +205,18 @@ def merge_public_metadata(db: Database, verified_public_path: str | Path) -> Non
                 cols = [c for c in cols if c in available]
                 names = ','.join(cols)
                 updates = ','.join(f'{c}=excluded.{c}' for c in cols if c not in keys)
-                where = ' WHERE fork=0' if table == 'repositories' else ''
-                for row in public.execute(f'SELECT {names} FROM {table}{where}'):
+                newer = f'julianday(excluded.{stamp}) > COALESCE(julianday({table}.{stamp}), -1)'
+                if table == 'repositories' and 'current' in cols:
+                    # A scrape retires vanished repos (current=0) without touching
+                    # their last_scraped, so an equal stamp can still carry news.
+                    newer = (f'({newer} OR (julianday(excluded.{stamp}) IS julianday({table}.{stamp})'
+                             f' AND excluded.current IS NOT {table}.current))')
+                # Forks are copied too: the published catalogue counts them, and
+                # classification already excludes them when it plans work.
+                for row in public.execute(f'SELECT {names} FROM {table}'):
                     db.conn.execute(f'''INSERT INTO {table} ({names}) VALUES ({','.join('?' for _ in cols)})
                         ON CONFLICT({','.join(keys)}) DO UPDATE SET {updates}
-                        WHERE julianday(excluded.{stamp}) > COALESCE(julianday({table}.{stamp}), -1)''', tuple(row))
+                        WHERE {newer}''', tuple(row))
             for table in ('repository_snapshots',):
                 if table not in tables:
                     continue
