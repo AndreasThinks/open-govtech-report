@@ -98,6 +98,7 @@ class PrivateState:
         self.hub = hub
         self.directory = Path(directory)
         self.master = self.directory / 'master.db'
+        self.locked = False
 
     @contextmanager
     def lock(self):
@@ -107,9 +108,11 @@ class PrivateState:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise RuntimeError('Another worker writer holds the volume lock') from None
+            self.locked = True
             try:
                 yield
             finally:
+                self.locked = False
                 fcntl.flock(lock, fcntl.LOCK_UN)
 
     def remote(self):

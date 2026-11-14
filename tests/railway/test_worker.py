@@ -390,6 +390,19 @@ def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path,
     assert retried['manifest']['source_commit'] == code_sha
     assert [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')] == original_rows
     assert db.conn.execute('SELECT MIN(stars) FROM repositories').fetchone()[0] == 999
+    # Real bundles and receipts: retention removes only the two superseded, remotely
+    # verified publications; the conflict-abandoned attempt has no proof and stays.
+    from govtech_scraper.cloud_retention import retain
+    bundles = sorted(p.name for p in worker.state.directory.glob('publication-*'))
+    assert len(bundles) == 4
+    with worker.state.lock():
+        worker.state.checkpoint(db)
+        report = retain(worker.state, db, worker.public, keep=1, apply=True)
+    assert len(report['deleted']) == 2 and report['bytes_freed'] > 0
+    left = {item['name']: item['state'] for item in report['bundles'] if item['state'] != 'deleted'}
+    assert sorted(left.values()) == ['retained-window', 'unrecorded']
+    assert sorted(p.name for p in worker.state.directory.glob('publication-*')) == sorted(left)
+    assert worker.state.get(db, 'last_publication')['dataset_sha'] == retried['dataset_sha']
     db.close()
 
 

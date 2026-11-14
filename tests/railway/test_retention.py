@@ -593,3 +593,60 @@ async def test_cleanup_failure_never_masks_job_result(publishing_worker, monkeyp
     finally:
         db.close()
     assert all(f.is_dir() for f in folders)
+
+
+def test_wrapper_fails_fast_beside_running_worker_and_never_deadlocks(tmp_path, monkeypatch, capfd):
+    """Real main() watchdog and forked child: the wrapper holds no lock, the child fails fast."""
+    import sys
+    import time
+    from govtech_scraper import cloud_worker
+    from govtech_scraper.cloud_retention import run_retention
+    api = FakeHub()
+    api.root = tmp_path
+    manager = PrivateState(HubTransport(api=api, download=api.hf_hub_download), tmp_path / 'volume')
+    upload_seed(manager, api, tmp_path)
+    manager.install()
+    remote = Remote(tmp_path)
+    def execute(args):
+        state = PrivateState(manager.hub, args.data_dir)
+        print(json.dumps(run_retention(state, remote, keep=args.retention_keep, apply=args.apply)))
+    monkeypatch.setattr(cloud_worker, 'execute', execute)
+    monkeypatch.setattr(sys, 'argv', ['worker', '--mode', 'retention', '--apply', '--retention-keep', '1',
+                                      '--data-dir', str(manager.directory), '--deadline', '30'])
+    with manager.lock():
+        db = manager.open_normal()
+        old = make_bundle(manager, remote, db, 1)
+        make_bundle(manager, remote, db, 2)
+        manager.checkpoint(db)
+        db.close()
+        start = time.monotonic()
+        with pytest.raises(SystemExit) as exc:
+            cloud_worker.main()
+        assert exc.value.code == 1 and time.monotonic() - start < 10
+        assert 'Another worker writer holds the volume lock' in capfd.readouterr().out
+        assert old.is_dir()
+    with pytest.raises(SystemExit) as exc:
+        cloud_worker.main()
+    assert exc.value.code == 0
+    assert json.loads(capfd.readouterr().out)['deleted'] == [bundle_name(1)]
+    assert not old.exists() and (manager.directory / bundle_name(2)).is_dir()
+
+
+def test_snapshot_sidecars_left_by_readers_do_not_pin_bundles(volume):
+    """SQLite readers leave govtech.db-shm and an empty -wal; only an empty log is disposable."""
+    from govtech_scraper.cloud_retention import retain
+    manager, db, remote = volume
+    one, two = (make_bundle(manager, remote, db, i) for i in (1, 2))
+    make_bundle(manager, remote, db, 3)
+    for folder in (one, two):
+        (folder / 'govtech.db-shm').write_bytes(b'\0' * 32768)
+        (folder / 'govtech.db-wal').touch()
+    # Frames never checkpointed into the published main file are local-only data.
+    (two / 'govtech.db-wal').write_bytes(b'uncheckpointed frames')
+    manager.checkpoint(db)
+    freed = bundle_bytes(one)
+    report = retain(manager, db, remote, keep=1, apply=True)
+    assert report['deleted'] == [bundle_name(1)] and report['bytes_freed'] == freed
+    assert not one.exists()
+    assert states(report)[bundle_name(2)] == 'unknown-contents'
+    assert (two / 'govtech.db-wal').read_bytes() == b'uncheckpointed frames'

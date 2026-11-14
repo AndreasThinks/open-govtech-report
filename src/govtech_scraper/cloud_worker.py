@@ -20,6 +20,7 @@ import sqlite3
 import tempfile
 import time
 
+from .cloud_retention import MAX_KEEP, record_completed, retain, run_retention
 from .cloud_state import HubTransport, PrivateState
 from .db import CLASSIFIABLE
 from .decision.evidence import (EvidenceClassifier, EvidenceStore, OpenRouterClient,
@@ -191,11 +192,13 @@ def verify_volume(directory, environ=os.environ, mountinfo=Path('/proc/self/moun
 class Worker:
     def __init__(self, state, public, *, sources=None, prices=None, client=None,
                  clock=time.monotonic, volume_check=verify_volume, client_factory=None,
-                 source_commit=None):
+                 source_commit=None, retention_keep=3):
         self.state, self.public = state, public
         self.sources, self.prices, self.client = sources, prices, client
         self.clock, self.volume_check = clock, volume_check
         self.client_factory = client_factory
+        # None disables automatic bundle retention; the operator command still works.
+        self.retention_keep = retention_keep
         self.source_commit = source_commit if source_commit is not None else os.environ.get('RAILWAY_GIT_COMMIT_SHA')
 
     def merge(self, db):
@@ -227,7 +230,7 @@ class Worker:
                       labelled=0, abstained=0, failed=0, quarantined=0, budget_exhausted=False)
         with self.state.lock():
             db = self.state.open_normal()
-            checkpoint_allowed = False
+            checkpoint_allowed = succeeded = False
             initial_spend = db.conn.execute('SELECT COALESCE(SUM(COALESCE(actual_usd,reserved_usd)),0) FROM openrouter_budget_ledger').fetchone()[0]
             try:
                 # A durable publication receipt needs only rollout verification on retry.
@@ -236,6 +239,7 @@ class Worker:
                     checkpoint_allowed = True
                     self.publish(db, None, rollout=True)
                     status['phase'] = 'rollout-completed'
+                    succeeded = True
                     return status
                 if mode == 'classify':
                     if not inference_enabled or not authorization_id:
@@ -312,6 +316,7 @@ class Worker:
                 if publish:
                     self.publish(db, parent, rollout=rollout)
                 status['phase'] = 'budget-exhausted' if status['budget_exhausted'] else 'completed'
+                succeeded = True
                 return status
             except BaseException as exc:
                 status['phase'] = 'deadline' if isinstance(exc, (asyncio.TimeoutError, asyncio.CancelledError)) else 'failed'
@@ -324,8 +329,29 @@ class Worker:
                 try:
                     if checkpoint_allowed:
                         self.state.checkpoint(db)
+                        # Only after a successful job and its verified checkpoint, inside the
+                        # lock already held here. Half the checkpoint margin stays in reserve.
+                        if succeeded and self.retention_keep is not None:
+                            self.cleanup(db, status, deadline=started + deadline_seconds - checkpoint_margin / 2)
                 finally:
                     db.close()
+
+    def cleanup(self, db, status, *, deadline):
+        """Best-effort bundle retention; its failure is reported, never raised into the job."""
+        try:
+            report = retain(self.state, db, self.public, keep=self.retention_keep, apply=True,
+                            clock=self.clock, deadline=deadline)
+            counts = {}
+            for item in report['bundles']:
+                counts[item['state']] = counts.get(item['state'], 0) + 1
+            status['retention'] = {key: report[key] for key in ('phase', 'keep', 'blockers', 'deleted',
+                                                                'bytes_freed', 'missing')} | {'bundles': counts}
+        except Exception as exc:
+            status['retention'] = {'phase': 'failed', 'error': type(exc).__name__}
+        try:
+            self.state.set(db, 'terminal_status', status)
+        except Exception:
+            pass
 
     def current_pending_rollout(self, db):
         """A pending rollout of an older dataset would put superseded data back on the site."""
@@ -398,6 +424,8 @@ class Worker:
             from .api.queries import Catalogue
             receipt['stats'] = Catalogue(str(folder / 'govtech.db')).stats()
         self.state.set(db, 'last_publication', receipt)
+        # Completion proof for later retention, recorded before the intent is cleared.
+        record_completed(self.state, db, folder, receipt)
         self.state.set(db, 'pending_publication', None)
         self.state.set(db, 'pending_rollout', receipt)
         if rollout:
@@ -408,7 +436,7 @@ class Worker:
 
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument('--mode', choices=['dry-run','classify','bootstrap-only','restore-only','approve-recurring'], default='dry-run')
+    result.add_argument('--mode', choices=['dry-run','classify','bootstrap-only','restore-only','approve-recurring','retention'], default='dry-run')
     result.add_argument('--data-dir', default='/data')
     result.add_argument('--publish', action='store_true')
     result.add_argument('--rollout', action='store_true')
@@ -422,10 +450,26 @@ def parser():
     result.add_argument('--concurrency', type=int, default=2)
     result.add_argument('--deadline', type=int, default=1800)
     result.add_argument('--checkpoint-margin', type=int, default=180)
+    result.add_argument('--retention-keep', type=int, default=3,
+                        help=f'Recent completed publication bundles kept on the volume (1-{MAX_KEEP})')
+    result.add_argument('--no-auto-retention', action='store_true',
+                        help='Classify runs leave every bundle in place')
+    result.add_argument('--apply', action='store_true', help='Retention mode: delete instead of inventory')
+    result.add_argument('--reconcile-receipts', action='store_true',
+                        help='Retention mode: adopt older bundles proven by their own receipt.json')
     return result
 
 
 def execute(args):
+    # Programmatic callers may predate the retention options; defaults match the parser.
+    apply, reconcile = getattr(args, 'apply', False), getattr(args, 'reconcile_receipts', False)
+    keep = getattr(args, 'retention_keep', 3)
+    if args.mode != 'retention' and (apply or reconcile):
+        raise ValueError('Apply and receipt reconciliation belong to retention mode')
+    if type(keep) is not int or not 1 <= keep <= MAX_KEEP:
+        raise ValueError(f'Retention window must be an integer from 1 to {MAX_KEEP}')
+    if args.mode == 'retention' and (args.publish or args.rollout):
+        raise ValueError('Administrative modes cannot publish or infer')
     from huggingface_hub import HfApi, hf_hub_download
     token = os.environ.get('GOVTECH_HF_TOKEN')
     if not token:
@@ -452,7 +496,13 @@ def execute(args):
                     db.close()
         print(json.dumps({'phase': args.mode, 'completed': True}))
         return
+    if args.mode == 'retention':
+        # Takes the worker lock itself; fails fast instead of waiting on a running job.
+        print(json.dumps(run_retention(state, PublicHub(api, download), keep=keep,
+            apply=apply, reconcile=reconcile), sort_keys=True))
+        return
     worker = Worker(state, PublicHub(api, download),
+        retention_keep=None if getattr(args, 'no_auto_retention', False) else keep,
         sources=TargetedSources(os.environ.get('GOVTECH_GITHUB_TOKEN', '')),
         prices=PriceLookup(), client_factory=(lambda: OpenRouterClient(
             api_key=os.environ.get('OPENROUTER_API_KEY', ''), model=MODEL))
