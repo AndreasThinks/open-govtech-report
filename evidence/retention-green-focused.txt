@@ -1,0 +1,15 @@
+$ UV_PROJECT_ENVIRONMENT="$PWD/.venv" UV_OFFLINE=1 uv run --frozen pytest -q -p no:cacheprovider tests/railway/test_retention.py tests/railway/test_worker.py -v
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/avery/projects/govtech-retention-20261114
+configfile: pyproject.toml
+plugins: anyio-4.13.0, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 105 items
+
+tests/railway/test_retention.py ........................                 [ 22%]
+tests/railway/test_worker.py ........................................... [ 63%]
+......................................                                   [100%]
+
+============================= 105 passed in 17.81s =============================
+exit=0

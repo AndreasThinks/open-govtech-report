@@ -143,12 +143,113 @@ do not require a new code SHA. An HTTP 409/412
 permits at most one fresh metadata fetch/merge/revalidation/export retry, without
 another provider call. Other ambiguous failures require an exact remote readback;
 unresolved intent is retained and blocks blind replay. Local immutable bundles and
-pending intents remain under `/data` for recovery. No automatic pruning is done.
+pending intents remain under `/data` for recovery; completed bundles beyond a small
+recent window are pruned as described under [Bundle retention](#bundle-retention).
 
 `--publish --rollout` additionally opts into the existing HF Index rollout. A pending
 rollout receipt is resumed first; its existing intent/readback safeguards remain.
 There is no Railway web rollout adapter in this change. Public metadata workflows
 and the reviewed web bootstrap are unchanged.
+
+## Bundle retention
+
+Every new publication writes `/data/publication-<32 hex>/` (snapshot, exports,
+`manifest.json`, `receipt.json`). Retention (`cloud_retention.py`) removes old ones
+and nothing else. It is fail-closed: anything it cannot prove is kept and reported.
+
+A bundle is deleted only when all of these hold:
+
+1. `Worker.publish` recorded its completion (dataset SHA and artifact checksums) in
+   private worker state after exact remote readback, or an operator adopted it from
+   its own receipt (below).
+2. It is older than the `--retention-keep` most recent completed bundles (default 3,
+   allowed 1-10), and is not the last publication or the pending rollout.
+3. No publication intent is pending, the remote private marker is clean, its
+   `checkpoint_id` equals the volume's, the state is not inference-disabled, and at
+   least one checkpoint was taken after the completion was recorded.
+4. The directory is a real direct child of the data directory on the same
+   filesystem and holds only the published files, `receipt.json` and the SQLite
+   reader leftovers `govtech.db-shm` / an **empty** `govtech.db-wal`, all regular,
+   singly linked files. Symlinks, nested directories, hard links, extra files or a
+   non-empty WAL keep the whole bundle.
+5. Every local artifact still hashes to the recorded checksums, and
+   `verify_remote` confirms the same sizes, checksums and manifest at the recorded
+   immutable dataset revision (never the moving branch).
+
+Deletion unlinks those named files through the opened directory and removes the then
+empty directory; there is no pattern or recursive removal. An intent is stored before
+the first unlink, so a killed run finishes the same bundle next time. Each deletion
+appends one JSON line to `/data/retention-receipts.jsonl` (name, dataset SHA, per-file
+bytes and SHA-256, bytes freed, private checkpoint revision) and stores the same
+receipt in worker state under `publication_bundles` (latest 50 kept there).
+
+Never touched: `master.db` and its `-wal`/`-shm`, `worker.lock`, the receipt log,
+the ledger, evidence, history and review tables, remote markers, the legacy fixed
+`publication/` directory, interrupted or conflict-abandoned attempts, bundles named
+by a pending intent, and any file or directory retention does not recognise.
+
+### Automatic
+
+A `--mode classify` run prunes after its job succeeded and its final private
+checkpoint was verified, inside the volume lock it already holds. Dry-run mode and
+failed, timed-out or unverified-checkpoint runs skip it. A cleanup error is reported
+as `"retention": {"phase": "failed", ...}` in the status and never changes the job's
+result or exit code. The summary (`deleted`, `bytes_freed`, `blockers`, counts per
+bundle state) is printed with the status and stored in `terminal_status`. At most 10
+bundles are removed per run and none is started within half the checkpoint margin of
+the deadline. `--no-auto-retention` turns this off.
+
+A bundle recorded during one run becomes deletable from that run's final checkpoint
+onward, so with the default window the fourth successful publication removes the
+first. Deletion receipts written after the final checkpoint reach the private
+remote with the next checkpoint. If the watchdog kills a run during cleanup the exit
+code is 124 although the job had already checkpointed; the next run resumes.
+
+### Operator inventory and old bundles
+
+The command takes the volume lock itself and fails immediately with
+`Another worker writer holds the volume lock` while a cron run is active; it never
+waits. It needs `GOVTECH_HF_TOKEN` to read the private marker and public revisions.
+
+```sh
+# Inventory only: no local or remote writes. Lists every entry with bytes and state.
+python -m govtech_scraper.cloud_worker --mode retention --data-dir /data
+# Also show which older bundles their own receipt.json can prove.
+python -m govtech_scraper.cloud_worker --mode retention --reconcile-receipts
+# Adopt those, checkpoint, delete what is proven, checkpoint the receipts.
+python -m govtech_scraper.cloud_worker --mode retention --reconcile-receipts --apply
+```
+
+Read the dry-run first. `bundles[].state` is one of `retained-window`,
+`last-publication`, `pending-rollout`, `pending-publication`, `awaiting-checkpoint`,
+`eligible` (verified; `--apply` would delete), `deferred`, `blocked`, `deleting`,
+`verification-failed`, `unknown-contents`, `rejected-symlink` or `unrecorded`.
+`blockers` lists volume-wide reasons that stop all deletion; `bytes_reclaimable` is
+what `--apply` would free. `other` lists everything else on the volume as `protected`
+or `unknown`; both are always preserved.
+
+Bundles written before retention existed have no completion record. With
+`--reconcile-receipts` a bundle is adopted only if its `receipt.json` names the
+public dataset, a valid dataset SHA and complete checksums, its files still match
+them, and that immutable revision still serves the same artifacts and manifest.
+Adopted bundles then follow the ordinary rules, ordered by manifest publication time.
+
+Limits, where no proof exists:
+
+- A bundle without `receipt.json` cannot be proven complete: an interrupted
+  attempt, an upload abandoned after a 409/412 conflict, or (before this change) a
+  publication accepted through ambiguous-response readback. It stays `unrecorded`
+  indefinitely. Conflict-abandoned attempts therefore still accumulate, one per
+  conflict, until an operator removes them.
+- A receipt whose revision is no longer served identically (history rewritten, file
+  changed) or whose local files changed stays `unproven`.
+- The tool has no force option. Removing an unproven bundle is a manual operator
+  decision: confirm no `pending_publication` names it, compare its files with the
+  public revision you believe it produced, and delete that single directory by its
+  full name while no worker is running. If in doubt, keep it.
+- A dirty marker, a foreign or missing checkpoint, or an inference-disabled restore
+  blocks all deletion until the existing recovery procedure resolves it.
+- The legacy fixed `publication/` directory is never classified or removed.
 
 ## Packaging and parent deployment work
 
