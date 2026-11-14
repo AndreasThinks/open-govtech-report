@@ -396,10 +396,25 @@ def test_idempotent_repeat_and_interrupted_deletion_resume(volume, monkeypatch):
         assert states(report) == {bundle_name(3): 'retained-window'}
     assert manager.get(db, 'publication_bundles') == snapshot
     assert len((manager.directory / 'retention-receipts.jsonl').read_text().splitlines()) == 2
+    # A full disk while appending the log: the deletion is still reported and receipted in state,
+    # and nothing further is deleted in that run.
+    four, five, six = (make_bundle(manager, remote, db, i) for i in (4, 5, 6))
+    manager.checkpoint(db)
+    real_write = os.write
+    def full(fd, data):
+        raise OSError(28, 'No space left on device')
+    monkeypatch.setattr(cloud_retention.os, 'write', full)
+    report = retain(manager, db, remote, keep=1, apply=True)
+    monkeypatch.setattr(cloud_retention.os, 'write', real_write)
+    assert report['deleted'] == [bundle_name(3)] and report['phase'] == 'blocked'
+    assert manager.get(db, 'publication_bundles')[bundle_name(3)]['receipt']['bytes_freed'] == report['bytes_freed']
+    assert four.is_dir() and five.is_dir()
+    assert retain(manager, db, remote, keep=1, apply=True)['deleted'] == [bundle_name(4), bundle_name(5)]
+    three = six
     # A volume that lost a recorded bundle is reported, never treated as an error or re-deleted.
     shutil.rmtree(three)
     report = retain(manager, db, remote, keep=1, apply=True)
-    assert report['deleted'] == [] and report['missing'] == [bundle_name(3)]
+    assert report['deleted'] == [] and report['missing'] == [bundle_name(6)]
 
 
 def test_reconcile_old_bundles_requires_receipt_proof(volume):

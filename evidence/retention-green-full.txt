@@ -18,5 +18,5 @@ tests/reliability/test_http.py::test_later_page_404_is_failure
     _warn_reuse()
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-876 passed, 1 warning in 89.63s (0:01:29)
+876 passed, 1 warning in 89.84s (0:01:29)
 exit=0

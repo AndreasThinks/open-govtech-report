@@ -1,0 +1,68 @@
+$ uv run --frozen pytest -q -p no:cacheprovider tests/railway/test_retention.py -k idempotent
+# Third red step: receipt-log write failure after a deletion was misreported (test updated, implementation at a8d1599)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_idempotent_repeat_and_interrupted_deletion_resume ____________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7c8c10906fd0>, <govtech_scraper.db.Database object at 0x7c8c10913450>, <test_retention.Remote object at 0x7c8c10907ad0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7c8c1090bf10>
+
+    def test_idempotent_repeat_and_interrupted_deletion_resume(volume, monkeypatch):
+        from govtech_scraper import cloud_retention
+        from govtech_scraper.cloud_retention import retain
+        manager, db, remote = volume
+        one, two, three = (make_bundle(manager, remote, db, i) for i in (1, 2, 3))
+        manager.checkpoint(db)
+        freed = bundle_bytes(one)
+        # Crash after the first unlink: durable intent, partially removed bundle.
+        real_unlink, calls = os.unlink, []
+        def crash(name, **kwargs):
+            if calls:
+                raise KeyboardInterrupt('killed by watchdog')
+            calls.append(name)
+            return real_unlink(name, **kwargs)
+        monkeypatch.setattr(cloud_retention.os, 'unlink', crash)
+        with pytest.raises(KeyboardInterrupt):
+            retain(manager, db, remote, keep=1, apply=True)
+        monkeypatch.setattr(cloud_retention.os, 'unlink', real_unlink)
+        assert one.is_dir() and len(list(one.iterdir())) == len(NAMES) - 1
+        assert manager.get(db, 'publication_bundles')[bundle_name(1)]['status'] == 'deleting'
+        assert two.is_dir() and three.is_dir()
+        # Dry-run reports the resumable deletion without touching it.
+        report = retain(manager, db, remote, keep=1)
+        assert states(report)[bundle_name(1)] == 'deleting' and one.is_dir()
+        report = retain(manager, db, remote, keep=1, apply=True)
+        assert report['deleted'] == [bundle_name(1), bundle_name(2)]
+        assert not one.exists() and not two.exists() and three.is_dir()
+        lines = [json.loads(line) for line in (manager.directory / 'retention-receipts.jsonl').read_text().splitlines()]
+        assert [line['name'] for line in lines] == [bundle_name(1), bundle_name(2)]
+        assert lines[0]['bytes_freed'] == freed and lines[0]['resumed'] is True
+        # Repeats change nothing and write nothing.
+        snapshot = manager.get(db, 'publication_bundles')
+        for _ in range(2):
+            report = retain(manager, db, remote, keep=1, apply=True)
+            assert report['deleted'] == [] and report['bytes_freed'] == 0
+            assert states(report) == {bundle_name(3): 'retained-window'}
+        assert manager.get(db, 'publication_bundles') == snapshot
+        assert len((manager.directory / 'retention-receipts.jsonl').read_text().splitlines()) == 2
+        # A full disk while appending the log: the deletion is still reported and receipted in state,
+        # and nothing further is deleted in that run.
+        four, five, six = (make_bundle(manager, remote, db, i) for i in (4, 5, 6))
+        manager.checkpoint(db)
+        real_write = os.write
+        def full(fd, data):
+            raise OSError(28, 'No space left on device')
+        monkeypatch.setattr(cloud_retention.os, 'write', full)
+        report = retain(manager, db, remote, keep=1, apply=True)
+        monkeypatch.setattr(cloud_retention.os, 'write', real_write)
+>       assert report['deleted'] == [bundle_name(3)] and report['phase'] == 'blocked'
+E       AssertionError: assert ([] == ['publication...000000000003']
+E
+E         Right contains one more item: 'publication-00000000000000000000000000000003'
+E         Use -v to get more diff)
+
+tests/railway/test_retention.py:409: AssertionError
+=========================== short test summary info ============================
+FAILED tests/railway/test_retention.py::test_idempotent_repeat_and_interrupted_deletion_resume
+1 failed, 23 deselected in 1.59s
+exit=1

@@ -358,8 +358,12 @@ def retain(state, db, public, *, keep=3, apply=False, max_delete=10, clock=time.
                     'dataset_sha': record['dataset_sha'], 'published_at': record.get('published_at'), 'receipt': receipt}
                 state.set(db, STATE_KEY, _bounded(records))
                 changed = True
-                os.write(log, (json.dumps(receipt, sort_keys=True) + '\n').encode())
-                os.fsync(log)
+                try:
+                    os.write(log, (json.dumps(receipt, sort_keys=True) + '\n').encode())
+                    os.fsync(log)
+                except OSError:
+                    # The receipt is already durable in worker state; stop further deletions.
+                    reasons.append('Retention receipt log write failed')
                 report['deleted'].append(name)
                 report['bytes_freed'] += receipt['bytes_freed']
                 item.update(state='deleted', action='deleted', reason='Verified and removed')
