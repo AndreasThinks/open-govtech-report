@@ -1,0 +1,40 @@
+== mutation: skip remote verification
+>           assert item['state'] in ('verification-failed', 'unknown-contents') and item['reason']
+E           AssertionError: assert ('eligible' in ('verification-failed', 'unknown-contents'))
+>           assert item['state'] in ('verification-failed', 'unknown-contents') and item['reason']
+E           AssertionError: assert ('eligible' in ('verification-failed', 'unknown-contents'))
+>           assert item['state'] in ('verification-failed', 'unknown-contents') and item['reason']
+E           AssertionError: assert ('eligible' in ('verification-failed', 'unknown-contents'))
+>           assert item['state'] in ('verification-failed', 'unknown-contents') and item['reason']
+E           AssertionError: assert ('eligible' in ('verification-failed', 'unknown-contents'))
+>           assert item['state'] in ('verification-failed', 'unknown-contents') and item['reason']
+E           AssertionError: assert ('eligible' in ('verification-failed', 'unknown-contents'))
+FAILED tests/railway/test_retention.py::test_success_dry_run_inventory_then_verified_deletion_with_receipt
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[remote-bytes]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[remote-missing-revision]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[remote-missing-file]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[remote-manifest]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[remote-error]
+FAILED tests/railway/test_retention.py::test_reconcile_old_bundles_requires_receipt_proof
+FAILED tests/railway/test_retention.py::test_worker_run_prunes_automatically_after_checkpoint
+8 failed, 16 passed in 5.33s
+== mutation: ignore awaiting-checkpoint
+FAILED tests/railway/test_retention.py::test_dirty_marker_and_missing_clean_checkpoint_preserve_everything
+FAILED tests/railway/test_retention.py::test_reconcile_old_bundles_requires_receipt_proof
+2 failed, 22 passed in 5.02s
+== mutation: ignore volume-wide blockers
+FAILED tests/railway/test_retention.py::test_dirty_marker_and_missing_clean_checkpoint_preserve_everything
+FAILED tests/railway/test_retention.py::test_pending_and_ambiguous_uploads_are_preserved
+2 failed, 22 passed in 5.07s
+== mutation: skip local hash comparison
+>           assert item['state'] in ('verification-failed', 'unknown-contents') and item['reason']
+E           AssertionError: assert ('eligible' in ('verification-failed', 'unknown-contents'))
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[local-bytes]
+FAILED tests/railway/test_retention.py::test_reconcile_old_bundles_requires_receipt_proof
+2 failed, 22 passed in 5.18s
+== mutation: ignore rollout/last-publication pins
+FAILED tests/railway/test_retention.py::test_pending_and_ambiguous_uploads_are_preserved
+1 failed, 23 passed in 5.14s
+== mutation: accept links and non-regular entries
+FAILED tests/railway/test_retention.py::test_symlinks_and_path_escapes_are_rejected
+1 failed, 23 passed in 5.01s

@@ -1,0 +1,398 @@
+$ UV_PROJECT_ENVIRONMENT="$PWD/.venv" UV_OFFLINE=1 uv run --frozen pytest -q -p no:cacheprovider tests/railway/test_retention.py
+# HEAD 7295d9e071bcc0d5aa9de2cdd5bf804eabd9d488, tests only, no implementation
+FFFFFFFFFFFFFFFFFFFFFF                                                   [100%]
+=================================== FAILURES ===================================
+______ test_success_dry_run_inventory_then_verified_deletion_with_receipt ______
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb2529e90>, <govtech_scraper.db.Database object at 0x7ecdb3f85590>, <test_retention.Remote object at 0x7ecdb3f1dfd0>)
+
+    def test_success_dry_run_inventory_then_verified_deletion_with_receipt(volume):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:94: ModuleNotFoundError
+_________________ test_retention_window_bounds_and_time_budget _________________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1ebba10>, <govtech_scraper.db.Database object at 0x7ecdb1c90e10>, <test_retention.Remote object at 0x7ecdb1e2d950>)
+
+    def test_retention_window_bounds_and_time_budget(volume):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:136: ModuleNotFoundError
+______ test_dirty_marker_and_missing_clean_checkpoint_preserve_everything ______
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1dc1790>, <govtech_scraper.db.Database object at 0x7ecdb1dc1490>, <test_retention.Remote object at 0x7ecdb2515010>)
+
+    def test_dirty_marker_and_missing_clean_checkpoint_preserve_everything(volume):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:159: ModuleNotFoundError
+_______________ test_pending_and_ambiguous_uploads_are_preserved _______________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1ca6890>, <govtech_scraper.db.Database object at 0x7ecdb1ca5450>, <test_retention.Remote object at 0x7ecdb1ca56d0>)
+
+    def test_pending_and_ambiguous_uploads_are_preserved(volume):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:190: ModuleNotFoundError
+___________ test_verification_failure_preserves_bundle[remote-bytes] ___________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1dc0510>, <govtech_scraper.db.Database object at 0x7ecdb1dc2210>, <test_retention.Remote object at 0x7ecdb1dc1250>)
+damage = 'remote-bytes'
+
+    @pytest.mark.parametrize('damage', ['remote-bytes', 'remote-missing-revision', 'remote-missing-file',
+                                        'remote-manifest', 'remote-error', 'local-bytes', 'local-missing-file',
+                                        'local-extra-file', 'record-sha'])
+    def test_verification_failure_preserves_bundle(volume, damage):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:225: ModuleNotFoundError
+_____ test_verification_failure_preserves_bundle[remote-missing-revision] ______
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1c901d0>, <govtech_scraper.db.Database object at 0x7ecdb1c91f50>, <test_retention.Remote object at 0x7ecdb5004dd0>)
+damage = 'remote-missing-revision'
+
+    @pytest.mark.parametrize('damage', ['remote-bytes', 'remote-missing-revision', 'remote-missing-file',
+                                        'remote-manifest', 'remote-error', 'local-bytes', 'local-missing-file',
+                                        'local-extra-file', 'record-sha'])
+    def test_verification_failure_preserves_bundle(volume, damage):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:225: ModuleNotFoundError
+_______ test_verification_failure_preserves_bundle[remote-missing-file] ________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1de0c90>, <govtech_scraper.db.Database object at 0x7ecdb1de1450>, <test_retention.Remote object at 0x7ecdb1de1090>)
+damage = 'remote-missing-file'
+
+    @pytest.mark.parametrize('damage', ['remote-bytes', 'remote-missing-revision', 'remote-missing-file',
+                                        'remote-manifest', 'remote-error', 'local-bytes', 'local-missing-file',
+                                        'local-extra-file', 'record-sha'])
+    def test_verification_failure_preserves_bundle(volume, damage):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:225: ModuleNotFoundError
+_________ test_verification_failure_preserves_bundle[remote-manifest] __________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1cc79d0>, <govtech_scraper.db.Database object at 0x7ecdb1cc6550>, <test_retention.Remote object at 0x7ecdb1cc7950>)
+damage = 'remote-manifest'
+
+    @pytest.mark.parametrize('damage', ['remote-bytes', 'remote-missing-revision', 'remote-missing-file',
+                                        'remote-manifest', 'remote-error', 'local-bytes', 'local-missing-file',
+                                        'local-extra-file', 'record-sha'])
+    def test_verification_failure_preserves_bundle(volume, damage):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:225: ModuleNotFoundError
+___________ test_verification_failure_preserves_bundle[remote-error] ___________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1dda090>, <govtech_scraper.db.Database object at 0x7ecdb1dd8850>, <test_retention.Remote object at 0x7ecdb25f8090>)
+damage = 'remote-error'
+
+    @pytest.mark.parametrize('damage', ['remote-bytes', 'remote-missing-revision', 'remote-missing-file',
+                                        'remote-manifest', 'remote-error', 'local-bytes', 'local-missing-file',
+                                        'local-extra-file', 'record-sha'])
+    def test_verification_failure_preserves_bundle(volume, damage):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:225: ModuleNotFoundError
+___________ test_verification_failure_preserves_bundle[local-bytes] ____________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1dbb310>, <govtech_scraper.db.Database object at 0x7ecdb1dbbd90>, <test_retention.Remote object at 0x7ecdb1dba890>)
+damage = 'local-bytes'
+
+    @pytest.mark.parametrize('damage', ['remote-bytes', 'remote-missing-revision', 'remote-missing-file',
+                                        'remote-manifest', 'remote-error', 'local-bytes', 'local-missing-file',
+                                        'local-extra-file', 'record-sha'])
+    def test_verification_failure_preserves_bundle(volume, damage):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:225: ModuleNotFoundError
+________ test_verification_failure_preserves_bundle[local-missing-file] ________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1edeb50>, <govtech_scraper.db.Database object at 0x7ecdb1edda90>, <test_retention.Remote object at 0x7ecdb1edf9d0>)
+damage = 'local-missing-file'
+
+    @pytest.mark.parametrize('damage', ['remote-bytes', 'remote-missing-revision', 'remote-missing-file',
+                                        'remote-manifest', 'remote-error', 'local-bytes', 'local-missing-file',
+                                        'local-extra-file', 'record-sha'])
+    def test_verification_failure_preserves_bundle(volume, damage):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:225: ModuleNotFoundError
+_________ test_verification_failure_preserves_bundle[local-extra-file] _________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb252fe90>, <govtech_scraper.db.Database object at 0x7ecdb421e310>, <test_retention.Remote object at 0x7ecdb41fdcd0>)
+damage = 'local-extra-file'
+
+    @pytest.mark.parametrize('damage', ['remote-bytes', 'remote-missing-revision', 'remote-missing-file',
+                                        'remote-manifest', 'remote-error', 'local-bytes', 'local-missing-file',
+                                        'local-extra-file', 'record-sha'])
+    def test_verification_failure_preserves_bundle(volume, damage):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:225: ModuleNotFoundError
+____________ test_verification_failure_preserves_bundle[record-sha] ____________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1da7890>, <govtech_scraper.db.Database object at 0x7ecdb1da7190>, <test_retention.Remote object at 0x7ecdb1da6e90>)
+damage = 'record-sha'
+
+    @pytest.mark.parametrize('damage', ['remote-bytes', 'remote-missing-revision', 'remote-missing-file',
+                                        'remote-manifest', 'remote-error', 'local-bytes', 'local-missing-file',
+                                        'local-extra-file', 'record-sha'])
+    def test_verification_failure_preserves_bundle(volume, damage):
+>       from govtech_scraper.cloud_retention import retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:225: ModuleNotFoundError
+__________________ test_concurrency_requires_the_worker_lock ___________________
+
+tmp_path = PosixPath('/home/avery/.hermes/cache/scratch/pytest-of-avery/pytest-4/test_concurrency_requires_the_0')
+
+    def test_concurrency_requires_the_worker_lock(tmp_path):
+>       from govtech_scraper.cloud_retention import retain, run_retention
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:268: ModuleNotFoundError
+_________________ test_symlinks_and_path_escapes_are_rejected __________________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1ceca10>, <govtech_scraper.db.Database object at 0x7ecdb1cedf50>, <test_retention.Remote object at 0x7ecdb1ced410>)
+tmp_path = PosixPath('/home/avery/.hermes/cache/scratch/pytest-of-avery/pytest-4/test_symlinks_and_path_escapes0')
+
+    def test_symlinks_and_path_escapes_are_rejected(volume, tmp_path):
+>       from govtech_scraper.cloud_retention import record_completed, retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:305: ModuleNotFoundError
+____________ test_idempotent_repeat_and_interrupted_deletion_resume ____________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1ca4650>, <govtech_scraper.db.Database object at 0x7ecdb1ca5410>, <test_retention.Remote object at 0x7ecdb1ca5e90>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ecdb1ca4b90>
+
+    def test_idempotent_repeat_and_interrupted_deletion_resume(volume, monkeypatch):
+>       from govtech_scraper import cloud_retention
+E       ImportError: cannot import name 'cloud_retention' from 'govtech_scraper' (/home/avery/projects/govtech-retention-20261114/src/govtech_scraper/__init__.py)
+
+tests/railway/test_retention.py:362: ImportError
+______________ test_reconcile_old_bundles_requires_receipt_proof _______________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1de13d0>, <govtech_scraper.db.Database object at 0x7ecdb1de3890>, <test_retention.Remote object at 0x7ecdb1de2d10>)
+
+    def test_reconcile_old_bundles_requires_receipt_proof(volume):
+>       from govtech_scraper.cloud_retention import reconcile_receipts, retain
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:406: ModuleNotFoundError
+______________ test_operator_command_dry_run_reconcile_and_apply _______________
+
+tmp_path = PosixPath('/home/avery/.hermes/cache/scratch/pytest-of-avery/pytest-4/test_operator_command_dry_run_0')
+
+    def test_operator_command_dry_run_reconcile_and_apply(tmp_path):
+>       from govtech_scraper.cloud_retention import run_retention
+E       ModuleNotFoundError: No module named 'govtech_scraper.cloud_retention'
+
+tests/railway/test_retention.py:436: ModuleNotFoundError
+________________ test_cli_retention_mode_is_dry_run_by_default _________________
+
+self = ArgumentParser(prog='pytest', usage=None, description='Bounded Railway cron worker. Default dry-run; administration ne...interactive login files.\n', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+args = ['--mode', 'retention']
+namespace = Namespace(mode='dry-run', data_dir='/data', publish=False, rollout=False, authorization_id=None, monthly_usd=None, inc...e, approved_at=None, effective_at=None, limit=50, source_limit=50, concurrency=2, deadline=1800, checkpoint_margin=180)
+
+    def parse_known_args(self, args=None, namespace=None):
+        if args is None:
+            # args default to the system args
+            args = _sys.argv[1:]
+        else:
+            # make sure that args are mutable
+            args = list(args)
+
+        # default Namespace built from parser defaults
+        if namespace is None:
+            namespace = Namespace()
+
+        # add any action defaults that aren't present
+        for action in self._actions:
+            if action.dest is not SUPPRESS:
+                if not hasattr(namespace, action.dest):
+                    if action.default is not SUPPRESS:
+                        setattr(namespace, action.dest, action.default)
+
+        # add any parser defaults that aren't present
+        for dest in self._defaults:
+            if not hasattr(namespace, dest):
+                setattr(namespace, dest, self._defaults[dest])
+
+        # parse the arguments and exit if there are any errors
+        if self.exit_on_error:
+            try:
+>               namespace, args = self._parse_known_args(args, namespace)
+                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../../.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/argparse.py:1907:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+../../.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/argparse.py:2128: in _parse_known_args
+    start_index = consume_optional(start_index)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/argparse.py:2068: in consume_optional
+    take_action(action, args, option_string)
+../../.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/argparse.py:1967: in take_action
+    argument_values = self._get_values(action, argument_strings)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/argparse.py:2507: in _get_values
+    self._check_value(action, value)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = ArgumentParser(prog='pytest', usage=None, description='Bounded Railway cron worker. Default dry-run; administration ne...interactive login files.\n', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+action = _StoreAction(option_strings=['--mode'], dest='mode', nargs=None, const=None, default='dry-run', type=None, choices=['dry-run', 'classify', 'bootstrap-only', 'restore-only', 'approve-recurring'], required=False, help=None, metavar=None)
+value = 'retention'
+
+    def _check_value(self, action, value):
+        # converted value must be one of the choices (if specified)
+        if action.choices is not None and value not in action.choices:
+            args = {'value': value,
+                    'choices': ', '.join(map(repr, action.choices))}
+            msg = _('invalid choice: %(value)r (choose from %(choices)s)')
+>           raise ArgumentError(action, msg % args)
+E           argparse.ArgumentError: argument --mode: invalid choice: 'retention' (choose from 'dry-run', 'classify', 'bootstrap-only', 'restore-only', 'approve-recurring')
+
+../../.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/argparse.py:2563: ArgumentError
+
+During handling of the above exception, another exception occurred:
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ecdb1c10750>
+
+    def test_cli_retention_mode_is_dry_run_by_default(monkeypatch):
+        from govtech_scraper import cloud_worker
+>       args = cloud_worker.parser().parse_args(['--mode', 'retention'])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/railway/test_retention.py:470:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+../../.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/argparse.py:1874: in parse_args
+    args, argv = self.parse_known_args(args, namespace)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/argparse.py:1909: in parse_known_args
+    self.error(str(err))
+../../.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/argparse.py:2640: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = ArgumentParser(prog='pytest', usage=None, description='Bounded Railway cron worker. Default dry-run; administration ne...interactive login files.\n', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = "pytest: error: argument --mode: invalid choice: 'retention' (choose from 'dry-run', 'classify', 'bootstrap-only', 'restore-only', 'approve-recurring')\n"
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+../../.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/argparse.py:2627: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: pytest [-h]
+              [--mode {dry-run,classify,bootstrap-only,restore-only,approve-recurring}]
+              [--data-dir DATA_DIR] [--publish] [--rollout]
+              [--authorization-id AUTHORIZATION_ID]
+              [--monthly-usd MONTHLY_USD] [--increment-usd INCREMENT_USD]
+              [--approved-at APPROVED_AT] [--effective-at EFFECTIVE_AT]
+              [--limit LIMIT] [--source-limit SOURCE_LIMIT]
+              [--concurrency CONCURRENCY] [--deadline DEADLINE]
+              [--checkpoint-margin CHECKPOINT_MARGIN]
+pytest: error: argument --mode: invalid choice: 'retention' (choose from 'dry-run', 'classify', 'bootstrap-only', 'restore-only', 'approve-recurring')
+____________ test_worker_run_prunes_automatically_after_checkpoint _____________
+
+publishing_worker = (<function publishing_worker.<locals>.build at 0x7ecdb1eeac00>, <govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1c71010>, <test_retention.Remote object at 0x7ecdb1c703d0>, [])
+
+    async def test_worker_run_prunes_automatically_after_checkpoint(publishing_worker):
+        build, manager, remote, folders = publishing_worker
+>       worker = build(retention_keep=2)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/railway/test_retention.py:533:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+kwargs = {'retention_keep': 2}
+
+    def build(**kwargs):
+>       return cloud_worker.Worker(manager, remote, volume_check=lambda _: None, source_commit='c' * 40, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Worker.__init__() got an unexpected keyword argument 'retention_keep'
+
+tests/railway/test_retention.py:524: TypeError
+__________ test_worker_dry_run_and_disabled_retention_delete_nothing ___________
+
+publishing_worker = (<function publishing_worker.<locals>.build at 0x7ecdb1eea340>, <govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1ce1c50>, <test_retention.Remote object at 0x7ecdb1ce2050>, [])
+
+    async def test_worker_dry_run_and_disabled_retention_delete_nothing(publishing_worker):
+        build, manager, remote, folders = publishing_worker
+>       disabled = build(retention_keep=None)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/railway/test_retention.py:555:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+kwargs = {'retention_keep': None}
+
+    def build(**kwargs):
+>       return cloud_worker.Worker(manager, remote, volume_check=lambda _: None, source_commit='c' * 40, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Worker.__init__() got an unexpected keyword argument 'retention_keep'
+
+tests/railway/test_retention.py:524: TypeError
+_________________ test_cleanup_failure_never_masks_job_result __________________
+
+publishing_worker = (<function publishing_worker.<locals>.build at 0x7ecdb1eeae80>, <govtech_scraper.cloud_state.PrivateState object at 0x7ecdb1cf7450>, <test_retention.Remote object at 0x7ecdb1cf79d0>, [])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ecdb1cf7910>
+
+    async def test_cleanup_failure_never_masks_job_result(publishing_worker, monkeypatch):
+        from govtech_scraper import cloud_worker
+        build, manager, remote, folders = publishing_worker
+>       worker = build(retention_keep=1)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/railway/test_retention.py:569:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+kwargs = {'retention_keep': 1}
+
+    def build(**kwargs):
+>       return cloud_worker.Worker(manager, remote, volume_check=lambda _: None, source_commit='c' * 40, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Worker.__init__() got an unexpected keyword argument 'retention_keep'
+
+tests/railway/test_retention.py:524: TypeError
+=========================== short test summary info ============================
+FAILED tests/railway/test_retention.py::test_success_dry_run_inventory_then_verified_deletion_with_receipt
+FAILED tests/railway/test_retention.py::test_retention_window_bounds_and_time_budget
+FAILED tests/railway/test_retention.py::test_dirty_marker_and_missing_clean_checkpoint_preserve_everything
+FAILED tests/railway/test_retention.py::test_pending_and_ambiguous_uploads_are_preserved
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[remote-bytes]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[remote-missing-revision]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[remote-missing-file]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[remote-manifest]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[remote-error]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[local-bytes]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[local-missing-file]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[local-extra-file]
+FAILED tests/railway/test_retention.py::test_verification_failure_preserves_bundle[record-sha]
+FAILED tests/railway/test_retention.py::test_concurrency_requires_the_worker_lock
+FAILED tests/railway/test_retention.py::test_symlinks_and_path_escapes_are_rejected
+FAILED tests/railway/test_retention.py::test_idempotent_repeat_and_interrupted_deletion_resume
+FAILED tests/railway/test_retention.py::test_reconcile_old_bundles_requires_receipt_proof
+FAILED tests/railway/test_retention.py::test_operator_command_dry_run_reconcile_and_apply
+FAILED tests/railway/test_retention.py::test_cli_retention_mode_is_dry_run_by_default
+FAILED tests/railway/test_retention.py::test_worker_run_prunes_automatically_after_checkpoint
+FAILED tests/railway/test_retention.py::test_worker_dry_run_and_disabled_retention_delete_nothing
+FAILED tests/railway/test_retention.py::test_cleanup_failure_never_masks_job_result
+22 failed in 3.71s
+exit=1

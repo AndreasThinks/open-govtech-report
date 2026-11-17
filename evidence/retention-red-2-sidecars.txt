@@ -1,0 +1,457 @@
+$ uv run --frozen pytest -q -p no:cacheprovider tests/railway/test_retention.py::test_snapshot_sidecars_left_by_readers_do_not_pin_bundles tests/railway/test_worker.py -k "sidecars or publication_repeat"
+# Second red step: real Worker.publish bundles keep SQLite sidecars, so the first implementation deleted nothing
+FFFFF                                                                    [100%]
+=================================== FAILURES ===================================
+__________ test_snapshot_sidecars_left_by_readers_do_not_pin_bundles ___________
+
+volume = (<govtech_scraper.cloud_state.PrivateState object at 0x7b6019d62410>, <govtech_scraper.db.Database object at 0x7b6019d6b090>, <test_retention.Remote object at 0x7b6019d2aed0>)
+
+    def test_snapshot_sidecars_left_by_readers_do_not_pin_bundles(volume):
+        """SQLite readers leave govtech.db-shm and an empty -wal; only an empty log is disposable."""
+        from govtech_scraper.cloud_retention import retain
+        manager, db, remote = volume
+        one, two = (make_bundle(manager, remote, db, i) for i in (1, 2))
+        make_bundle(manager, remote, db, 3)
+        for folder in (one, two):
+            (folder / 'govtech.db-shm').write_bytes(b'\0' * 32768)
+            (folder / 'govtech.db-wal').touch()
+        # Frames never checkpointed into the published main file are local-only data.
+        (two / 'govtech.db-wal').write_bytes(b'uncheckpointed frames')
+        manager.checkpoint(db)
+        freed = bundle_bytes(one)
+        report = retain(manager, db, remote, keep=1, apply=True)
+>       assert report['deleted'] == [bundle_name(1)] and report['bytes_freed'] == freed
+E       AssertionError: assert ([] == ['publication...000000000001']
+E
+E         Right contains one more item: 'publication-00000000000000000000000000000001'
+E         Use -v to get more diff)
+
+tests/railway/test_retention.py:649: AssertionError
+______ test_publication_repeat_conflict_and_private_strip[injected-True] _______
+
+running_worker = (<govtech_scraper.cloud_worker.Worker object at 0x7b6019d6bc90>, <test_worker.FakeHub object at 0x7b6019d62b90>)
+tmp_path = PosixPath('/home/avery/.hermes/cache/scratch/pytest-of-avery/pytest-11/test_publication_repeat_confli0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b6018a6c590>
+classified = True, provenance = 'injected'
+
+    @pytest.mark.parametrize('classified', [True, False])
+    @pytest.mark.parametrize('provenance', ['injected', 'railway'])
+    def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path, monkeypatch, classified, provenance):
+        from govtech_scraper.cloud_worker import PublicHub
+        from govtech_scraper.decision.evidence import EvidenceStore, source_from_repo, taxonomy_digest, DEFAULT_PROMPT_VERSION
+        from govtech_scraper.decision.taxonomy import load_taxonomy
+        from govtech_scraper.decision.store import row_to_repository
+        worker, _ = running_worker
+        from govtech_scraper.cloud_worker import Worker
+        monkeypatch.setenv('GOVTECH_SOURCE_COMMIT', 'f' * 40)
+        monkeypatch.setenv('RAILWAY_GIT_COMMIT_SHA', 'd' * 40)
+        code_sha = 'c' * 40 if provenance == 'injected' else 'd' * 40
+        worker = Worker(worker.state, worker.public,
+                        **({'source_commit': code_sha} if provenance == 'injected' else {}))
+        api = FakeHub()
+        api.root = tmp_path
+        api.private = False
+        worker.public = PublicHub(api, api.hf_hub_download)
+        db = worker.state.open_normal()
+        # Use the existing real merge adapter before swapping to publication fake.
+        public_db = Database(str(tmp_path / 'public.db'))
+        from govtech_scraper.decision.incremental import merge_public_metadata
+        merge_public_metadata(db, public_db.db_path)
+        public_db.close()
+        taxonomy = load_taxonomy()
+        for row in db.conn.execute('SELECT * FROM repositories').fetchall():
+            repo = row_to_repository(row)
+            source = source_from_repo(repo, 'sending emails and SMS')
+            store = EvidenceStore(db)
+            store.save_source(source)
+            store.save_success(html_url=repo.html_url, taxonomy_version=taxonomy.version,
+                model='openai/gpt-6-luna', prompt_version=DEFAULT_PROMPT_VERSION,
+                input_hash=source.input_hash('openai/gpt-6-luna', DEFAULT_PROMPT_VERSION, taxonomy),
+                source=source, domain=None, kind=None, tags=[], usage={'cost': .0001},
+                abstentions={'domain': 'unknown', 'kind': 'unknown', 'tags': []}, taxonomy_sha=taxonomy_digest(taxonomy))
+        from datetime import UTC, datetime
+        now = datetime.now(UTC).isoformat()
+        db.conn.execute('INSERT INTO scrape_runs VALUES (?,?,?,?,?,?)', ('run', now, now, 1, 1, 1))
+        db.conn.execute('INSERT INTO account_fetches VALUES (?,?,?,?,?,?)', ('run','gov-org','succeeded',3,None,now))
+        db.conn.commit()
+        if not classified:
+            db.conn.execute('DELETE FROM evidence_classifications')
+            db.conn.commit()
+        first_parent = api.sha
+        first = worker.publish(db, first_parent)
+        assert first['manifest']['source_commit'] == code_sha
+        assert first['parent_commit'] == first_parent
+        second = worker.publish(db, api.sha)
+        assert first['dataset_sha'] != second['dataset_sha']
+        assert second['manifest']['source_commit'] == code_sha
+        assert second['parent_commit'] == first['dataset_sha']
+        import sqlite3
+        with sqlite3.connect(api.files[api.sha]['data/govtech.db']) as conn:
+            assert not any(r[0].startswith('openrouter_') for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'"))
+        assert worker.state.get(db, 'pending_rollout')['dataset_sha'] == second['dataset_sha']
+        # A competing metadata publisher wins once. Rebase keeps paid rows and newer history.
+        import shutil
+        newer = tmp_path / 'newer.db'
+        shutil.copyfile(api.files[api.sha]['data/govtech.db'], newer)
+        newer_db = Database(str(newer))
+        newer_db.conn.execute("UPDATE repositories SET stars=999,last_scraped=?", (datetime.now(UTC).isoformat(),))
+        newer_db.conn.commit()
+        newer_db.close()
+        worker.public.snapshot = lambda target: SimpleNamespace(path=newer, dataset_sha='e'*40)
+        original_commit = api.create_commit
+        conflicts = []
+        parents = []
+        def conflict_once(**kwargs):
+            parents.append(kwargs["parent_commit"])
+            if not conflicts:
+                conflicts.append(True)
+                api.files['e'*40] = dict(api.files[api.sha])
+                api.sha = 'e'*40
+                error = RuntimeError('conflict')
+                error.response = SimpleNamespace(status_code=409)
+                raise error
+            return original_commit(**kwargs)
+        api.create_commit = conflict_once
+        original_rows = [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')]
+        retried = worker.publish(db, second['dataset_sha'])
+        assert parents == [second['dataset_sha'], 'e' * 40]
+        assert retried['parent_commit'] == 'e' * 40
+        assert retried['manifest']['source_commit'] == code_sha
+        assert [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')] == original_rows
+        assert db.conn.execute('SELECT MIN(stars) FROM repositories').fetchone()[0] == 999
+        # Real bundles and receipts: retention removes only the two superseded, remotely
+        # verified publications; the conflict-abandoned attempt has no proof and stays.
+        from govtech_scraper.cloud_retention import retain
+        bundles = sorted(p.name for p in worker.state.directory.glob('publication-*'))
+        assert len(bundles) == 4
+        with worker.state.lock():
+            worker.state.checkpoint(db)
+            report = retain(worker.state, db, worker.public, keep=1, apply=True)
+>       assert len(report['deleted']) == 2 and report['bytes_freed'] > 0
+E       assert (0 == 2)
+E        +  where 0 = len([])
+
+tests/railway/test_worker.py:401: AssertionError
+______ test_publication_repeat_conflict_and_private_strip[injected-False] ______
+
+running_worker = (<govtech_scraper.cloud_worker.Worker object at 0x7b5fa4744f10>, <test_worker.FakeHub object at 0x7b6019d6bf10>)
+tmp_path = PosixPath('/home/avery/.hermes/cache/scratch/pytest-of-avery/pytest-11/test_publication_repeat_confli1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b5fa4b04b10>
+classified = False, provenance = 'injected'
+
+    @pytest.mark.parametrize('classified', [True, False])
+    @pytest.mark.parametrize('provenance', ['injected', 'railway'])
+    def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path, monkeypatch, classified, provenance):
+        from govtech_scraper.cloud_worker import PublicHub
+        from govtech_scraper.decision.evidence import EvidenceStore, source_from_repo, taxonomy_digest, DEFAULT_PROMPT_VERSION
+        from govtech_scraper.decision.taxonomy import load_taxonomy
+        from govtech_scraper.decision.store import row_to_repository
+        worker, _ = running_worker
+        from govtech_scraper.cloud_worker import Worker
+        monkeypatch.setenv('GOVTECH_SOURCE_COMMIT', 'f' * 40)
+        monkeypatch.setenv('RAILWAY_GIT_COMMIT_SHA', 'd' * 40)
+        code_sha = 'c' * 40 if provenance == 'injected' else 'd' * 40
+        worker = Worker(worker.state, worker.public,
+                        **({'source_commit': code_sha} if provenance == 'injected' else {}))
+        api = FakeHub()
+        api.root = tmp_path
+        api.private = False
+        worker.public = PublicHub(api, api.hf_hub_download)
+        db = worker.state.open_normal()
+        # Use the existing real merge adapter before swapping to publication fake.
+        public_db = Database(str(tmp_path / 'public.db'))
+        from govtech_scraper.decision.incremental import merge_public_metadata
+        merge_public_metadata(db, public_db.db_path)
+        public_db.close()
+        taxonomy = load_taxonomy()
+        for row in db.conn.execute('SELECT * FROM repositories').fetchall():
+            repo = row_to_repository(row)
+            source = source_from_repo(repo, 'sending emails and SMS')
+            store = EvidenceStore(db)
+            store.save_source(source)
+            store.save_success(html_url=repo.html_url, taxonomy_version=taxonomy.version,
+                model='openai/gpt-6-luna', prompt_version=DEFAULT_PROMPT_VERSION,
+                input_hash=source.input_hash('openai/gpt-6-luna', DEFAULT_PROMPT_VERSION, taxonomy),
+                source=source, domain=None, kind=None, tags=[], usage={'cost': .0001},
+                abstentions={'domain': 'unknown', 'kind': 'unknown', 'tags': []}, taxonomy_sha=taxonomy_digest(taxonomy))
+        from datetime import UTC, datetime
+        now = datetime.now(UTC).isoformat()
+        db.conn.execute('INSERT INTO scrape_runs VALUES (?,?,?,?,?,?)', ('run', now, now, 1, 1, 1))
+        db.conn.execute('INSERT INTO account_fetches VALUES (?,?,?,?,?,?)', ('run','gov-org','succeeded',3,None,now))
+        db.conn.commit()
+        if not classified:
+            db.conn.execute('DELETE FROM evidence_classifications')
+            db.conn.commit()
+        first_parent = api.sha
+        first = worker.publish(db, first_parent)
+        assert first['manifest']['source_commit'] == code_sha
+        assert first['parent_commit'] == first_parent
+        second = worker.publish(db, api.sha)
+        assert first['dataset_sha'] != second['dataset_sha']
+        assert second['manifest']['source_commit'] == code_sha
+        assert second['parent_commit'] == first['dataset_sha']
+        import sqlite3
+        with sqlite3.connect(api.files[api.sha]['data/govtech.db']) as conn:
+            assert not any(r[0].startswith('openrouter_') for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'"))
+        assert worker.state.get(db, 'pending_rollout')['dataset_sha'] == second['dataset_sha']
+        # A competing metadata publisher wins once. Rebase keeps paid rows and newer history.
+        import shutil
+        newer = tmp_path / 'newer.db'
+        shutil.copyfile(api.files[api.sha]['data/govtech.db'], newer)
+        newer_db = Database(str(newer))
+        newer_db.conn.execute("UPDATE repositories SET stars=999,last_scraped=?", (datetime.now(UTC).isoformat(),))
+        newer_db.conn.commit()
+        newer_db.close()
+        worker.public.snapshot = lambda target: SimpleNamespace(path=newer, dataset_sha='e'*40)
+        original_commit = api.create_commit
+        conflicts = []
+        parents = []
+        def conflict_once(**kwargs):
+            parents.append(kwargs["parent_commit"])
+            if not conflicts:
+                conflicts.append(True)
+                api.files['e'*40] = dict(api.files[api.sha])
+                api.sha = 'e'*40
+                error = RuntimeError('conflict')
+                error.response = SimpleNamespace(status_code=409)
+                raise error
+            return original_commit(**kwargs)
+        api.create_commit = conflict_once
+        original_rows = [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')]
+        retried = worker.publish(db, second['dataset_sha'])
+        assert parents == [second['dataset_sha'], 'e' * 40]
+        assert retried['parent_commit'] == 'e' * 40
+        assert retried['manifest']['source_commit'] == code_sha
+        assert [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')] == original_rows
+        assert db.conn.execute('SELECT MIN(stars) FROM repositories').fetchone()[0] == 999
+        # Real bundles and receipts: retention removes only the two superseded, remotely
+        # verified publications; the conflict-abandoned attempt has no proof and stays.
+        from govtech_scraper.cloud_retention import retain
+        bundles = sorted(p.name for p in worker.state.directory.glob('publication-*'))
+        assert len(bundles) == 4
+        with worker.state.lock():
+            worker.state.checkpoint(db)
+            report = retain(worker.state, db, worker.public, keep=1, apply=True)
+>       assert len(report['deleted']) == 2 and report['bytes_freed'] > 0
+E       assert (0 == 2)
+E        +  where 0 = len([])
+
+tests/railway/test_worker.py:401: AssertionError
+_______ test_publication_repeat_conflict_and_private_strip[railway-True] _______
+
+running_worker = (<govtech_scraper.cloud_worker.Worker object at 0x7b5fa029d450>, <test_worker.FakeHub object at 0x7b5fa029db10>)
+tmp_path = PosixPath('/home/avery/.hermes/cache/scratch/pytest-of-avery/pytest-11/test_publication_repeat_confli2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b5fa029cfd0>
+classified = True, provenance = 'railway'
+
+    @pytest.mark.parametrize('classified', [True, False])
+    @pytest.mark.parametrize('provenance', ['injected', 'railway'])
+    def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path, monkeypatch, classified, provenance):
+        from govtech_scraper.cloud_worker import PublicHub
+        from govtech_scraper.decision.evidence import EvidenceStore, source_from_repo, taxonomy_digest, DEFAULT_PROMPT_VERSION
+        from govtech_scraper.decision.taxonomy import load_taxonomy
+        from govtech_scraper.decision.store import row_to_repository
+        worker, _ = running_worker
+        from govtech_scraper.cloud_worker import Worker
+        monkeypatch.setenv('GOVTECH_SOURCE_COMMIT', 'f' * 40)
+        monkeypatch.setenv('RAILWAY_GIT_COMMIT_SHA', 'd' * 40)
+        code_sha = 'c' * 40 if provenance == 'injected' else 'd' * 40
+        worker = Worker(worker.state, worker.public,
+                        **({'source_commit': code_sha} if provenance == 'injected' else {}))
+        api = FakeHub()
+        api.root = tmp_path
+        api.private = False
+        worker.public = PublicHub(api, api.hf_hub_download)
+        db = worker.state.open_normal()
+        # Use the existing real merge adapter before swapping to publication fake.
+        public_db = Database(str(tmp_path / 'public.db'))
+        from govtech_scraper.decision.incremental import merge_public_metadata
+        merge_public_metadata(db, public_db.db_path)
+        public_db.close()
+        taxonomy = load_taxonomy()
+        for row in db.conn.execute('SELECT * FROM repositories').fetchall():
+            repo = row_to_repository(row)
+            source = source_from_repo(repo, 'sending emails and SMS')
+            store = EvidenceStore(db)
+            store.save_source(source)
+            store.save_success(html_url=repo.html_url, taxonomy_version=taxonomy.version,
+                model='openai/gpt-6-luna', prompt_version=DEFAULT_PROMPT_VERSION,
+                input_hash=source.input_hash('openai/gpt-6-luna', DEFAULT_PROMPT_VERSION, taxonomy),
+                source=source, domain=None, kind=None, tags=[], usage={'cost': .0001},
+                abstentions={'domain': 'unknown', 'kind': 'unknown', 'tags': []}, taxonomy_sha=taxonomy_digest(taxonomy))
+        from datetime import UTC, datetime
+        now = datetime.now(UTC).isoformat()
+        db.conn.execute('INSERT INTO scrape_runs VALUES (?,?,?,?,?,?)', ('run', now, now, 1, 1, 1))
+        db.conn.execute('INSERT INTO account_fetches VALUES (?,?,?,?,?,?)', ('run','gov-org','succeeded',3,None,now))
+        db.conn.commit()
+        if not classified:
+            db.conn.execute('DELETE FROM evidence_classifications')
+            db.conn.commit()
+        first_parent = api.sha
+        first = worker.publish(db, first_parent)
+        assert first['manifest']['source_commit'] == code_sha
+        assert first['parent_commit'] == first_parent
+        second = worker.publish(db, api.sha)
+        assert first['dataset_sha'] != second['dataset_sha']
+        assert second['manifest']['source_commit'] == code_sha
+        assert second['parent_commit'] == first['dataset_sha']
+        import sqlite3
+        with sqlite3.connect(api.files[api.sha]['data/govtech.db']) as conn:
+            assert not any(r[0].startswith('openrouter_') for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'"))
+        assert worker.state.get(db, 'pending_rollout')['dataset_sha'] == second['dataset_sha']
+        # A competing metadata publisher wins once. Rebase keeps paid rows and newer history.
+        import shutil
+        newer = tmp_path / 'newer.db'
+        shutil.copyfile(api.files[api.sha]['data/govtech.db'], newer)
+        newer_db = Database(str(newer))
+        newer_db.conn.execute("UPDATE repositories SET stars=999,last_scraped=?", (datetime.now(UTC).isoformat(),))
+        newer_db.conn.commit()
+        newer_db.close()
+        worker.public.snapshot = lambda target: SimpleNamespace(path=newer, dataset_sha='e'*40)
+        original_commit = api.create_commit
+        conflicts = []
+        parents = []
+        def conflict_once(**kwargs):
+            parents.append(kwargs["parent_commit"])
+            if not conflicts:
+                conflicts.append(True)
+                api.files['e'*40] = dict(api.files[api.sha])
+                api.sha = 'e'*40
+                error = RuntimeError('conflict')
+                error.response = SimpleNamespace(status_code=409)
+                raise error
+            return original_commit(**kwargs)
+        api.create_commit = conflict_once
+        original_rows = [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')]
+        retried = worker.publish(db, second['dataset_sha'])
+        assert parents == [second['dataset_sha'], 'e' * 40]
+        assert retried['parent_commit'] == 'e' * 40
+        assert retried['manifest']['source_commit'] == code_sha
+        assert [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')] == original_rows
+        assert db.conn.execute('SELECT MIN(stars) FROM repositories').fetchone()[0] == 999
+        # Real bundles and receipts: retention removes only the two superseded, remotely
+        # verified publications; the conflict-abandoned attempt has no proof and stays.
+        from govtech_scraper.cloud_retention import retain
+        bundles = sorted(p.name for p in worker.state.directory.glob('publication-*'))
+        assert len(bundles) == 4
+        with worker.state.lock():
+            worker.state.checkpoint(db)
+            report = retain(worker.state, db, worker.public, keep=1, apply=True)
+>       assert len(report['deleted']) == 2 and report['bytes_freed'] > 0
+E       assert (0 == 2)
+E        +  where 0 = len([])
+
+tests/railway/test_worker.py:401: AssertionError
+______ test_publication_repeat_conflict_and_private_strip[railway-False] _______
+
+running_worker = (<govtech_scraper.cloud_worker.Worker object at 0x7b5fa3e584d0>, <test_worker.FakeHub object at 0x7b6018b97190>)
+tmp_path = PosixPath('/home/avery/.hermes/cache/scratch/pytest-of-avery/pytest-11/test_publication_repeat_confli3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b5fa3e59410>
+classified = False, provenance = 'railway'
+
+    @pytest.mark.parametrize('classified', [True, False])
+    @pytest.mark.parametrize('provenance', ['injected', 'railway'])
+    def test_publication_repeat_conflict_and_private_strip(running_worker, tmp_path, monkeypatch, classified, provenance):
+        from govtech_scraper.cloud_worker import PublicHub
+        from govtech_scraper.decision.evidence import EvidenceStore, source_from_repo, taxonomy_digest, DEFAULT_PROMPT_VERSION
+        from govtech_scraper.decision.taxonomy import load_taxonomy
+        from govtech_scraper.decision.store import row_to_repository
+        worker, _ = running_worker
+        from govtech_scraper.cloud_worker import Worker
+        monkeypatch.setenv('GOVTECH_SOURCE_COMMIT', 'f' * 40)
+        monkeypatch.setenv('RAILWAY_GIT_COMMIT_SHA', 'd' * 40)
+        code_sha = 'c' * 40 if provenance == 'injected' else 'd' * 40
+        worker = Worker(worker.state, worker.public,
+                        **({'source_commit': code_sha} if provenance == 'injected' else {}))
+        api = FakeHub()
+        api.root = tmp_path
+        api.private = False
+        worker.public = PublicHub(api, api.hf_hub_download)
+        db = worker.state.open_normal()
+        # Use the existing real merge adapter before swapping to publication fake.
+        public_db = Database(str(tmp_path / 'public.db'))
+        from govtech_scraper.decision.incremental import merge_public_metadata
+        merge_public_metadata(db, public_db.db_path)
+        public_db.close()
+        taxonomy = load_taxonomy()
+        for row in db.conn.execute('SELECT * FROM repositories').fetchall():
+            repo = row_to_repository(row)
+            source = source_from_repo(repo, 'sending emails and SMS')
+            store = EvidenceStore(db)
+            store.save_source(source)
+            store.save_success(html_url=repo.html_url, taxonomy_version=taxonomy.version,
+                model='openai/gpt-6-luna', prompt_version=DEFAULT_PROMPT_VERSION,
+                input_hash=source.input_hash('openai/gpt-6-luna', DEFAULT_PROMPT_VERSION, taxonomy),
+                source=source, domain=None, kind=None, tags=[], usage={'cost': .0001},
+                abstentions={'domain': 'unknown', 'kind': 'unknown', 'tags': []}, taxonomy_sha=taxonomy_digest(taxonomy))
+        from datetime import UTC, datetime
+        now = datetime.now(UTC).isoformat()
+        db.conn.execute('INSERT INTO scrape_runs VALUES (?,?,?,?,?,?)', ('run', now, now, 1, 1, 1))
+        db.conn.execute('INSERT INTO account_fetches VALUES (?,?,?,?,?,?)', ('run','gov-org','succeeded',3,None,now))
+        db.conn.commit()
+        if not classified:
+            db.conn.execute('DELETE FROM evidence_classifications')
+            db.conn.commit()
+        first_parent = api.sha
+        first = worker.publish(db, first_parent)
+        assert first['manifest']['source_commit'] == code_sha
+        assert first['parent_commit'] == first_parent
+        second = worker.publish(db, api.sha)
+        assert first['dataset_sha'] != second['dataset_sha']
+        assert second['manifest']['source_commit'] == code_sha
+        assert second['parent_commit'] == first['dataset_sha']
+        import sqlite3
+        with sqlite3.connect(api.files[api.sha]['data/govtech.db']) as conn:
+            assert not any(r[0].startswith('openrouter_') for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'"))
+        assert worker.state.get(db, 'pending_rollout')['dataset_sha'] == second['dataset_sha']
+        # A competing metadata publisher wins once. Rebase keeps paid rows and newer history.
+        import shutil
+        newer = tmp_path / 'newer.db'
+        shutil.copyfile(api.files[api.sha]['data/govtech.db'], newer)
+        newer_db = Database(str(newer))
+        newer_db.conn.execute("UPDATE repositories SET stars=999,last_scraped=?", (datetime.now(UTC).isoformat(),))
+        newer_db.conn.commit()
+        newer_db.close()
+        worker.public.snapshot = lambda target: SimpleNamespace(path=newer, dataset_sha='e'*40)
+        original_commit = api.create_commit
+        conflicts = []
+        parents = []
+        def conflict_once(**kwargs):
+            parents.append(kwargs["parent_commit"])
+            if not conflicts:
+                conflicts.append(True)
+                api.files['e'*40] = dict(api.files[api.sha])
+                api.sha = 'e'*40
+                error = RuntimeError('conflict')
+                error.response = SimpleNamespace(status_code=409)
+                raise error
+            return original_commit(**kwargs)
+        api.create_commit = conflict_once
+        original_rows = [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')]
+        retried = worker.publish(db, second['dataset_sha'])
+        assert parents == [second['dataset_sha'], 'e' * 40]
+        assert retried['parent_commit'] == 'e' * 40
+        assert retried['manifest']['source_commit'] == code_sha
+        assert [tuple(r) for r in db.conn.execute('SELECT * FROM evidence_classifications')] == original_rows
+        assert db.conn.execute('SELECT MIN(stars) FROM repositories').fetchone()[0] == 999
+        # Real bundles and receipts: retention removes only the two superseded, remotely
+        # verified publications; the conflict-abandoned attempt has no proof and stays.
+        from govtech_scraper.cloud_retention import retain
+        bundles = sorted(p.name for p in worker.state.directory.glob('publication-*'))
+        assert len(bundles) == 4
+        with worker.state.lock():
+            worker.state.checkpoint(db)
+            report = retain(worker.state, db, worker.public, keep=1, apply=True)
+>       assert len(report['deleted']) == 2 and report['bytes_freed'] > 0
+E       assert (0 == 2)
+E        +  where 0 = len([])
+
+tests/railway/test_worker.py:401: AssertionError
+=========================== short test summary info ============================
+FAILED tests/railway/test_retention.py::test_snapshot_sidecars_left_by_readers_do_not_pin_bundles
+FAILED tests/railway/test_worker.py::test_publication_repeat_conflict_and_private_strip[injected-True]
+FAILED tests/railway/test_worker.py::test_publication_repeat_conflict_and_private_strip[injected-False]
+FAILED tests/railway/test_worker.py::test_publication_repeat_conflict_and_private_strip[railway-True]
+FAILED tests/railway/test_worker.py::test_publication_repeat_conflict_and_private_strip[railway-False]
+5 failed, 77 deselected in 6.86s
+exit=1
