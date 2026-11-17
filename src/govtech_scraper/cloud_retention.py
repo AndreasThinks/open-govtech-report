@@ -359,7 +359,13 @@ def retain(state, db, public, *, keep=3, apply=False, max_delete=10, clock=time.
                 state.set(db, STATE_KEY, _bounded(records))
                 changed = True
                 try:
-                    os.write(log, (json.dumps(receipt, sort_keys=True) + '\n').encode())
+                    payload = (json.dumps(receipt, sort_keys=True) + '\n').encode()
+                    view = memoryview(payload)
+                    while view:
+                        written = os.write(log, view)
+                        if written <= 0:
+                            raise OSError('Receipt log write made no progress')
+                        view = view[written:]
                     os.fsync(log)
                 except OSError:
                     # The receipt is already durable in worker state; stop further deletions.

@@ -417,6 +417,27 @@ def test_idempotent_repeat_and_interrupted_deletion_resume(volume, monkeypatch):
     assert report['deleted'] == [] and report['missing'] == [bundle_name(6)]
 
 
+@pytest.mark.parametrize('zero_write', [False, True])
+def test_receipt_short_and_zero_writes(volume, monkeypatch, zero_write):
+    from govtech_scraper import cloud_retention
+    manager, db, remote = volume
+    one, two, three = (make_bundle(manager, remote, db, i) for i in (1, 2, 3))
+    manager.checkpoint(db)
+    real_write = os.write
+    def short(fd, data):
+        return 0 if zero_write else real_write(fd, data[:max(1, len(data)//2)])
+    monkeypatch.setattr(cloud_retention.os, 'write', short)
+    report = cloud_retention.retain(manager, db, remote, keep=1, apply=True)
+    if zero_write:
+        assert report['phase'] == 'blocked'
+        assert report['deleted'] == [bundle_name(1)]
+        assert two.is_dir() and three.is_dir()
+    else:
+        assert report['deleted'] == [bundle_name(1), bundle_name(2)]
+        lines = (manager.directory/'retention-receipts.jsonl').read_text().splitlines()
+        assert [json.loads(line)['name'] for line in lines] == report['deleted']
+
+
 def test_reconcile_old_bundles_requires_receipt_proof(volume):
     from govtech_scraper.cloud_retention import reconcile_receipts, retain
     manager, db, remote = volume

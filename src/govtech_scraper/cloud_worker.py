@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import shutil
 import tempfile
 import time
 
@@ -138,6 +139,26 @@ class TargetedSources:
         return acquired
 
 
+def check_disk_headroom(directory):
+    """Conservative admission gate, not a reservation or a cleanup operation.
+
+    Allow four DB footprints for merge/snapshot/export/checkpoint staging plus
+    1 GiB for growth and receipts. Include WAL bytes not yet in the master.
+    Recheck after merge and before publication; concurrent growth can still fail.
+    Recovery inventory intentionally does not use this paid-job admission gate.
+    """
+    directory = Path(directory)
+    footprint = (directory / 'master.db').stat().st_size
+    wal = directory / 'master.db-wal'
+    if wal.exists():
+        footprint += wal.stat().st_size
+    required = 4 * footprint + 1024**3
+    free = shutil.disk_usage(directory).free
+    if free < required:
+        raise RuntimeError(f'Insufficient free disk: {free} bytes available, {required} required; maintenance recovery needed')
+    return {'free_bytes': free, 'required_bytes': required}
+
+
 def _recorded_source_fields(source_json, *, history):
     """History stores an envelope; the current cache stores flat string fields."""
     try:
@@ -229,6 +250,8 @@ class Worker:
         status = dict(phase='planned', planned=0, reused=0, acquire=0, classified=0,
                       labelled=0, abstained=0, failed=0, quarantined=0, budget_exhausted=False)
         with self.state.lock():
+            if mode == 'classify':
+                check_disk_headroom(self.state.directory)
             db = self.state.open_normal()
             checkpoint_allowed = succeeded = False
             initial_spend = db.conn.execute('SELECT COALESCE(SUM(COALESCE(actual_usd,reserved_usd)),0) FROM openrouter_budget_ledger').fetchone()[0]
@@ -270,6 +293,7 @@ class Worker:
                 if mode == 'dry-run':
                     status['reused'] = sum(p.action == PlanAction.REUSE for _,p in plans)
                     return status
+                check_disk_headroom(self.state.directory)
                 checkpoint_allowed = True
                 self.state.set(db, 'terminal_status', status | {'phase': 'running'})
                 self.state.checkpoint(db)
@@ -382,6 +406,7 @@ class Worker:
             if not isinstance(source_commit, str) or not re.fullmatch(r'[0-9a-f]{40}', source_commit):
                 raise ValueError('Expected immutable source code commit SHA from Worker injection or RAILWAY_GIT_COMMIT_SHA')
             for attempt in range(attempts):
+                check_disk_headroom(self.state.directory)
                 folder = self.state.directory / ('publication-' + uuid.uuid4().hex)
                 # Recheck literal source proof and stale metadata via existing exporter.
                 for item in caveat_exclusions(db):
